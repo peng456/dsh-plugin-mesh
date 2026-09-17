@@ -94,7 +94,7 @@ DSH 的局域网 Mesh 插件：**启动后自动发现同一网段的其他 DSH 
 | **两个真实 DSH 互相发现（仅扫描，组播全关）** | ✅ 双向，24 秒内（含启动竞态重试） |
 | 两个真实 DSH 互相发现（组播开） | ✅ 双向，1 秒内 |
 | **零配对派发任务** | ✅ `ok: true`，全程没有任何配对操作 |
-| **对端 agent 被唤醒** | ✅ 建了 `webhook-*` 会话，17 个事件，含任务提示词 + 线程 + 回派指令，`turn/start` → `assistant/attempt` |
+| **对端 agent 被唤醒** | ✅ 建了 `mesh-*` 会话，17 个事件，含任务提示词 + 线程 + 回派指令，`turn/start` → `assistant/attempt` |
 | **离线判定** | ✅ 杀掉对端后约 20 秒标记离线（ttl 20s） |
 | 固定端口被占用 → 回退 | ✅ 配置 45919、实际 63570 |
 | `requirePairing: true` 时 | ✅ 错误 token → 403；正确 token → 200 |
@@ -222,17 +222,32 @@ agent 多出四个工具：
 
 ## 工作原理
 
-### 唤醒：官方 webhookRuntime
+### 唤醒：自包含实现，不依赖额外插件
 
-agent 没有事件循环，只在有回合时才思考。这里用官方 `@deepseek-ai/dsh-webhook`：
+agent 没有事件循环，只在有回合时才思考。所以收到对端任务后，必须**建一个会话并让它跑起来**。
 
-> "拥有唯一内置动作 —— 在 Web Workspace 中创建普通根 Session"
+DSH 提供了官方插件 `@deepseek-ai/dsh-webhook` 做这件事，但**本插件没有用它**，理由：
 
-插件注册一条 webhook 规则，收到任务就 `dispatch`，runtime 建 Session、挂 preset、
-然后 `Agent.followup()` —— **这就是唤醒**。提示词里带了来源和回派指令。
+1. 它不在任何默认 bundle 里，靠补丁替用户插一行，会让"装一个插件"变成配置里两行，困惑
+2. 更实际的问题：万一它已经被启用（比如你以后装了 GitHub webhook 插件），
+   cordis 的 `provide` 遇到重名会直接抛错（`service "webhookRuntime" has been registered at <...>`），
+   而且那是在它的构造函数里，**本插件的安全网拦不住**
 
-代码里还埋了 `originSession` + `ctx.agents.get()` 的活跃会话注入路径（让回派落进原对话），
-本轮未启用，留作下一步。
+所以这里按官方 `createWebhookSession` 的做法自己走一遍，用到的都是 DSH 基础服务
+（桌面 profile 本来就全都有）：
+
+```
+ctx.permissionPresets.resolve / set      校验并设置权限 preset
+ctx.agentPresets.resolve / mount         解析并挂载 agent preset
+ctx.workspaceRegistry.create             建/取工作区
+ctx.agents.create                        建 Agent
+ctx.sessionTitle.rename                  给会话起名
+ctx.agentDefaultModel.currentSelection   取默认 provider/model
+agent.followup(createUserMessage(...))   ← 这一步才是"唤醒"
+```
+
+服务齐备时才启用（用 `ctx.inject([...])` 探测）；缺任何一个就降级为"只收件不唤醒"，
+并在日志里说明缺了什么。**插件是自包含的，profile 里只多一行。**
 
 ### 为什么发现要两条路
 
@@ -341,7 +356,7 @@ node lib/_selftest-discovery.mjs alpha 45900 9000   # 两个进程同时跑可�
 ```
 dsh-plugin-mesh/
 ├── package.json           # dsh.bundle.patch + dsh.client 声明
-├── cordis.patch.yml       # 插入 dsh-webhook 运行时 + 本插件（含默认配置）
+├── cordis.patch.yml       # 只插入本插件（含默认配置）
 ├── lib/
 │   ├── index.js           # 主机侧：发现编排 + 对端 HTTP + agent 工具 + UI 接口 + 入站唤醒
 │   ├── discovery.js       # UDP 组播被动发现 + 对端注册表 + 过期清理
