@@ -39,7 +39,8 @@
   ],
   "scripts": {
     "selftest": "node lib/_selftest-discovery.mjs",
-    "check": "node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check client/client.js"
+    "check": "node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check client/client.js",
+    "check:scope": "python3 tools/scopecheck.py lib/index.js"
   },
   "peerDependencies": {
     "@deepseek-ai/schemastery": "*",

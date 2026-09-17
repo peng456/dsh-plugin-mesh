@@ -57,4 +57,24 @@
         agentPreset: standard
         # 对端派来的是外部不可信输入，默认不给 danger-full-access
         permissionPreset: workspace-write
+        # 对端任务新建会话的工作目录。
+        # 留空会回退到用户主目录 —— 那意味着对端任务在整个家目录里跑，建议指定。
         workspaceRoot: ''
+
+        # ── 循环限速 ──
+        #
+        # 入站任务会自动新建会话并让 agent 开跑，而每条消息都由远端决定。
+        # 两个 agent 互相回执时会形成自持的 ping-pong：实测一个互回执线程在
+        # 2.5 小时内自动开了 54 个会话、约 800 万 token。下面三道闸门就是刹车，
+        # 任何一道触发都只入箱、不唤醒；撞到上限时 Mesh 页面会问你是否放宽。
+        #
+        # 注意：限速只让循环变慢，不会让它停。若循环的自然节奏低于上限，
+        # 窗口永远填不满，就永不触发 —— 要真正止住请把上限设在循环节奏之下。
+        # 同一 thread 在 threadWindowMs 内最多自动唤醒多少次；0 = 不限制
+        maxWakesPerThread: 30
+        # 上面那个计数的滑动窗口长度（毫秒）。3600000 = 1 小时
+        threadWindowMs: 3600000
+        # 两次自动唤醒之间的最小间隔（毫秒），管突发；0 = 不限制
+        threadCooldownMs: 20000
+        # 单条任务正文短于此长度就只入箱不唤醒（挡 ping/ack 这类寒暄）
+        minTaskChars: 24

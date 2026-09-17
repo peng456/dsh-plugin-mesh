@@ -289,6 +289,76 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 限速提示卡：某个 thread 撞到唤醒上限时，让用户决定要不要提高上限。
+     *
+     * 为什么要有这个：限速是为了防两个 agent 互相回执停不下来，但正常的
+     * 长线程也可能撞上。所以不静默丢弃，而是把选择权交回用户：
+     * 「提高上限」→ 调高该 thread 的窗口上限，并立刻放行最新一条；
+     * 「忽略」→ 只清提示，上限不变，被挡的任务仍留在收件箱。
+     */
+    function ThrottleCard({ items, onDone }) {
+      const [busy, setBusy] = react.useState("");
+      if (!items || items.length === 0) return null;
+
+      const raise = async (thread) => {
+        setBusy(thread);
+        const r = await call("/throttle/raise", { thread });
+        setBusy("");
+        onDone(
+          r && r.ok
+            ? `已把 ${thread} 的上限提到 ${r.cap}${r.replayed ? `，并放行最新一条（其余 ${r.remaining} 条仍在收件箱）` : ""}`
+            : `提高上限失败：${(r && r.error) || "未知错误"}`,
+        );
+      };
+
+      const dismiss = async (thread) => {
+        setBusy(thread);
+        await call("/throttle/dismiss", { thread });
+        setBusy("");
+        onDone(`已忽略 ${thread} 的限速提示（上限不变，被挡的任务仍在收件箱）`);
+      };
+
+      return h(
+        "div",
+        { style: { ...S.card, borderColor: "#d29922" } },
+        h("div", { style: S.cardTitle }, "⚠ 有 thread 撞到唤醒上限，已暂停自动唤醒"),
+        h(
+          "div",
+          { style: { ...S.muted, marginBottom: 12 } },
+          "这是防「两个 agent 互相回执停不下来」的限速。下面这些线程在窗口内已用满配额，" +
+            "新消息仍收进收件箱、但不会自动开跑 —— 你可以决定是否放宽。",
+        ),
+        items.map((it) =>
+          h(
+            "div",
+            { key: it.thread, style: { ...S.row, justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid var(--dsw-alias-border-secondary, #eee)" } },
+            h(
+              "div",
+              null,
+              h("div", { style: { fontWeight: 600 } }, it.thread, it.overridden ? h("span", { style: { ...S.muted, fontWeight: 400 } }, "（已手动提高过）") : null),
+              h(
+                "div",
+                { style: S.muted },
+                `上限 ${it.cap} 次 / ${Math.round(it.windowMs / 60000)} 分钟 · 已挡下 ${it.blocked} 条`,
+                it.overridden ? ` · 配置默认 ${it.defaultCap}` : "",
+              ),
+            ),
+            h(
+              "div",
+              { style: S.row },
+              h(
+                "button",
+                { style: S.btnSm, disabled: busy === it.thread, onClick: () => raise(it.thread) },
+                busy === it.thread ? "处理中…" : "提高上限并放行最新一条",
+              ),
+              h("button", { style: S.btnSm, disabled: busy === it.thread, onClick: () => dismiss(it.thread) }, "忽略"),
+            ),
+          ),
+        ),
+      );
+    }
+
     function MeshPage() {
       const { state, error } = useMeshState(3000);
       const [target, setTarget] = react.useState("");
@@ -365,6 +435,8 @@ window.__ModuleLoader__.load({
         ),
 
         toast ? h("div", { style: { ...S.card, borderColor: "#2ea043" } }, toast) : null,
+
+        h(ThrottleCard, { items: state.throttled || [], onDone: (msg) => { setToast(msg); setTimeout(() => setToast(""), 6000); } }),
 
         h(NameCard, { self, onSaved: refresh }),
 
