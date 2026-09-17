@@ -1,0 +1,9 @@
+# 依赖 —— 插件本身零运行依赖，这里只可能是本地开发时建的符号链接
+node_modules/
+
+# 日志与临时产物
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db

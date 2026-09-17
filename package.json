@@ -1,0 +1,79 @@
+{
+  "name": "dsh-plugin-mesh",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "DSH 局域网 Mesh：自动发现同网段的其他 DSH 实例，提供对端操作页面，并支持跨机双向派发任务。",
+  "license": "MIT",
+  "author": "peng456",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mesh",
+    "lan",
+    "multicast",
+    "discovery",
+    "remote"
+  ],
+  "homepage": "https://github.com/peng456/dsh-plugin-mesh#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peng456/dsh-plugin-mesh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/peng456/dsh-plugin-mesh/issues"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "selftest": "node lib/_selftest-discovery.mjs",
+    "check": "node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check client/client.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-client-connection": "*",
+    "@deepseek-ai/dsh-client-ui-primitives": "*",
+    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "@deepseek-ai/dsh-client-locale": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": { "optional": true },
+    "@deepseek-ai/dsh-tools": { "optional": true },
+    "@deepseek-ai/dsh-llm": { "optional": true },
+    "@deepseek-ai/dsh-client-connection": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-primitives": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-slots": { "optional": true },
+    "@deepseek-ai/dsh-client-locale": { "optional": true }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

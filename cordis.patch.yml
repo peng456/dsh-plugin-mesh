@@ -1,0 +1,60 @@
+# dsh-plugin-mesh 的 bundle patch
+#
+# 插入两行：
+#   1. @deepseek-ai/dsh-webhook —— 官方 webhook 运行时。它唯一的内置动作是
+#      "创建 Session 并让 agent 开跑"，正好是 mesh 需要的"收到对端任务 → 唤醒本机 agent"。
+#      桌面 profile 默认不带这一行，所以由我们补上。
+#   2. dsh-plugin-mesh —— 本插件。
+#
+# 行 id 在全 profile 内必须唯一，所以都加了 mesh 前缀。
+#
+# 想改配置，直接在下面改，或者在你的 profile cordis.patch.yml 里按 id 覆盖：
+#   - id: mesh
+#     config:
+#       requirePairing: true
+
+- insert:
+    - id: mesh-webhook-runtime
+      name: '@deepseek-ai/dsh-webhook'
+
+    - id: mesh
+      name: 'dsh-plugin-mesh'
+      config:
+        enabled: true
+
+        # 对端列表里显示的名字；留空用主机名
+        machineName: ''
+
+        # 固定端口 —— 内网里"扫这个端口 + ping 一下"就能建立连接，零配置。
+        # 同机跑多个实例时会被占用，此时自动退回随机端口。
+        port: 45917
+
+        # ── 发现方式（两条互补，默认都开）──
+        # 组播：零配置、即时，但会被部分路由器/防火墙挡住
+        useMulticast: true
+        # 主动扫描：启动时扫一遍本网段，组播被挡时靠它兜底
+        scanOnStart: true
+        # 周期性重扫（毫秒）；0 = 只在启动时扫一次
+        scanIntervalMs: 0
+        # 额外要扫的网段，如 ["192.168.1.0/24"]；留空扫本机所在 /24
+        scanRanges: []
+        scanConcurrency: 64
+        scanTimeoutMs: 800
+        # 定期 ping 已知对端保活（毫秒）；0 = 关闭
+        pingIntervalMs: 10000
+
+        # 心跳与离线判定
+        announceIntervalMs: 5000
+        peerTtlMs: 20000
+        requestTimeoutMs: 20000
+
+        # ── 访问控制 ──
+        # 默认 false：内网发现即可互相派发任务，不需要配对码。
+        # 若网络不完全可信（合租/公司/有访客设备），改成 true，再在插件页面对齐配对码。
+        requirePairing: false
+
+        # 对端任务在本机新建会话时的选项
+        agentPreset: standard
+        # 对端派来的是外部不可信输入，默认不给 danger-full-access
+        permissionPreset: workspace-write
+        workspaceRoot: ''
