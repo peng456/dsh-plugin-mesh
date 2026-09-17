@@ -269,6 +269,13 @@ window.__ModuleLoader__.load({
             peer.profile ? ` · profile=${peer.profile}` : "",
             ` · 最后心跳 ${new Date(peer.lastSeen).toLocaleTimeString()}`,
           ),
+          peer.hostname || peer.mac
+            ? h(
+                "div",
+                { style: { ...S.mono, ...S.muted, fontSize: 11 } },
+                [peer.hostname ? `hostname=${peer.hostname}  ` : "", peer.mac ? `mac=${peer.mac}` : ""],
+              )
+            : null,
           probe && probe.machine === target
             ? h(
                 "div",
@@ -344,6 +351,8 @@ window.__ModuleLoader__.load({
           "div",
           { style: S.sub },
           `本机 ${self.machine} · ${self.host}:${self.port} · 发现 ${peers.length} 台，在线 ${online.length} 台`,
+          h("br"),
+          h("span", { style: { ...S.mono, fontSize: 11 } }, `hostname=${self.hostname || "?"}${self.mac ? "  ·  mac=" + self.mac : ""}`),
           h("br"),
           h(
             "span",
