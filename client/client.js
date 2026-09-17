@@ -66,7 +66,25 @@ window.__ModuleLoader__.load({
     // ─────────────────────── 样式 ───────────────────────
 
     const S = {
-      page: { padding: "24px 28px", maxWidth: 1080, margin: "0 auto", color: "var(--dsw-alias-label-primary, #111)", font: "14px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif" },
+      /**
+       * 页面根容器。必须自己当滚动容器：
+       * layout 的 centerCol 是 `display:flex; flex-direction:column; overflow:hidden`，
+       * 面板内容一旦溢出会被直接裁掉、页面滚不动。官方面板用的是同一套
+       * （conversation 的 scrollBody = flex:1 + min-height:0 + overflow-y:auto）。
+       * minHeight:0 不能省 —— flex 子项默认 min-height:auto，会拒绝收缩。
+       */
+      page: {
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+        width: "100%",
+        boxSizing: "border-box",
+        padding: "24px 28px",
+        color: "var(--dsw-alias-label-primary, #111)",
+        font: "14px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif",
+      },
+      /** 内容限宽居中；与滚动容器分开，滚动条才会贴窗口边缘而不是卡在 1080px 处 */
+      pageInner: { maxWidth: 1080, margin: "0 auto" },
       h1: { fontSize: 20, fontWeight: 600, margin: "0 0 4px" },
       sub: { color: "var(--dsw-alias-label-secondary, #666)", fontSize: 13, marginBottom: 20 },
       card: { border: "1px solid var(--dsw-alias-border-secondary, #e3e5e8)", borderRadius: 10, padding: 16, marginBottom: 16, background: "var(--dsw-alias-bg-elevated, transparent)" },
@@ -404,9 +422,9 @@ window.__ModuleLoader__.load({
       };
 
       if (error && !state) {
-        return h("div", { style: S.page }, h("h1", { style: S.h1 }, "局域网 Mesh"), h("div", { style: S.card }, `无法读取本机 mesh 状态：${error}`, h("div", { style: { ...S.muted, marginTop: 8 } }, "请确认主机侧插件 dsh-plugin-mesh 已加载。")));
+        return h("div", { style: S.page }, h("div", { style: S.pageInner }, h("h1", { style: S.h1 }, "局域网 Mesh"), h("div", { style: S.card }, `无法读取本机 mesh 状态：${error}`, h("div", { style: { ...S.muted, marginTop: 8 } }, "请确认主机侧插件 dsh-plugin-mesh 已加载。"))));
       }
-      if (!state) return h("div", { style: S.page }, "正在加载…");
+      if (!state) return h("div", { style: S.page }, h("div", { style: S.pageInner }, "正在加载…"));
 
       const self = state.self || {};
       const cfg = state.config || {};
@@ -416,6 +434,9 @@ window.__ModuleLoader__.load({
       return h(
         "div",
         { style: S.page },
+        h(
+          "div",
+          { style: S.pageInner },
         h("h1", { style: S.h1 }, "局域网 Mesh"),
         h(
           "div",
@@ -539,6 +560,7 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+        ),
       );
     }
 
