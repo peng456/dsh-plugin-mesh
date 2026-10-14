@@ -141,6 +141,35 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > 正常，因为它们是 C 程序、走 `__libc_init`）。所以 `sidecar/main.go` 的
 > `normalizeArgs()` 在 `flag.Parse()` 前把第一个以 `-` 开头的元素之前的东西丢掉。
 >
+> 第四层坑是 **Android 不给 netlink**。修好前两层后 sidecar 能启动了，但死在 tsnet
+> 自己的启动阶段：
+>
+> ```
+> {"event":"error","message":"tsnet: route ip+net: netlinkrib: permission denied","where":"start"}
+> ```
+>
+> Android 对 app UID（untrusted_app）关掉了 `NETLINK_ROUTE` 与 `/proc/net`（同一身份下
+> `/proc/net/route`、`/proc/net/if_inet6` 都是 EACCES，而 bionic 的 `getifaddrs` 正常），
+> 而 Go 标准库的 `net.Interfaces()` 在 linux（android 也算 linux）上一律走 netlink，
+> 于是 `netmon.New()` 直接失败。Tailscale 源码里对这件事有原话（`net/netmon/state.go`）：
+> "It exists because Android SDK 30 no longer permits Go's net.Interfaces to work"。
+> 官方 Android app 靠 Java 注册接口表，**裸二进制没有 Java 可依赖**，所以官方提供了
+> `tailscale.com/feature/androidbin`（包注释第一句就是"makes Tailscale binaries work
+> when run as raw (non-GUI app) executables on Android, such as under Termux"）：
+> 注册 netmon 的接口回退（合成一个 `android` 接口，地址靠向内核要一条出站 UDP 路由拿
+> 源地址，不发包）、拉进 `androiddns`、并把 CA 根证书指到
+> `/system/etc/security/cacerts`。最后这条是我们还没走到但一定会踩的坑：**GOOS=linux
+> 的二进制在 Android 上系统证书池是空的，控制面 TLS 会全挂**。
+> tsnet 默认不引入它（"tsnet apps and other programs opt in with a blank import"），
+> 所以 sidecar 加了 `sidecar/androidbin_linux.go`（必须带 `linux` 构建约束，否则
+> mac/win 构建会报 "build constraints exclude all Go files"）。它在普通 Linux 上是
+> 空操作（`onAndroid()` 为假）。
+>
+> 顺带说明为什么**不**改成 `GOOS=android`：`androidbin` 官方就支持 `GOOS=linux` 形态
+> （"static linux binaries are commonly run under Android kernels"），而我们的
+> `GOOS=linux` 产物已在真机上实测能加载、能解析参数；换 GOOS 会同时动掉运行时这一层，
+> 收益不明。
+>
 > 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
 > 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束
