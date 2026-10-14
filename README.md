@@ -486,13 +486,38 @@ Mesh 页面看到，不会被丢弃）：
 5. **`sidebar.panellist` 槽位官方插件没人用过**（翻遍 58 个客户端 bundle，只有官方侧栏
    自己声明它）。我按源码契约接的，实测注册和渲染都正常，但不如 `sidebar.footer.action`
    那样有第三方先例。
-6. **Android 上不支持 sidecar（互联网组网）**：`detectTarget()` 已把 `android` 映射到
-   `linux`（见上文 Termux 的坑），`scripts/build-sidecar.sh` 也确有 `linux/arm64`
-   构建目标，但 release 资产只有 darwin/linux/windows，且实测 Android 侧下载源
-   （ghfast.top / gh-proxy.com / ghproxy.net / github.com）全部不通、自下载二进制的
-   `exec` 可行性未验证。所以 Android 上请保持 `tsnetEnabled: false`。
+6. **Android 上 sidecar（互联网组网）默认不可用**：`detectTarget()` 已把 `android` 映射到
+   `linux`（见上文 Termux 的坑），`scripts/build-sidecar.sh` 确有 `linux/arm64` 目标，
+   产物也是 `CGO_ENABLED=0` 的**静态 ELF**（`file` 实测：statically linked，无
+   glibc/bionic 解释器依赖 → 不存在「解释器路径对不上」这个经典坑；设备上真正
+   exec 起来仍待那台机器实测）。
+   真正的拦路虎是**下载源**：实测那台 Android 上 ghfast.top / gh-proxy.com / ghproxy.net /
+   github.com 全部不通，所以 Android 上默认请保持 `tsnetEnabled: false`。
    **平台不支持不该拖垮页面**：`binaryInfo()` 只返回 `{installed:false, error}` 从不抛异常，
    `TsnetNode.status()` 外再兜一层 try/catch，`/mesh/api/state` 在 Android 上仍为 `ok:true`。
+
+### 逃生通道：用同网段的机器当 sidecar 镜子
+
+当一台机器的所有下载源都不通（被墙、DNS 污染、无外网）时，把已经拿到资产的机器
+当镜子即可 —— 校验和钉在 `checksums.js` 里，明文 http 改不了内容：
+
+```bash
+# 在能拿到资产的机器上（仓库内 dist/sidecar/ 已有构建产物时）
+python3 ../lan-sidecar-mirror.py --host 0.0.0.0 --port 8791   # 见仓库外的 lan-sidecar-mirror.py
+# 先验证这台机器「按对方的平台」真的装得上（不碰本机真实缓存）
+node scripts/verify-lan-mirror.mjs --url http://192.168.1.6:8791/ --platform android --arch arm64
+```
+
+对端（被墙的那台）在插件配置里加上：
+
+```json
+"tsnetDownloadSources": ["http://192.168.1.6:8791/"]
+```
+
+源按顺序试：**用户配置的源 → 内置镜像 → 直连 GitHub**；`http://` 与 `https://`
+都支持（只 import `node:https` 的话，http 源会直接 `ERR_INVALID_PROTOCOL`，
+而被迫用局域网源的机器恰恰最没法自己排查）。镜像按「完整 GitHub URL 拼在前缀后」
+的形状请求，所以镜子只要忽略路径、按文件名给文件就行。
 
 ---
 
