@@ -150,6 +150,14 @@ for target in "${TARGETS[@]}"; do
     go_os=android
     buildmode=(-buildmode=pie)
     extra_ldflags="-I /system/bin/linker64"
+    # 例外：android/amd64 用内部链接器编不出来 —— Go 直接报
+    #   android/amd64 requires external (cgo) linking, but cgo is not enabled
+    # arm64 没这个限制（实测可编）。我们手上没有 NDK，也没有 x86_64 Android 的
+    # 实测机器，所以那一份退回 GOOS=linux：代价是它仍带着上面说的 netns 坑，
+    # 但那只影响"模拟器上的 Termux"这种冷门场景，不值得为它引入一整套 NDK 构建。
+    if [ "$arch" = "amd64" ]; then
+      go_os=linux
+    fi
   fi
 
   echo "  [start] $os/$arch  ($(date -u +%H:%M:%S))"
