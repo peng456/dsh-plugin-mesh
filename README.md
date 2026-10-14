@@ -193,9 +193,23 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > "控制 API 已监听之后、`srv.Up()` 之前"，所以不会拖慢握手。
 >
 > 注意：`androiddns` **不读系统属性**，它走 `/dev/socket/dnsproxyd`（与 bionic 的
-> `getaddrinfo` 同一条路）；`/dev/socket/dnsproxyd` 连不上时它静默什么都不做，真机
-> 上就是 Permission denied。二进制里 `net.dns*` 那些串是 Go 运行时的符号名
+> `getaddrinfo` 同一条路）。二进制里 `net.dns*` 那些串是 Go 运行时的符号名
 > （`net.dnsReadConfig`、`net.dnsStreamRoundTrip`…），跟 Android 属性无关。
+>
+> **真正的坑在解析器对象上**（真机日志定位）：tailscale 的控制面解析**不走
+> `net.DefaultResolver`** —— controlclient 用的是 `net/dnscache` 的 `Forward`，而
+> `dnscache` 在**包初始化时自己 new 了一个** `&net.Resolver{PreferGo: …}`
+> （`dnscache.go` 的 `single`），和 `net.DefaultResolver` 是两个对象。于是无论
+> `androiddns` 还是我们，只要改的是 `net.DefaultResolver`，控制面就一点没沾上：
+> 自检（走 `net.DefaultResolver`）通过，`TryLogin`（走 `dnscache.Forward`）却报
+> `failed to resolve "controlplane.tailscale.com"`，随后退到 DERP bootstrap
+> （裸 IP，被出口代理挡掉）→ 节点永远 `NeedsLogin`。
+>
+> 所以 `applyResolver()` 把 dial **原地**装到两个解析器上（`net.DefaultResolver`
+> 与 `dnscache.Get().Forward`，后者是导出字段），而自检也改成打在
+> `controlResolver()`（即控制面真正用的那个）上 —— 否则就是自欺欺人。
+> 另外**只能原地改字段、不能替换 `net.DefaultResolver` 指针**：有代码在 init 时
+> 就把那个指针存下来了，替换指针它们看不到。
 >
 > 顺带把 tsnet 的日志口径放宽了：原来只放 `tsnet: ` 前缀且含 error/fail/warning 的行，
 > 结果 DNS 卡住时 stdout 上一行线索都没有、只能靠 `/status` 猜。现在**全部**进 `diag`

@@ -42,6 +42,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"tailscale.com/net/dnscache"
 )
 
 // probeHost 是自检用的域名：建链最需要的就是它。
@@ -80,19 +82,23 @@ func ensureDNS() []string {
 	}
 	rep := []string{"dns: 没有 /etc/resolv.conf（Android 的正常现象）"}
 
-	// tailscale 的 androiddns 走 /dev/socket/dnsproxyd，比我们任何兜底都好
-	// （顺带拿到 per-network 配置与 Private DNS），所以它真能用就不动它。
-	// 但真机实测这条路常因 socket 权限连不上，而它连不上时**静默什么都不做** ——
-	// 所以这里以"自检能不能解析"为准，而不是只看它有没有接管。
-	if net.DefaultResolver.Dial != nil {
-		if addrs, err := probeLookup(); err == nil {
-			rep = append(rep, fmt.Sprintf("dns: 现有解析器（androiddns/dnsproxyd 已接管）自检通过 → %s", joinAddrs(addrs)))
+	// tailscale 的 androiddns 走 /dev/socket/dnsproxyd（与 bionic getaddrinfo 同一条
+	// 路），顺带拿到 per-network 配置与 Private DNS，比我们自己扫属性强 —— 它真能
+	// 用就复用它。**但它只改 net.DefaultResolver**，而控制面解析根本不走那里（见
+	// controlResolver 的说明），所以必须把它的 dial 复制到控制面用的解析器上。
+	if ad := net.DefaultResolver.Dial; ad != nil {
+		if addrs, err := probeWith(net.DefaultResolver); err == nil {
+			applyResolver(ad)
+			if a2, err2 := probeWith(controlResolver()); err2 == nil {
+				rep = append(rep, fmt.Sprintf("dns: 复用 androiddns/dnsproxyd（自身自检 %s）并装到控制面解析器 → %s", joinAddrs(addrs), joinAddrs(a2)))
+			} else {
+				rep = append(rep, fmt.Sprintf("dns: 复用 androiddns 的 dial 后控制面自检仍失败：%v", err2))
+			}
 			return rep
-		} else {
-			rep = append(rep, fmt.Sprintf("dns: androiddns 已接管 dnsproxyd，但自检失败：%v", err))
 		}
+		rep = append(rep, "dns: androiddns 已接管 net.DefaultResolver 但自检失败，改用自建解析器")
 	} else {
-		rep = append(rep, "dns: androiddns 没有接管（/dev/socket/dnsproxyd 连不上，真机实测是 Permission denied）")
+		rep = append(rep, "dns: net.DefaultResolver 未被接管（androiddns 没装上）")
 	}
 
 	var cands []dnsCandidate
@@ -107,8 +113,8 @@ func ensureDNS() []string {
 	// UDP "连接"一台不可达的服务器不会失败（只会让查询超时），所以 Dial
 	// 永远返回第一个候选，后面的根本轮不到。
 	for _, c := range cands {
-		net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: dialAnyDNSServer(c.servers)}
-		if addrs, err := probeLookup(); err == nil {
+		applyResolver(dialAnyDNSServer(c.servers))
+		if addrs, err := probeWith(controlResolver()); err == nil {
 			rep = append(rep, fmt.Sprintf("dns: 用 %s 自检通过 → %s", c.label, joinAddrs(addrs)))
 			return rep
 		} else {
@@ -119,11 +125,43 @@ func ensureDNS() []string {
 	return rep
 }
 
-// probeLookup 用当前 net.DefaultResolver 解析 probeHost。
-func probeLookup() ([]net.IP, error) {
+// controlResolver 返回"控制面真正会用"的那个解析器。
+//
+// 真机实测的根因就在这里：tailscale 的控制面解析**不走 net.DefaultResolver**。
+// controlclient 用的是 net/dnscache 的 Forward，而 dnscache 在**包初始化时自己
+// new 了一个** `&net.Resolver{PreferGo: preferGoResolver()}`（dnscache.go 里的
+// single），和 net.DefaultResolver 是两个对象。于是 androiddns 把
+// net.DefaultResolver 接管得再好，控制面照样没用上 —— 表现为我们自检通过、
+// TryLogin 却报 `failed to resolve "controlplane.tailscale.com"`，然后退到
+// DERP bootstrap（裸 IP 被出口代理挡掉）彻底失败。
+//
+// 自检必须打在这个解析器上，否则就是自欺欺人。
+func controlResolver() *net.Resolver {
+	if r := dnscache.Get(); r != nil && r.Forward != nil {
+		return r.Forward
+	}
+	return net.DefaultResolver
+}
+
+// applyResolver 把 dial 装到两个解析器上。
+//
+// 都**原地改字段**，绝不替换 net.DefaultResolver 那块指针：有代码在 init 时就把
+// 那个指针存下来了，替换指针它们看不到（dnscache 的 single.Forward 就是独立对象，
+// 但同样的道理适用于任何持有者）。
+func applyResolver(dial func(ctx context.Context, network, address string) (net.Conn, error)) {
+	net.DefaultResolver.PreferGo = true
+	net.DefaultResolver.Dial = dial
+	if r := dnscache.Get(); r != nil && r.Forward != nil {
+		r.Forward.PreferGo = true
+		r.Forward.Dial = dial
+	}
+}
+
+// probeWith 用指定解析器解析 probeHost。
+func probeWith(r *net.Resolver) ([]net.IP, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), androidDNSProbeTimeout)
 	defer cancel()
-	return net.DefaultResolver.LookupIP(ctx, "ip4", probeHost)
+	return r.LookupIP(ctx, "ip4", probeHost)
 }
 
 func joinAddrs(addrs []net.IP) string {
