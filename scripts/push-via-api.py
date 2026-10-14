@@ -43,8 +43,12 @@ def git(*args: str, binary: bool = False, strip: bool = True):
 
     strip=False 时保留原始文本：commit 对象结尾的换行是内容的一部分，
     去掉它就会算出不同的 SHA。
+
+    强制 `core.quotepath=false`：git 默认把非 ASCII 路径转义成
+    `"\\350\\256\\276..."` 这种形式输出，脚本再拿它去 cat-file / ls-tree
+    就找不到文件了（实测挂在中文文件名上）。
     """
-    proc = subprocess.run(["git", *args], capture_output=True)
+    proc = subprocess.run(["git", "-c", "core.quotepath=false", *args], capture_output=True)
     if proc.returncode != 0:
         die(f"git {' '.join(args)} 失败：{proc.stderr.decode('utf-8', 'replace').strip()}")
     if binary:
