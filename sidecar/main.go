@@ -180,7 +180,57 @@ func (sc *sidecar) diagnosticsSnapshot() []string {
 // main
 // ---------------------------------------------------------------------------
 
+// normalizeArgs 丢掉命令行开头那些「不是选项」的元素。
+//
+// 为什么需要：Android/Termux 上 exec 经常要经 /system/bin/linker64 转发
+// （`linker64 <本程序> -hostname …`）。bionic 只在 __libc_init 里把
+// "linker64 <本程序>" 这两段摘掉，而纯 Go 程序从不调用 __libc_init —— 它直接
+// 按内核初始栈读 argc/argv，于是 os.Args 前面多出一个 exe 路径。
+//
+// 后果特别隐蔽：flag.Parse() 一遇到非选项就停止解析，后面的开关全部被静默
+// 丢掉，看起来像"程序收不到任何参数"（真机实测 2026-10：-version 和故意写错的
+// -zzz 都得到同一句 "-hostname and -dir are required"；对照组 node/bash 正常，
+// 因为它们是 C 程序，会走 __libc_init，那里的 argv 是被修正过的）。
+//
+// sidecar 只接受选项、不接受位置参数，所以"把第一个以 - 开头的元素之前的东西
+// 全丢掉"是安全的；正常启动（不经 linker64）时它什么都不做。
+func normalizeArgs() {
+	for i := 1; i < len(os.Args); i++ {
+		if strings.HasPrefix(os.Args[i], "-") {
+			if i > 1 {
+				os.Args = append(os.Args[:1], os.Args[i:]...)
+			}
+			return
+		}
+	}
+}
+
+// redactArgs 给错误现场用的 argv 摘要：只看前几项，并把 -token 的值打码
+// （插件拉起 sidecar 时命令行里确实带着共享密钥，这条错误是要进日志的）。
+func redactArgs(argv []string) []string {
+	const maxN = 6
+	out := make([]string, 0, maxN+1)
+	maskNext := false
+	for i, a := range argv {
+		if i >= maxN {
+			out = append(out, "…")
+			break
+		}
+		if maskNext {
+			out = append(out, "***")
+			maskNext = false
+			continue
+		}
+		if a == "-token" {
+			maskNext = true
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 func main() {
+	normalizeArgs()
 	flag.Parse()
 
 	if *flVersion {
@@ -192,7 +242,14 @@ func main() {
 	}
 
 	if *flHostname == "" || *flDir == "" {
-		emitError("args", errors.New("-hostname and -dir are required"))
+		// 把 argv 现场一起打出去：真机上"参数全丢"和"参数被错位"表现完全一样，
+		// 只有把 argc/argv 打出来才分辨得了（第一轮就是卡在这里靠猜）。
+		emit("error", map[string]any{
+			"where":   "args",
+			"message": "-hostname and -dir are required",
+			"argc":    len(os.Args),
+			"argv":    redactArgs(os.Args),
+		})
 		os.Exit(2)
 	}
 	hostname := sanitizeHostname(*flHostname)

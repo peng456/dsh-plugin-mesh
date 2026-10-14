@@ -114,8 +114,32 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 >
 > 桌面 `linux/*` 则**刻意保持全静态 ET_EXEC**：给它加 PIE 会把解释器钉成
 > `/lib64/ld-linux-x86-64.so.2`，Alpine 这类 musl 发行版没有该路径，等于用一点
-> 安全加固换掉一整类系统。构建脚本里对 android 产物有硬校验（不是 ET_DYN 或解释器
-> 不对就直接拒绝发布），免得这个坑再溜出去。
+> 安全加固换掉一整类系统。构建脚本里对 android 产物有硬校验（ET_DYN + 解释器 +
+> TLS 对齐，任一不满足就直接拒绝发布），免得这些坑再溜出去。
+>
+> 第三层坑是 **TLS 段对齐**。Go 的**内部链接器**产 PIE 时把 `PT_TLS` 的 `p_align`
+> 硬编码成寄存器宽度（`cmd/link/internal/ld/elf.go`: `ph.Align = ctxt.Arch.RegSize`，
+> arm64 上是 8），而 ARM64 bionic 要求 ≥64：
+>
+> ```
+> error: "…/dsh-mesh-tsnet": executable's TLS segment is underaligned:
+>        alignment is 8, needs to be at least 64 for ARM64 Bionic
+> ```
+>
+> 外部链接器（NDK 的 lld）会按符号对齐算这个值，用内部链接器就得自己补，所以
+> `scripts/fix-android-tls-align.py` 在编译后把 `p_align` 抬到 64（x86_64 抬到 16）。
+> 这是安全的：TLS 块按 variant II 布局、**块尾贴着线程指针**，`p_align` 只影响块起点
+> 留多少填充，符号相对块尾的偏移不变，Go 运行时算出来的地址一样。
+>
+> 第四层坑是 **argv 错位**。Android/Termux 上 exec 经常经 `/system/bin/linker64`
+> 转发（`linker64 <程序> -hostname …`，这就是为什么一个**没有** `PT_INTERP` 的静态
+> `ET_EXEC` 也会收到 bionic 的报错 —— 内核根本不会去调 bionic）。bionic 只在
+> `__libc_init` 里把 `linker64 <程序>` 这两段摘掉，而**纯 Go 程序从不调用
+> `__libc_init`**：它直接按内核初始栈读 argc/argv，于是 `os.Args[1]` 是程序路径。
+> `flag.Parse()` 一遇到非选项就停止解析，**后面所有开关被静默丢掉**，看起来像
+> "收不到任何参数"（`-version` 和故意写错的 `-zzz` 得到同一句报错；对照组 node/bash
+> 正常，因为它们是 C 程序、走 `__libc_init`）。所以 `sidecar/main.go` 的
+> `normalizeArgs()` 在 `flag.Parse()` 前把第一个以 `-` 开头的元素之前的东西丢掉。
 >
 > 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
@@ -123,6 +147,11 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > （真机实测：`POST /mesh/api/tsnet/start` 返回 `{"ok":false,...,"node":{"phase":"starting"}}`）。
 > 所以 `start()` 与 `#spawnOwn()` 各自再兜一层：任何早期失败都先落 `phase:"error"` 再抛。
 > 自动重启路径（`#onExit` 的退避重试）直接调 `#spawnOwn()`、不经过 `start()`，这层兜底是它唯一的保障。
+>
+> 另外 `#spawnOwnInner()` 现在**无条件**调 `ensureBinary()`：只有它知道
+> `PINNED_CHECKSUMS` 变没变（比对解压时旁挂的 `source-sha256` 标记）。原先外面套了
+> `!installed || !looksExecutable()`，于是 sidecar 重新发布时那一步永远走不到，
+> 老装置会一直复用旧二进制，**只有手动删缓存才会下载**（真机实测踩到）。
 
 补新平台只要跑一次 `scripts/build-sidecar.sh --targets ... --publish`。
 

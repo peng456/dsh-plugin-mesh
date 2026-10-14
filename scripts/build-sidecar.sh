@@ -142,6 +142,11 @@ for target in "${TARGETS[@]}"; do
       go build -C "$SIDECAR_DIR" -p "$JOBS" -trimpath ${buildmode[@]+"${buildmode[@]}"} \
       -ldflags="-s -w -X main.buildStamp=$BUILD_STAMP $extra_ldflags" \
       -o "$DIST_DIR/$asset" . 2>"$DIST_DIR/.build-$os-$arch.err"; then
+    if [ "$os" = "android" ]; then
+      # Go 内部链接器把 PT_TLS 的 p_align 写成寄存器宽度(8)，ARM64 bionic 要求
+      # ≥64，不改的话加载期就被拒。见 scripts/fix-android-tls-align.py 的说明。
+      python3 "$REPO_ROOT/scripts/fix-android-tls-align.py" "$DIST_DIR/$asset"
+    fi
     gzip -9 -f "$DIST_DIR/$asset"
     echo "  [done ] $os/$arch  $(du -h "$DIST_DIR/${asset}.gz" | cut -f1)  ($(date -u +%H:%M:%S))"
   else
@@ -158,16 +163,19 @@ if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 
-# 断言 android 产物的 ELF 形态 —— 这一步是为了让「非 PIE」这个坑不可能再溜出去：
-# 它当初的表现是设备上 exec 直接失败，而本地怎么看都"编好了"。构建期检查是
-# 唯一能在发布前拦住它的地方。
+# 断言 android 产物的 ELF 形态 —— 这一步是为了让这两类坑不可能再溜出去，它们
+# 当初的表现都是「设备上直接起不来」而本地怎么看都"编好了"。构建期检查是唯一
+# 能在发布前拦住它们的地方：
+#   1) ET_EXEC（非 PIE）      → bionic: has unexpected e_type: 2
+#   2) PT_TLS p_align=8       → bionic: TLS segment is underaligned (ARM64 要 >=64)
 echo
-echo "==> 校验 android 产物形态（必须是 ET_DYN 且解释器指向 bionic）"
+echo "==> 校验 android 产物形态（ET_DYN + bionic 解释器 + TLS 对齐）"
 python3 - "$DIST_DIR" <<'PY'
 import gzip, os, struct, sys
 
 dist = sys.argv[1]
 EXPECTED_INTERP = b"/system/bin/linker64"
+MIN_TLS_ALIGN = {183: 64, 62: 16}  # AArch64 / x86_64 上 bionic 的最低要求
 bad = []
 checked = 0
 for name in sorted(os.listdir(dist)):
@@ -177,22 +185,29 @@ for name in sorted(os.listdir(dist)):
     if raw[:4] != b"\x7fELF" or raw[4] != 2:
         bad.append(f"{name}: 不是 64 位 ELF")
         continue
+    e_machine = struct.unpack_from("<H", raw, 18)[0]
     e_type = struct.unpack_from("<H", raw, 16)[0]
     phoff, = struct.unpack_from("<Q", raw, 32)
     phentsize, phnum = struct.unpack_from("<HH", raw, 54)
-    interp = None
+    interp, tls_align = None, None
     for i in range(phnum):
         off = phoff + i * phentsize
-        if struct.unpack_from("<I", raw, off)[0] == 3:  # PT_INTERP
+        p_type = struct.unpack_from("<I", raw, off)[0]
+        if p_type == 3:  # PT_INTERP
             io_, sz = struct.unpack_from("<QQ", raw, off + 8)[0], struct.unpack_from("<Q", raw, off + 32)[0]
             interp = raw[io_:io_ + sz].rstrip(b"\0")
+        elif p_type == 7:  # PT_TLS，p_align 在 +48
+            tls_align = struct.unpack_from("<Q", raw, off + 48)[0]
+    want_tls = MIN_TLS_ALIGN.get(e_machine)
     if e_type != 3:
         bad.append(f"{name}: e_type={e_type}，Android 只吃 ET_DYN(3)")
     elif interp != EXPECTED_INTERP:
         bad.append(f"{name}: 解释器是 {interp!r}，应为 {EXPECTED_INTERP!r}（Android 上没有 /lib/ld-linux-*）")
+    elif want_tls is not None and (tls_align or 0) < want_tls:
+        bad.append(f"{name}: PT_TLS p_align={tls_align}，bionic 要求 >= {want_tls}")
     else:
         checked += 1
-        print(f"    ✓ {name}: ET_DYN + {interp.decode()}")
+        print(f"    ✓ {name}: ET_DYN + {interp.decode()} + TLS p_align={tls_align}")
 
 if bad:
     print("\n".join("    ✗ " + b for b in bad), file=sys.stderr)
