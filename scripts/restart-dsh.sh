@@ -93,40 +93,71 @@ EXE="$APP/Contents/MacOS/$BUNDLE_EXE"
 
 # 不用 pgrep：这台机器上 pgrep -f 对带空格的长路径匹配不到主进程（helper 能匹配到）。
 # ps 整行精确匹配可靠 —— 主进程没有参数，命令行就是裸路径。
-app_running() { ps -eo command= | grep -Fqx "$EXE"; }
+# 「这个 .app 是否在运行」用多路检测，只要任一路看到就认为在运行。
+#
+# 为什么不能只认主进程的完整可执行路径：实测出现过「明明在运行却被判定为
+# 没运行」——于是脚本走"已不在运行，直接打开"分支，`open -a` 只是把它切到
+# 前台，重启被静默跳过，用户以为重启了其实没有。
+# 这个方向的误判代价很高（修复没生效却以为生效了），所以宁可宽松：
+# bundle 下任何进程（主进程或 helper）都算在运行。
+app_pids() {
+  {
+    # 1) pgrep 匹配 bundle 内的可执行目录
+    pgrep -f "$APP/Contents/MacOS" 2>/dev/null
+    # 2) ps 兜底：排除掉管道自身的 awk/grep/ps，避免误报
+    ps -eo pid=,comm=,command= 2>/dev/null \
+      | awk -v p="$APP/Contents/MacOS" '$2 !~ /^(awk|grep|ps|bash|sh|zsh)$/ && index($0, p) {print $1}'
+  } | grep -E '^[0-9]+$' | sort -u
+}
+app_running() { [ -n "$(app_pids)" ]; }
+app_pid_list() { app_pids | tr '\n' ' '; }
 
 {
   echo "=== $(date '+%F %T') 延迟重启开始（等 ${DELAY}s 让会话回复先送达）==="
   echo "目标: $APP"
+  echo "可执行: $EXE"
   sleep "$DELAY"
 
-  if ! app_running; then
-    echo "$(date '+%T') DSH Desktop 已不在运行，直接打开"
+  # 诊断：launchd 环境与交互 shell 不同，万一判定出错，这两行能直接说明原因
+  echo "$(date '+%T') env: PATH=$PATH"
+  echo "$(date '+%T') ps 可见进程数: $(ps -eo command= 2>&1 | wc -l | tr -d ' ')"
+
+  # ── 用 PID 变化作为"到底重启成功没有"的硬证据 ──
+  #
+  # 不再用"当前是否在运行"来决定分支：那个判断实测出现过误判（明明在运行却
+  # 判成没运行），于是脚本走"直接打开"分支、`open -a` 只把窗口切到前台，
+  # 重启被静默跳过 —— 用户以为生效了其实没有，这比报错更糟。
+  # 现在无论如何都先记录 PID，重启后再比一次；只要 PID 没变就明确报 FAIL。
+  pid_before="$(app_pid_list)"
+  echo "$(date '+%T') 重启前 pid: [${pid_before:-无}]"
+
+  if [ -z "$pid_before" ]; then
+    echo "$(date '+%T') 没检测到在运行的实例，直接打开"
   else
     echo "$(date '+%T') 请求优雅退出（AppleScript）"
     osascript -e "tell application \"$APP\" to quit" >/dev/null 2>&1 || true
-    for _ in $(seq 1 30); do
-      app_running || break
+    for _ in $(seq 1 40); do
+      [ -z "$(app_pid_list)" ] && break
       sleep 0.5
     done
 
-    if app_running; then
-      echo "$(date '+%T') 优雅退出超时，发 SIGTERM"
-      pkill -TERM -f "$EXE" 2>/dev/null || true
+    if [ -n "$(app_pid_list)" ]; then
+      echo "$(date '+%T') 优雅退出超时，SIGTERM（只针对记录的 pid）"
+      # shellcheck disable=SC2086
+      kill -TERM $pid_before 2>/dev/null || true
       for _ in $(seq 1 20); do
-        app_running || break
+        [ -z "$(app_pid_list)" ] && break
         sleep 0.5
       done
     fi
 
-    if app_running; then
+    if [ -n "$(app_pid_list)" ]; then
       echo "$(date '+%T') 仍未退出，SIGKILL"
-      pkill -9 -f "$EXE" 2>/dev/null || true
-      sleep 2
+      # shellcheck disable=SC2086
+      kill -9 $pid_before 2>/dev/null || true
+      sleep 3
     fi
-    app_running \
-      && echo "$(date '+%T') ! 进程仍活着，后面的 open 可能只是切前台" \
-      || echo "$(date '+%T') 已退出"
+    echo "$(date '+%T') 退出后残留 pid: [$(app_pid_list)]"
   fi
 
   # 等端口释放，避免新实例抢不到 43120
@@ -134,20 +165,36 @@ app_running() { ps -eo command= | grep -Fqx "$EXE"; }
   echo "$(date '+%T') 重新打开 DSH Desktop"
   open -a "$APP"
 
-  # 等它起来，顺便确认插件加载了（apply 跑过就会写 state.json），并报出版本
-  sleep 25
-  if [ -f "$HOME/.dsh/mesh/state.json" ]; then
-    echo "$(date '+%T') [OK] mesh 插件已加载"
+  pid_after=""
+  for _ in $(seq 1 45); do
+    sleep 1
+    pid_after="$(app_pid_list)"
+    [ -n "$pid_after" ] && break
+  done
+  echo "$(date '+%T') 重启后 pid: [${pid_after:-无}]"
+
+  if [ -z "$pid_after" ]; then
+    echo "$(date '+%T') [FAIL] 没有新实例起来，请手动打开 DSH Desktop"
+  elif [ "$pid_after" = "$pid_before" ]; then
+    echo "$(date '+%T') [FAIL] PID 没变（$pid_before）—— 只是切了前台，并没有重启"
   else
-    echo "$(date '+%T') [FAIL] 没看到 state.json —— 插件可能没加载"
+    echo "$(date '+%T') [OK] 已重启：[$pid_before] → [$pid_after]"
+  fi
+
+  # 插件有没有真的换上新代码：新版会把 instanceId 持久化，这是可判定的证据
+  sleep 20
+  if grep -q '"instanceIds"' "$HOME/.dsh/mesh/state.json" 2>/dev/null; then
+    echo "$(date '+%T') [OK] 新代码已生效（state.json 出现 instanceIds）"
+  else
+    echo "$(date '+%T') [WARN] state.json 里没有 instanceIds —— 插件可能仍是旧代码"
   fi
   INST="$HOME/.dsh/profiles/${DSH_PROFILE:-desktop}/node_modules/dsh-plugin-mesh/package.json"
   if [ -f "$INST" ]; then
     ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INST" | head -1)"
-    echo "$(date '+%T') [OK] 已安装插件版本 $ver"
+    echo "$(date '+%T') 已安装插件版本 $ver"
   fi
   app_running \
-    && echo "$(date '+%T') [OK] DSH Desktop 进程在运行" \
+    && echo "$(date '+%T') [OK] DSH Desktop 在运行" \
     || echo "$(date '+%T') [FAIL] DSH Desktop 没起来，可能需要手动打开"
   echo "=== $(date '+%F %T') 完成 ==="
 
