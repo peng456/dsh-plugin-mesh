@@ -97,10 +97,14 @@ func emitError(where string, err error) {
 // ---------------------------------------------------------------------------
 
 type statusReply struct {
-	OK           bool     `json:"ok"`
-	Protocol     int      `json:"protocol"`
-	PID          int      `json:"pid"`
-	Hostname     string   `json:"hostname"`
+	OK       bool   `json:"ok"`
+	Protocol int    `json:"protocol"`
+	PID      int    `json:"pid"`
+	Hostname string `json:"hostname"`
+	// Ephemeral 是"本进程是否请求了临时节点"。控制面不回传节点的 ephemeral
+	// 属性（PeerStatus/tailcfg.Node 里都没有这个字段），所以只能自报请求值 ——
+	// 至少能验证开关确实传到了，而不是被静默忽略。
+	Ephemeral    bool     `json:"ephemeral"`
 	BackendState string   `json:"backendState"`
 	AuthURL      string   `json:"authUrl"`
 	MachineKey   string   `json:"machineKey"`
@@ -430,6 +434,7 @@ func (sc *sidecar) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Protocol:     ProtocolVersion,
 		PID:          os.Getpid(),
 		Hostname:     sc.hostname,
+		Ephemeral:    *flEphemeral,
 		BackendState: view.BackendState,
 		AuthURL:      view.AuthURL,
 		MachineKey:   view.MachineKey,
