@@ -264,6 +264,184 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 互联网自组网（Tailscale）卡片。
+     *
+     * 交互目标：**只有一个必填项**。
+     *   · 授权码 —— 唯一必填，填一次就存进 state.json（0600），以后不用再填
+     *   · 控制服务器 —— 只有 Headscale 用户要填，官方用户留空
+     * 其余全部自动：节点名取自机器名、二进制按平台下载并校验、进程由插件托管。
+     */
+    function TsnetCard({ tsnet, onChanged }) {
+      const node = tsnet.node || null;
+      // 还没启用时默认展开，直接把"授权码"这个入口摆在用户面前
+      const [open, setOpen] = react.useState(!tsnet.enabled);
+      const [authKey, setAuthKey] = react.useState("");
+      const [controlUrl, setControlUrl] = react.useState(tsnet.controlUrl || "");
+      const [busy, setBusy] = react.useState("");
+      const [msg, setMsg] = react.useState("");
+
+      react.useEffect(() => {
+        setControlUrl(tsnet.controlUrl || "");
+      }, [tsnet.controlUrl]);
+
+      const flash = (m) => {
+        setMsg(m);
+        setTimeout(() => setMsg(""), 6000);
+      };
+
+      const run = async (label, fn) => {
+        setBusy(label);
+        try {
+          await fn();
+        } catch (e) {
+          flash(`出错：${(e && e.message) || e}`);
+        } finally {
+          setBusy("");
+        }
+      };
+
+      // 保存后立刻启动：否则用户会以为"保存了却没反应"
+      const saveAndStart = () =>
+        run("save", async () => {
+          const saved = await call("/tsnet/config", {
+            authKey: authKey.trim(),
+            controlUrl: controlUrl.trim(),
+            enabled: true,
+          });
+          if (!saved || !saved.ok) return flash(`保存失败：${(saved && saved.error) || "未知错误"}`);
+          setAuthKey("");
+          flash("已保存。授权码只在这里输入一次，之后不再需要。");
+          onChanged && onChanged();
+          const started = await call("/tsnet/start", {});
+          if (started && started.ok) flash("已启动，正在连接…");
+          else flash(`启动失败：${(started && started.error) || "未知错误"}`);
+          onChanged && onChanged();
+        });
+
+      const phase = node && node.phase ? node.phase : tsnet.enabled ? "idle" : "off";
+      const view = {
+        off: { text: "未启用", color: "#9aa0a6" },
+        idle: { text: "已启用，未启动", color: "#9aa0a6" },
+        starting: { text: "正在启动…", color: "#d29922" },
+        downloading: { text: `正在下载 sidecar${node && node.downloadPercent ? ` ${node.downloadPercent}%` : ""}…`, color: "#d29922" },
+        "needs-login": { text: "需要授权", color: "#d29922" },
+        running: { text: `已连接 ${(node && node.selfIpv4) || ""}`.trim(), color: "#2ea043" },
+        exited: { text: "进程已退出", color: "#c0392b" },
+        error: { text: "出错", color: "#c0392b" },
+      }[phase] || { text: phase, color: "#9aa0a6" };
+
+      const err = (node && node.error) || "";
+
+      return h(
+        "div",
+        { style: S.card },
+        h(
+          "div",
+          { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+          h(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+            h("span", { style: S.cardTitle }, "互联网组网（Tailscale）"),
+            h("span", { style: { ...S.tag, color: view.color, borderColor: view.color } }, view.text),
+            node && node.selfDnsName ? h("span", { style: S.mono }, node.selfDnsName) : null,
+          ),
+          h("button", { style: S.btnSm, onClick: () => setOpen(!open) }, open ? "收起" : "设置"),
+        ),
+
+        h(
+          "div",
+          { style: { ...S.muted, marginTop: 8 } },
+          "跨互联网也能互相发现和派任务，和局域网是同一套用法。",
+          "不需要安装 Tailscale 客户端，也不需要装 Go —— sidecar 会按平台自动下载。",
+        ),
+
+        // 需要登录时把授权链接摆在最显眼的位置，不用点开设置
+        node && node.authUrl
+          ? h(
+              "div",
+              { style: { marginTop: 10, padding: "8px 10px", border: "1px solid #d29922", borderRadius: 7, fontSize: 13 } },
+              "需要你授权这台机器加入 tailnet：",
+              h(
+                "a",
+                { href: node.authUrl, target: "_blank", rel: "noreferrer", style: { marginLeft: 6, color: "inherit", wordBreak: "break-all" } },
+                node.authUrl,
+              ),
+            )
+          : null,
+
+        err ? h("div", { style: { ...S.muted, marginTop: 8, color: "#c0392b" } }, err) : null,
+
+        open
+          ? h(
+              "div",
+              { style: { marginTop: 14 } },
+              h(
+                "div",
+                { style: S.row },
+                h("input", {
+                  style: S.input,
+                  type: "password",
+                  autoComplete: "off",
+                  placeholder: tsnet.authKeySaved ? "授权码已保存 —— 留空则沿用，粘贴新值可替换" : "粘贴 Tailscale 授权码（tskey-auth-…）",
+                  value: authKey,
+                  onChange: (e) => setAuthKey(e.target.value),
+                }),
+                h("button", { style: S.btnPrimary, onClick: saveAndStart, disabled: busy === "save" }, busy === "save" ? "处理中…" : tsnet.enabled ? "保存并重启" : "保存并启动"),
+              ),
+              h(
+                "div",
+                { style: { ...S.muted, marginTop: 6 } },
+                tsnet.authKeySaved ? "✓ 授权码已保存在本机（state.json，权限 0600），只会在这里输入一次。" : "在 Tailscale 后台 Settings → Keys 生成，勾选 Reusable 与 Pre-approved。",
+              ),
+
+              h(
+                "div",
+                { style: { ...S.row, marginTop: 12 } },
+                h("input", {
+                  style: S.input,
+                  placeholder: "控制服务器地址（留空 = 官方 Tailscale；Headscale 用户填自己的）",
+                  value: controlUrl,
+                  onChange: (e) => setControlUrl(e.target.value),
+                }),
+              ),
+
+              h(
+                "div",
+                { style: { ...S.row, marginTop: 12 } },
+                tsnet.enabled
+                  ? h("button", { style: S.btn, onClick: () => run("stop", async () => { await call("/tsnet/stop", {}); flash("已停止"); onChanged && onChanged(); }), disabled: !!busy }, "停止")
+                  : h("button", { style: S.btn, onClick: () => run("start", async () => { const r = await call("/tsnet/start", {}); flash(r && r.ok ? "已启动" : `启动失败：${(r && r.error) || "未知错误"}`); onChanged && onChanged(); }), disabled: !!busy }, "启动"),
+                h("button", { style: S.btnSm, onClick: () => run("scan", async () => { const r = await call("/tsnet/scan", {}); flash(r && r.ok ? `扫描完成：命中 ${r.found ?? 0} 台` : "扫描失败"); onChanged && onChanged(); }), disabled: !!busy || !tsnet.enabled }, "扫描 tailnet"),
+                h("button", { style: S.btnSm, onClick: () => run("relogin", async () => { const r = await call("/tsnet/relogin", {}); flash(r && r.ok ? "已清除节点身份，等待重新授权" : `失败：${(r && r.error) || "未知错误"}`); onChanged && onChanged(); }), disabled: !!busy || !tsnet.enabled }, "重新登录"),
+                h("button", { style: S.btnSm, onClick: () => run("reinstall", async () => { const r = await call("/tsnet/reinstall", {}); flash(r && r.ok ? "已重新下载 sidecar" : `失败：${(r && r.error) || "未知错误"}`); onChanged && onChanged(); }), disabled: !!busy || !tsnet.enabled }, "重新下载"),
+              ),
+
+              h(
+                "div",
+                { style: { ...S.muted, marginTop: 10 } },
+                `节点名 ${tsnet.hostname || node?.hostname || "（自动取自机器名）"}`,
+                node && node.pid ? ` · 进程 ${node.pid}` : "",
+                ` · 对端权限 ${tsnet.permissionPresetEffective || "与局域网一致"}`,
+                node && node.binary && node.binary.installed ? ` · sidecar ${(node.binary.size / 1048576).toFixed(1)}MB` : "",
+              ),
+
+              (node && node.diagnostics && node.diagnostics.length) || (node && node.recentEvents && node.recentEvents.length)
+                ? h(
+                    "div",
+                    { style: { ...S.log, marginTop: 10 } },
+                    (node.recentEvents || []).slice(-8).map((ev, i) =>
+                      h("div", { key: i, style: S.logRow }, `${new Date(ev.at).toLocaleTimeString()} ${ev.event}${ev.message ? " " + ev.message : ""}${ev.url ? " " + ev.url : ""}`),
+                    ),
+                  )
+                : null,
+            )
+          : null,
+
+        msg ? h("div", { style: { marginTop: 8, fontSize: 12 } }, msg) : null,
+      );
+    }
+
     function PeerRow({ peer, onSend, onProbe, probe }) {
       const target = peer.machine;
       return h(
@@ -278,6 +456,10 @@ window.__ModuleLoader__.load({
             { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
             h("strong", null, peer.machine),
             peer.online ? null : h("span", { style: S.tag }, "离线"),
+            // 标出这条是通过互联网组网（tailnet）找到的，而不是局域网
+            peer.transport === "tsnet"
+              ? h("span", { style: { ...S.tag, color: "#2ea043", borderColor: "#2ea043" }, title: "通过互联网组网发现，走 tailnet 隧道" }, "互联网")
+              : null,
             h("span", { style: { ...S.muted, ...S.mono } }, `${peer.host}:${peer.port}`),
           ),
           h(
@@ -470,6 +652,9 @@ window.__ModuleLoader__.load({
           : null,
 
         h(SecretBox, { self, config: cfg, onSaved: refresh }),
+
+        // 旧版主机端不会返回 state.tsnet，所以这里做存在性判断，避免升级不同步时报错
+        state.tsnet ? h(TsnetCard, { tsnet: state.tsnet, onChanged: refresh }) : null,
 
         h(
           "div",
