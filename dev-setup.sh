@@ -24,17 +24,42 @@ PROFILE="${1:-meshtest}"
 BASE="${2:-/tmp/dsh-mesh-dev}"
 
 # ── 探测 DSH 应用目录 ──────────────────────────────────────────
+#
+# 机器上可能并存多个 .app（实测 /Applications/DSH Desktop.app v2.0.13 与
+# /Applications/DSH Desktop 2.app v2.0.10）。shell glob 按字母序展开，
+# " 2.app" 排在 ".app" 之前，直接用第一个会选到旧版本，导致预检跑的
+# 不是用户实际在用的那份。所以：正在运行的优先，其余按版本号降序。
 detect_app_dir() {
   if [ -n "${DSH_APP_DIR:-}" ] && [ -f "$DSH_APP_DIR/lib/desktop-cli.js" ]; then
     echo "$DSH_APP_DIR"; return 0
   fi
-  local cand
-  for cand in \
-    /Applications/"DSH Desktop"*.app/Contents/Resources/app \
-    "$HOME"/Applications/"DSH Desktop"*.app/Contents/Resources/app
-  do
-    [ -f "$cand/lib/desktop-cli.js" ] && { echo "$cand"; return 0; }
+
+  # 收集候选：<版本号>\t<app 目录>，按 "是否运行" + "版本降序" 排
+  local running_cmds
+  running_cmds="$(ps -eo command= 2>/dev/null || true)"
+
+  local best="" best_key=""
+  local bundle ver key cand
+  for bundle in /Applications/"DSH Desktop"*.app "$HOME"/Applications/"DSH Desktop"*.app; do
+    [ -d "$bundle" ] || continue
+    cand="$bundle/Contents/Resources/app"
+    [ -f "$cand/lib/desktop-cli.js" ] || continue
+    ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$cand/package.json" 2>/dev/null | head -1)"
+    [ -n "$ver" ] || ver="0"
+    # 是否正在运行：该 .app 的可执行文件出现在进程列表里
+    if printf '%s\n' "$running_cmds" | grep -Fq "$bundle/Contents/MacOS/"; then
+      key="1"
+    else
+      key="0"
+    fi
+    # 用 sort -V 比较版本，构造可排序的 key
+    key="$key $(printf '%s' "$ver" | awk -F. '{printf "%05d.%05d.%05d", $1, $2, $3}')"
+    if [ -z "$best_key" ] || [ "$(printf '%s\n%s\n' "$best_key" "$key" | sort -r | head -1)" = "$key" ]; then
+      best="$cand"; best_key="$key"
+    fi
   done
+
+  [ -n "$best" ] && { echo "$best"; return 0; }
   return 1
 }
 

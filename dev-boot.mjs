@@ -18,12 +18,43 @@
  * 解析器文件名带内容哈希（如 module-resolution-C8mVg9xZ.js），
  * 所以这里用 glob 匹配而不是写死，避免 DSH 升级后失效。
  */
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 // ── 探测 DSH 应用目录 ──────────────────────────────────────────
+
+/** 读出某个 .app 里 DSH 的版本号；读不到返回空串。 */
+function appVersion(appDir) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(appDir, "Contents", "Resources", "app", "package.json"), "utf8"));
+    return String(pkg.version ?? "");
+  } catch {
+    return "";
+  }
+}
+
+/** 当前正在运行的进程命令行；用来判断哪个 .app 是用户实际在用的。 */
+function runningCommands() {
+  try {
+    return execSync("ps -eo command=", { encoding: "utf8" }).split("\n").map((l) => l.trim());
+  } catch {
+    return [];
+  }
+}
+
+/** 版本号比较，降序用。 */
+function compareVersionsDesc(a, b) {
+  const pa = String(a).split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const d = (pb[i] ?? 0) - (pa[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
 
 function candidateAppDirs() {
   const out = [];
@@ -31,15 +62,29 @@ function candidateAppDirs() {
 
   const home = homedir();
   if (process.platform === "darwin") {
+    const found = [];
     for (const base of ["/Applications", join(home, "Applications")]) {
       try {
         for (const name of readdirSync(base)) {
           if (!/^DSH Desktop.*\.app$/i.test(name)) continue;
-          out.push(join(base, name, "Contents", "Resources", "app"));
+          found.push({ name, dir: join(base, name, "Contents", "Resources", "app"), version: appVersion(join(base, name)) });
         }
       } catch {
         /* 目录不存在 */
       }
+    }
+    // 机器上常同时留着多个 .app（实测 DSH Desktop.app 2.0.13 与
+    // DSH Desktop 2.app 2.0.10 并存）。readdirSync 是字母序，" 2.app" 排在
+    // ".app" 前面，直接用第一个会选到旧版本、预检结论对不上用户实际在跑的。
+    // 所以：正在运行的那个优先，其余按版本号降序。
+    const cmds = runningCommands();
+    for (const item of found) {
+      item.running = cmds.some((c) => c.startsWith(join(item.dir, "..", "..", "MacOS")));
+    }
+    found.sort((a, b) => (b.running ? 1 : 0) - (a.running ? 1 : 0) || compareVersionsDesc(a.version, b.version));
+    for (const item of found) {
+      if (item.running) console.log(`[dev-boot] 选中正在运行的 ${item.name} (v${item.version})`);
+      out.push(item.dir);
     }
   } else if (process.platform === "win32") {
     for (const base of [process.env.LOCALAPPDATA, process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"]]) {
