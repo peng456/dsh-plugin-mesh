@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-mesh",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
-  "description": "DSH 局域网 Mesh：自动发现同网段的其他 DSH 实例，提供对端操作页面，并支持跨机双向派发任务。",
+  "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例，并可通过内置的 Tailscale 用户态节点跨互联网自组网，双向派发任务。",
   "license": "MIT",
   "author": "peng456",
   "keywords": [
@@ -13,7 +13,11 @@
     "lan",
     "multicast",
     "discovery",
-    "remote"
+    "remote",
+    "tailscale",
+    "tsnet",
+    "tailnet",
+    "wireguard"
   ],
   "homepage": "https://github.com/peng456/dsh-plugin-mesh#readme",
   "repository": {
@@ -33,13 +37,17 @@
   "files": [
     "lib",
     "client",
+    "sidecar",
+    "scripts",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "selftest": "node lib/_selftest-discovery.mjs",
-    "check": "node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check client/client.js",
+    "selftest": "node lib/_selftest-discovery.mjs && node lib/_selftest-tsnet.mjs",
+    "selftest:tsnet": "node lib/_selftest-tsnet.mjs",
+    "check": "node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
+    "build:sidecar": "bash scripts/build-sidecar.sh",
     "check:scope": "python3 tools/scopecheck.py lib/index.js"
   },
   "peerDependencies": {

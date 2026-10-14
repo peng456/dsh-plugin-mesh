@@ -7,3 +7,13 @@ npm-debug.log*
 pnpm-debug.log*
 .DS_Store
 Thumbs.db
+
+# sidecar 编译产物 —— 刻意不进仓库。
+# 每个平台的二进制约 9MB(gz)，进 git 会让 clone 变得很慢；它们由
+# scripts/build-sidecar.sh 编译后上传到 GitHub Releases，插件在首次启用
+# 自组网时按平台自动下载并按 lib/tsnet/checksums.js 校验。
+dist/
+
+# Go 的本地构建缓存/临时文件
+sidecar/dsh-mesh-tsnet*
+*.test

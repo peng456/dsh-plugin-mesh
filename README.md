@@ -1,13 +1,15 @@
 # dsh-plugin-mesh
 
-DSH 的局域网 Mesh 插件：**启动后自动发现同一网段的其他 DSH 实例**，在侧栏提供一个
+DSH 的 Mesh 插件：**启动后自动发现同一网段的其他 DSH 实例**，在侧栏提供一个
 操作页面显示各机器的在线状态，并支持把任务派给对端的 agent 执行。
+**不在同一网段也行** —— 内置用户态 Tailscale 节点，可跨互联网自组网，功能同级。
 
 用起来就是你要的那个效果：在 A 机器上开发，把「部署到 B」这件事丢给 agent，
 你只下大命令。
 
 **零配置**：固定端口 + 自动扫描 + ping，装上就能发现彼此，**不需要配对码**。
 首次打开 Mesh 页面会让你给这台机器起个名字（默认填主机名），别的机器就靠这个名字找你。
+跨互联网只要在界面上填一次 Tailscale 授权码，**不需要装 Go、不需要装 Tailscale 客户端**。
 
 ```
 ┌──────── A 机器 (DSH) ────────┐          ┌──────── B 机器 (DSH) ────────┐
@@ -53,6 +55,73 @@ DSH 的局域网 Mesh 插件：**启动后自动发现同一网段的其他 DSH 
 - ⚠️ Windows 防火墙默认拦入站组播，要放行 UDP 45892
 
 正因为组播有这么多坑，才加了扫描那条路：**只要 TCP 通，扫描就能发现**。
+
+---
+
+## 互联网自组网（Tailscale / tsnet）
+
+局域网那套跨互联网时不成立：没有组播，也没有可扫的网段。所以插件内置了一个
+**用户态 Tailscale 节点**，把发现与派发延伸到互联网，**功能与局域网完全同级** ——
+tailnet 上找到的机器和局域网找到的机器出现在同一个列表里，`mesh_run` 用法一模一样。
+
+### 终端用户零依赖
+
+不需要装 Go，也不需要装 Tailscale 客户端。插件首次启用时按平台下载一个预编译的
+sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
+
+为什么必须自己编译：`tsnet` 是 Go 库（`tailscale.com/tsnet`），npm 上没有可用的绑定
+（实测 `tsnet` 包是个无描述无仓库的空壳，`tailscale` 包是占位符）。所以由
+`scripts/build-sidecar.sh` 交叉编译各平台产物，随 GitHub Release 发布。
+
+### 为什么是"用户态"节点
+
+tsnet 不建 TUN 设备、不要 root、也不碰系统上装的 Tailscale，它跑在自己的用户态
+网络栈里。代价是**宿主机路由不到 `100.x.y.z`**，所以 sidecar 必须在两个方向都代理：
+
+```
+入站：tailnet :45917 ──反代──▶ 127.0.0.1:45917   （并注入 X-Forwarded-For）
+出站：插件 ──/__tsnet/fetch──▶ sidecar 用 tailnet 拨号
+```
+
+这也是 `discovery.js` 里对端记录多一个 `transport` 字段的原因：tailnet 对端自述的
+`host` 是它的**局域网** IP，跨互联网不可达，必须被实际观察到的 tailnet IP 覆盖。
+
+### 整机一个节点
+
+每个 sidecar 就是 tailnet 里的一个设备，所以**一台机器只有一个节点**。同机的多个
+DSH profile 通过 `~/.dsh/mesh/tsnet/rendezvous.json` 复用同一个 sidecar，不会重复
+占用设备名额（免费版上限 100 台）。
+
+### 用法
+
+侧栏 Mesh → 「互联网组网」：
+
+1. 打开开关
+2. 粘贴 Tailscale 授权码（`tskey-auth-...`）—— **只需输入一次**，存进 `state.json`
+   （权限 0600），重启不用再填
+3. Headscale 用户另填「控制服务器地址」，官方用户留空
+
+节点名自动取机器名（`立朋-mac` → `dsh-mac`，`文超-win` → `dsh-win`），不用你填。
+
+### 安全边界
+
+进 tailnet 要授权码，进局域网要物理接入 —— 两者信任模型不同。所以留了
+`tsnetPermissionPreset`：**留空 = 与局域网完全一致**（默认），想只收紧互联网那一侧
+就填 `workspace-write` 之类。因为一旦进网，对方就能对你所有机器下 `mesh_run`。
+
+### 网络要求（实测本机）
+
+| 目标 | 结果 |
+|---|---|
+| `controlplane.tailscale.com` | ✅ 0.65s |
+| `login.tailscale.com` | ✅ 0.63s |
+| `derp1/2/3.tailscale.com` | ✅ ~0.8s |
+| `github.com` 直连 | ❌ HTTP 000 |
+
+所以 sidecar 二进制**默认走镜像下载**（`ghfast.top` → `gh-proxy.com` → … → 直连兜底），
+实测 1.24MB/s，9MB 约 8 秒。完整性校验用的是**钉在插件源码里的 sha256**
+（`lib/tsnet/checksums.js`），而不是从同一个 release 拉 `checksums.txt` ——
+否则恶意镜像可以同时替换两者，校验就成了摆设。
 
 ---
 
@@ -281,6 +350,13 @@ AP isolation、Windows 防火墙默认策略、跨 VLAN，任何一个都能让�
     agentPreset: standard
     permissionPreset: workspace-write
     workspaceRoot: ''
+    # ── 互联网自组网（Tailscale / tsnet）──
+    tsnetEnabled: false        # 也可以在 Mesh 页面上的开关里改（存 state.json）
+    tsnetAuthKey: ''           # 建议只在页面填；配置里填则优先且钉死
+    tsnetControlUrl: ''        # 留空 = 官方 Tailscale；Headscale 填自己的
+    tsnetHostname: ''          # 留空 = 由机器名派生（立朋-mac → dsh-mac）
+    tsnetDownloadSources: []   # 自定义下载源前缀，可用 {url} 占位符
+    tsnetPermissionPreset: ''  # 留空 = 与 permissionPreset 完全一致；填了就只对 tailnet 生效
     # ── 循环限速 ──
     maxWakesPerThread: 30      # 每窗口内最多自动唤醒几次；0 = 不限制
     threadWindowMs: 3600000    # 窗口长度（毫秒），默认 1 小时
