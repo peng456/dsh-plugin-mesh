@@ -486,6 +486,13 @@ Mesh 页面看到，不会被丢弃）：
 5. **`sidebar.panellist` 槽位官方插件没人用过**（翻遍 58 个客户端 bundle，只有官方侧栏
    自己声明它）。我按源码契约接的，实测注册和渲染都正常，但不如 `sidebar.footer.action`
    那样有第三方先例。
+6. **Android 上不支持 sidecar（互联网组网）**：`detectTarget()` 已把 `android` 映射到
+   `linux`（见上文 Termux 的坑），`scripts/build-sidecar.sh` 也确有 `linux/arm64`
+   构建目标，但 release 资产只有 darwin/linux/windows，且实测 Android 侧下载源
+   （ghfast.top / gh-proxy.com / ghproxy.net / github.com）全部不通、自下载二进制的
+   `exec` 可行性未验证。所以 Android 上请保持 `tsnetEnabled: false`。
+   **平台不支持不该拖垮页面**：`binaryInfo()` 只返回 `{installed:false, error}` 从不抛异常，
+   `TsnetNode.status()` 外再兜一层 try/catch，`/mesh/api/state` 在 Android 上仍为 `ok:true`。
 
 ---
 
