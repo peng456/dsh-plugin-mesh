@@ -170,6 +170,30 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > `GOOS=linux` 产物已在真机上实测能加载、能解析参数；换 GOOS 会同时动掉运行时这一层，
 > 收益不明。
 >
+> 第五层坑是 **DNS**。前四层修完后 sidecar 能起来、控制 API 可用，但节点一直停在
+> `NeedsLogin`、`authUrl` 为空。原因：Android 没有 `/etc/resolv.conf`，Go 的纯 Go
+> 解析器读不到配置就回退到 `127.0.0.1:53`（没人在听），于是每个查询都失败；而
+> `curl` 走的是 bionic 的 `getaddrinfo`（经 netd），所以"网络明明是通的"。
+> tailscale 的 `dnsfallback`（控制面解析兜底）走 DoH 打 `dns.google`/quad9，
+> 在国内多半也不通，最后就表现为"控制面怎么都连不上"。
+>
+> tailscale 为此提供了 `feature/androiddns`（androidbin 会自动拉进来）：它**不读系统
+> 属性**，而是直接跟 netd 的 `/dev/socket/dnsproxyd` 说协议 —— 和 bionic 的
+> `getaddrinfo` 同一条路。它更好（顺带拿到 per-network 配置与 Private DNS），
+> 所以它接管了就不动。但它的前提是 `dnsproxyd` 连得上，连不上时它**静默什么都不做**。
+>
+> 于是 `sidecar/androidnet_linux.go` 补三件事：① 自检 —— 先解析
+> `controlplane.tailscale.com`（建链最需要的那个名字），结果写进 `/status` 的 `diag`；
+> ② 兜底 —— 解析失败时**扫系统属性**找 DNS（刻意不只看 `net.dns1..4`：实测那台华为
+> ROM 上它们全空，只有 `net.rmnet0.dns1` 有值，所以按"键以 `dnsN` 结尾"匹配）；
+> ③ 再兜底 —— 一个都没有就用公共解析器，并在报告里写明用了哪个。装上自建解析器后
+> 会用同一个自检再验一次，成功/失败都进 `diag`。
+>
+> 顺带把 tsnet 的日志口径放宽了：原来只放 `tsnet: ` 前缀且含 error/fail/warning 的行，
+> 结果 DNS 卡住时 stdout 上一行线索都没有、只能靠 `/status` 猜。现在**全部**进 `diag`
+> （容量 40→200 行），其中建链关键路径（control/dns/login/auth/derp/magicsock）实时推
+> 到 stdout。
+>
 > 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
 > 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束

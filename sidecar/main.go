@@ -157,15 +157,46 @@ type sidecar struct {
 	diagnostics []string
 }
 
+// diagnosticsCap 是 /status 里 diag 字段保留的日志行数。
+//
+// 原来是 40，真机排查时不够用：tsnet 在建链过程中会打一堆行，40 行只够看到尾巴。
+const diagnosticsCap = 200
+
 func (sc *sidecar) note(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
+	sc.noteQuiet(line)
+	emit("log", map[string]any{"message": line})
+}
+
+// noteQuiet 只进 diagnostics（/status 的 diag），不往 stdout 发。
+// tsnet 很啰嗦，但"卡在 NeedsLogin 却一条日志都没有"更糟 —— 所以全都留着，
+// 只是不全部实时推出去。
+func (sc *sidecar) noteQuiet(line string) {
 	sc.mu.Lock()
 	sc.diagnostics = append(sc.diagnostics, line)
-	if len(sc.diagnostics) > 40 {
-		sc.diagnostics = sc.diagnostics[len(sc.diagnostics)-40:]
+	if len(sc.diagnostics) > diagnosticsCap {
+		sc.diagnostics = sc.diagnostics[len(sc.diagnostics)-diagnosticsCap:]
 	}
 	sc.mu.Unlock()
-	emit("log", map[string]any{"message": line})
+}
+
+// worthStreaming 决定哪些 tsnet 日志值得实时发到 stdout。
+//
+// 原来只放 `tsnet: ` 前缀且含 error/fail/warning 的行。真机实测（2026-10）：
+// DNS 不通导致节点卡在 NeedsLogin 时，stdout 上一行线索都没有，排查只能靠猜。
+// 这里把建链关键路径（control/dns/login/auth/derp/magicsock）也放出来。
+func worthStreaming(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, kw := range []string{
+		"error", "fail", "warning", "warn",
+		"control", "dns", "login", "auth", "derp", "magicsock",
+		"timeout", "refused", "unreachable", "no route",
+	} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func (sc *sidecar) diagnosticsSnapshot() []string {
@@ -264,6 +295,13 @@ func main() {
 
 	sc := &sidecar{token: *flToken, hostname: hostname, forwards: map[int]net.Listener{}}
 
+	// Android 上没有 /etc/resolv.conf，Go 的纯 Go 解析器会去试 127.0.0.1:53 然后
+	// 每个查询都失败 —— 表现就是节点永远停在 NeedsLogin。这里先自检、必要时
+	// 换一个能用的解析器，并把过程写进 diag（见 sidecar/androidnet_linux.go）。
+	for _, line := range ensureDNS() {
+		sc.note("%s", line)
+	}
+
 	srv := &tsnet.Server{
 		Hostname: hostname,
 		Dir:      *flDir,
@@ -272,14 +310,12 @@ func main() {
 		// 主要给测试/演练用 —— 否则每跑一次就多两台设备，要手动去后台删。
 		Ephemeral: *flEphemeral,
 		Logf: func(format string, args ...any) {
-			// tsnet is chatty at info level; keep the stream useful by only
-			// forwarding warnings and errors.
+			// 全部进 diag，只把重要的实时推给 stdout。旧实现只放
+			// "tsnet: " + error/fail/warning，结果 DNS 卡住时一条都看不到。
 			msg := fmt.Sprintf(format, args...)
-			if strings.HasPrefix(msg, "tsnet: ") {
-				lower := strings.ToLower(msg)
-				if strings.Contains(lower, "error") || strings.Contains(lower, "fail") || strings.Contains(lower, "warning") {
-					emit("log", map[string]any{"message": msg})
-				}
+			sc.noteQuiet(msg)
+			if worthStreaming(msg) {
+				emit("log", map[string]any{"message": msg})
 			}
 		},
 	}
