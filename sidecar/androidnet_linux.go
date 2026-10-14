@@ -33,9 +33,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -81,6 +84,12 @@ func ensureDNS() []string {
 		return nil
 	}
 	rep := []string{"dns: 没有 /etc/resolv.conf（Android 的正常现象）"}
+
+	// 打开 tailscale 自己的 dnscache 调试日志：它经 tsnet 的 Logf 流进我们的
+	// diag，能直接区分"主解析报错"和"主解析返回空"、以及为什么退回 bootstrap ——
+	// 这正是前几轮最缺的一环（原来只能靠猜）。
+	dnscache.SetDebugLoggingEnabled(true)
+	rep = append(rep, "dns: 已打开 dnscache 调试日志（等效 TS_DEBUG_DNS_CACHE）")
 
 	// tailscale 的 androiddns 走 /dev/socket/dnsproxyd（与 bionic getaddrinfo 同一条
 	// 路），顺带拿到 per-network 配置与 Private DNS，比我们自己扫属性强 —— 它真能
@@ -178,6 +187,77 @@ func dnsUpCheck() string {
 	} else {
 		return fmt.Sprintf("dns: 拉起 tailnet 前复查：控制面解析器已装 Dial，自检 OK → %s", joinAddrs(addrs))
 	}
+}
+
+// probeControlPlane 逐帧复刻"控制面那一跳"，把每一步写进 diag。
+//
+// 为什么要它：前几轮 diag 只能看到"退到 DERP 裸 IP 的 bootstrap"，却分不清是
+// ①主解析失败、②解析成功但连不上、③TLS 失败 中的哪一种 —— 而这三者的修法完全
+// 不同。这里不参与建链（异步跑、失败也不影响 sidecar），只为下一次报告能一锤定音。
+func probeControlPlane(ctx context.Context) []string {
+	const host = "controlplane.tailscale.com"
+	var out []string
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	r := controlResolver()
+
+	// 1) 解析。刻意两种族都测：控制面走的是 "ip"（会同时发 A 与 AAAA），
+	//    自检里用的却是 "ip4" —— AAAA 若被丢弃/无路由，只有这里看得出来。
+	t0 := time.Now()
+	ipsAny, errAny := r.LookupNetIP(ctx, "ip", host)
+	out = append(out, fmt.Sprintf("probe: 解析 ip  → %v err=%v (%dms)", ipsAny, errAny, time.Since(t0).Milliseconds()))
+
+	t1 := time.Now()
+	ips4, err4 := r.LookupNetIP(ctx, "ip4", host)
+	out = append(out, fmt.Sprintf("probe: 解析 ip4 → %v err=%v (%dms)", ips4, err4, time.Since(t1).Milliseconds()))
+
+	// 2) 逐个 :443 直连（等价 curl 的连接部分）
+	ips := append(append([]netip.Addr{}, ips4...), ipsAny...)
+	var target netip.AddrPort
+	var lastErr error
+	for _, ip := range ips {
+		d := net.Dialer{Timeout: 5 * time.Second}
+		c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), "443"))
+		if err != nil {
+			lastErr = err
+			out = append(out, fmt.Sprintf("probe: 直连 %s:443 失败：%v", ip, err))
+			continue
+		}
+		c.Close()
+		target = netip.AddrPortFrom(ip, 443)
+		out = append(out, fmt.Sprintf("probe: 直连 %s:443 成功", ip))
+		break
+	}
+	if !target.IsValid() {
+		out = append(out, fmt.Sprintf("probe: 没有任何地址连得上（最后错误 %v）", lastErr))
+		return out
+	}
+
+	// 3) TLS + HTTP：用 IP 连、SNI/Host 用域名，等价于 curl --resolve
+	//    （控制面证书签的是域名，所以这一跳必须带着域名做 SNI）
+	tr := &http.Transport{
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, target.String())
+		},
+		TLSClientConfig: &tls.Config{ServerName: host},
+	}
+	client := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://"+host+"/key?v=148", nil)
+	if err != nil {
+		out = append(out, "probe: 构造请求失败："+err.Error())
+		return out
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		out = append(out, fmt.Sprintf("probe: HTTPS %s/key?v=148 失败：%v", host, err))
+		return out
+	}
+	resp.Body.Close()
+	out = append(out, fmt.Sprintf("probe: HTTPS %s/key?v=148 → HTTP %d（经 %s）", host, resp.StatusCode, target))
+	return out
 }
 
 func joinAddrs(addrs []net.IP) string {

@@ -387,6 +387,16 @@ func main() {
 	go sc.watchStatus(ctx)
 
 	upDone := make(chan error, 1)
+
+	// 异步复刻"控制面那一跳"（解析 → 直连 → TLS → GET /key），只为诊断：
+	// 前几轮 diag 只能看到"退到 DERP 裸 IP"，分不清是解析失败、连接失败还是 TLS
+	// 失败，而三者修法完全不同。它不参与建链，失败也不影响 sidecar。
+	go func() {
+		for _, line := range probeControlPlane(ctx) {
+			sc.note("%s", line)
+		}
+	}()
+
 	go func() {
 		// 拉起 tailnet 前复查一遍控制面解析器：上一版"自检通过、登录却解析失败"
 		// 就是安装时机晚于第一次 TryLogin，这一行让下次 diag 一眼能看出来。

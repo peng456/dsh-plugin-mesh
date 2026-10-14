@@ -226,6 +226,13 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > （容量 40→200 行），其中建链关键路径（control/dns/login/auth/derp/magicsock）实时推
 > 到 stdout。
 >
+> 另外两件诊断工具（0.3.9 起）：`dnscache.SetDebugLoggingEnabled(true)` 会把
+> tailscale 自己的 dnscache 决策日志（"using fallback resolver due to error/no returned
+> IPs"、"not using bootstrap DNS: DNS was trustworthy"）经 tsnet 的 Logf 流进 `diag`；
+> `probeControlPlane()` 异步复刻"解析(`ip`/`ip4`) → 逐地址直连 :443 → TLS(SNI=域名)
+> → GET /key?v=148"整条链，每步单独记一行。这样下次就能一锤定音地分清是解析失败、
+> 连接失败还是 TLS 失败 —— 前几轮只能看到"退到 DERP 裸 IP"，分不清这三者。
+>
 > 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
 > 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束
