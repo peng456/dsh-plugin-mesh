@@ -233,6 +233,18 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > → GET /key?v=148"整条链，每步单独记一行。这样下次就能一锤定音地分清是解析失败、
 > 连接失败还是 TLS 失败 —— 前几轮只能看到"退到 DERP 裸 IP"，分不清这三者。
 >
+> 0.3.10 起再加一道**真正的兜底**：`feature/dnsresolvecache`。这是 tailscale 为
+> "开机时 DNS 坏掉"设计的机制（dnscache 在**主解析失败或返回空**时会去读
+> `<dir>/dns-<host>.json`），但官方明说 tsnet 默认不链接它、"tsnet apps must both
+> blank-import this package and configure the cache directory themselves"。所以
+> sidecar 现在 blank import 它、用 `dnscache.HookSetCacheDir` 把目录指到
+> `<stateDir>/dnscache`，并在自检通过后把我们自己解析出来的
+> `controlplane.tailscale.com` 写进 `dns-controlplane.tailscale.com.json`。
+> 这样即使控制面的主解析再出问题，它也能从落盘缓存拿到 IP，不必退回 DERP bootstrap。
+> 自己写这份文件是安全的：里面只是本进程刚解析并自检通过的 IP，连接时的证书校验
+> 照旧（最坏情况与今天一样连不上）。格式已用 tailscale 自己的读入口
+> （`dnscache.HookLookupDiskCache`）在本机验证过。
+>
 > 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
 > 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束

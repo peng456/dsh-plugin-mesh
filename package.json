@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-mesh",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "type": "module",
   "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例，并可通过内置的 Tailscale 用户态节点跨互联网自组网，双向派发任务。",
   "license": "MIT",

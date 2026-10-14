@@ -34,20 +34,34 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
 
+	_ "tailscale.com/feature/dnsresolvecache" // 落盘缓存必须由应用自己 blank import
 	"tailscale.com/net/dnscache"
 )
+
+// dnsLogf 让 tailscale 内部（dnscache/dnsresolvecache）的日志流进我们的 diag；
+// main 会在启动时用 setDNSLogger 接到 sc.noteQuiet 上。
+var dnsLogf = func(format string, args ...any) { log.Printf(format, args...) }
+
+func setDNSLogger(f func(string, ...any)) {
+	if f != nil {
+		dnsLogf = f
+	}
+}
 
 // probeHost 是自检用的域名：建链最需要的就是它。
 const probeHost = "controlplane.tailscale.com"
@@ -75,7 +89,7 @@ type dnsCandidate struct {
 
 // ensureDNS 在 Android 上把 Go 的解析器救活，返回一份人可读的报告。
 // 非 Android（普通 Linux 桌面）上它什么都不做。
-func ensureDNS() []string {
+func ensureDNS(stateDir string) []string {
 	// 有可用的 resolv.conf 就不插手：那是系统/用户自己的配置。
 	if fi, err := os.Stat("/etc/resolv.conf"); err == nil && fi.Size() > 0 {
 		return nil
@@ -91,6 +105,15 @@ func ensureDNS() []string {
 	dnscache.SetDebugLoggingEnabled(true)
 	rep = append(rep, "dns: 已打开 dnscache 调试日志（等效 TS_DEBUG_DNS_CACHE）")
 
+	// 启用 tailscale 的"解析结果落盘"（feature/dnsresolvecache）。
+	//
+	// 这是官方为"开机时 DNS 坏掉"设计的机制：dnscache 在主解析失败时会去读
+	// <dir>/dns-<host>.json。tsnet 默认不链接它，官方文档要求 tsnet 应用自己
+	// blank import 并调用 HookSetCacheDir —— 正是我们现在做/下面要做的事
+	// （目录定好后，把自检通过的 controlplane 解析结果预填进去）。
+	cacheDir := filepath.Join(stateDir, "dnscache")
+	rep = append(rep, enableDNSCacheDir(cacheDir))
+
 	// tailscale 的 androiddns 走 /dev/socket/dnsproxyd（与 bionic getaddrinfo 同一条
 	// 路），顺带拿到 per-network 配置与 Private DNS，比我们自己扫属性强 —— 它真能
 	// 用就复用它。**但它只改 net.DefaultResolver**，而控制面解析根本不走那里（见
@@ -100,6 +123,7 @@ func ensureDNS() []string {
 			applyResolver(ad)
 			if a2, err2 := probeWith(controlResolver()); err2 == nil {
 				rep = append(rep, fmt.Sprintf("dns: 复用 androiddns/dnsproxyd（自身自检 %s）并装到控制面解析器 → %s", joinAddrs(addrs), joinAddrs(a2)))
+				rep = appendIf(rep, prefillHostCache(cacheDir, probeHost, a2))
 			} else {
 				rep = append(rep, fmt.Sprintf("dns: 复用 androiddns 的 dial 后控制面自检仍失败：%v", err2))
 			}
@@ -125,6 +149,7 @@ func ensureDNS() []string {
 		applyResolver(dialAnyDNSServer(c.servers))
 		if addrs, err := probeWith(controlResolver()); err == nil {
 			rep = append(rep, fmt.Sprintf("dns: 用 %s 自检通过 → %s", c.label, joinAddrs(addrs)))
+			rep = appendIf(rep, prefillHostCache(cacheDir, probeHost, addrs))
 			return rep
 		} else {
 			rep = append(rep, fmt.Sprintf("dns: 用 %s 自检失败：%v", c.label, err))
@@ -132,6 +157,58 @@ func ensureDNS() []string {
 	}
 	rep = append(rep, "dns: 所有兜底都失败，控制面大概率连不上")
 	return rep
+}
+
+// enableDNSCacheDir 打开 tailscale 的解析结果落盘并指定目录（tailscaled 里同款调用）。
+func enableDNSCacheDir(dir string) string {
+	f, ok := dnscache.HookSetCacheDir.GetOk()
+	if !ok {
+		return "dns: dnsresolvecache 未链接，落盘缓存不可用（主解析失败就只能退回 DERP bootstrap）"
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Sprintf("dns: 建落盘缓存目录失败：%v", err)
+	}
+	f(dir, dnsLogf)
+	return "dns: 已启用解析结果落盘：" + dir
+}
+
+// prefillHostCache 把一份已自检通过的解析结果写进 dnscache 的落盘缓存。
+//
+// 为什么可以直接自己写：dnscache 只在**主解析失败或返回空**时读这个文件，
+// 读到就直接用；而做校验的写入口（TLS 证书验证后才落盘）只是 tailscale 自己
+// 防止"门户 DNS 塞假 IP"的机制。我们写进去的是本进程刚刚解析并自检通过的 IP，
+// 连接时的证书校验照旧 —— 最坏情况是连同今天一样连不上，不存在新增风险。
+func prefillHostCache(cacheDir, host string, ips []net.IP) string {
+	var a []netip.Addr
+	for _, ip := range ips {
+		if ad, ok := netip.AddrFromSlice(ip); ok {
+			a = append(a, ad.Unmap())
+		}
+	}
+	if len(a) == 0 {
+		return ""
+	}
+	rec := struct {
+		Resolver string       `json:"Resolver"`
+		A        []netip.Addr `json:"A,omitempty"`
+	}{"forward", a}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(cacheDir, "dns-"+strings.ToLower(host)+".json")
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		return fmt.Sprintf("dns: 预填落盘缓存失败：%v", err)
+	}
+	return fmt.Sprintf("dns: 已预填落盘缓存 dns-%s.json → %s", strings.ToLower(host), joinAddrs(ips))
+}
+
+// appendIf 只在 line 非空时追加，省掉一堆 if。
+func appendIf(dst []string, line string) []string {
+	if line == "" {
+		return dst
+	}
+	return append(dst, line)
 }
 
 // controlResolver 返回"控制面真正会用"的那个解析器。

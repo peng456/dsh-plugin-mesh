@@ -306,7 +306,8 @@ func main() {
 	// （含第一次 TryLogin）在 1 秒内就起来了。等我们装好解析器时，第一次查
 	// controlplane 早就失败了，只能退到 DERP 裸 IP 的 bootstrap（在这台机器的
 	// 按域名放行代理下必然全灭）。
-	for _, line := range ensureDNS() {
+	setDNSLogger(func(format string, args ...any) { sc.noteQuiet(fmt.Sprintf(format, args...)) })
+	for _, line := range ensureDNS(*flDir) {
 		sc.note("%s", line)
 	}
 
