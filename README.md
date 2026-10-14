@@ -91,6 +91,13 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > `TsnetNode.status() → /mesh/api/state` 一路调用，于是**整个 Mesh 页面变成 500**，
 > 表现为「本机 undefined · undefined:undefined」且互联网组网卡片消失。
 > 这也是为什么 `binaryInfo()` 被改成绝不抛异常。
+>
+> 但只堵这一处不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
+> `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
+> 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束
+> （真机实测：`POST /mesh/api/tsnet/start` 返回 `{"ok":false,...,"node":{"phase":"starting"}}`）。
+> 所以 `start()` 与 `#spawnOwn()` 各自再兜一层：任何早期失败都先落 `phase:"error"` 再抛。
+> 自动重启路径（`#onExit` 的退避重试）直接调 `#spawnOwn()`、不经过 `start()`，这层兜底是它唯一的保障。
 
 补新平台只要跑一次 `scripts/build-sidecar.sh --targets ... --publish`。
 
