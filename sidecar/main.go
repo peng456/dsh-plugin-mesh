@@ -295,13 +295,6 @@ func main() {
 
 	sc := &sidecar{token: *flToken, hostname: hostname, forwards: map[int]net.Listener{}}
 
-	// Android 上没有 /etc/resolv.conf，Go 的纯 Go 解析器会去试 127.0.0.1:53 然后
-	// 每个查询都失败 —— 表现就是节点永远停在 NeedsLogin。这里先自检、必要时
-	// 换一个能用的解析器，并把过程写进 diag（见 sidecar/androidnet_linux.go）。
-	for _, line := range ensureDNS() {
-		sc.note("%s", line)
-	}
-
 	srv := &tsnet.Server{
 		Hostname: hostname,
 		Dir:      *flDir,
@@ -380,6 +373,13 @@ func main() {
 
 	upDone := make(chan error, 1)
 	go func() {
+		// DNS 兜底放在这里而不是更早：控制 API 已经在监听、插件立刻就能看到
+		// listening，而自检最多花十几秒 —— 不该让它卡住握手。
+		// Android 上没有 /etc/resolv.conf，Go 的纯 Go 解析器会去试 127.0.0.1:53
+		// 然后每个查询都失败，表现就是节点永远停在 NeedsLogin。
+		for _, line := range ensureDNS() {
+			sc.note("%s", line)
+		}
 		_, err := srv.Up(ctx)
 		upDone <- err
 	}()

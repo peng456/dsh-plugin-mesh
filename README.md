@@ -186,8 +186,16 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > `controlplane.tailscale.com`（建链最需要的那个名字），结果写进 `/status` 的 `diag`；
 > ② 兜底 —— 解析失败时**扫系统属性**找 DNS（刻意不只看 `net.dns1..4`：实测那台华为
 > ROM 上它们全空，只有 `net.rmnet0.dns1` 有值，所以按"键以 `dnsN` 结尾"匹配）；
-> ③ 再兜底 —— 一个都没有就用公共解析器，并在报告里写明用了哪个。装上自建解析器后
-> 会用同一个自检再验一次，成功/失败都进 `diag`。
+> ③ 再兜底 —— 属性里的都不通就用公共解析器（223.5.5.5 / 119.29.29.29 / …）。
+>
+> **候选集要逐个自检着换，不能在 `Dial` 里轮询**：UDP "连接"一台不可达的服务器不会
+> 失败（只会让查询超时），`Dial` 永远返回第一个候选、后面的根本轮不到。自检本身跑在
+> "控制 API 已监听之后、`srv.Up()` 之前"，所以不会拖慢握手。
+>
+> 注意：`androiddns` **不读系统属性**，它走 `/dev/socket/dnsproxyd`（与 bionic 的
+> `getaddrinfo` 同一条路）；`/dev/socket/dnsproxyd` 连不上时它静默什么都不做，真机
+> 上就是 Permission denied。二进制里 `net.dns*` 那些串是 Go 运行时的符号名
+> （`net.dnsReadConfig`、`net.dnsStreamRoundTrip`…），跟 Android 属性无关。
 >
 > 顺带把 tsnet 的日志口径放宽了：原来只放 `tsnet: ` 前缀且含 error/fail/warning 的行，
 > 结果 DNS 卡住时 stdout 上一行线索都没有、只能靠 `/status` 猜。现在**全部**进 `diag`

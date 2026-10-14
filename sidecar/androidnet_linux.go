@@ -47,10 +47,11 @@ import (
 // probeHost 是自检用的域名：建链最需要的就是它。
 const probeHost = "controlplane.tailscale.com"
 
-// androidDNSProbeTimeout 是单次自检的上限。启动路径上不能等太久。
-const androidDNSProbeTimeout = 6 * time.Second
+// androidDNSProbeTimeout 是单次自检的上限。启动路径上不能等太久
+// （插件等 sidecar 就绪的上限是 25s，自检最多跑三次）。
+const androidDNSProbeTimeout = 4 * time.Second
 
-// androidDNSFallback 是系统属性里一个 DNS 都找不到时的兜底。
+// androidDNSFallback 是系统属性里一个 DNS 都找不到、或者找出来的都不通时的兜底。
 // 前两个在国内可达（阿里/DNSPod），后两个是通用兜底。
 var androidDNSFallback = []string{"223.5.5.5", "119.29.29.29", "8.8.8.8", "1.1.1.1"}
 
@@ -61,11 +62,15 @@ var (
 	dnsKeyRe = regexp.MustCompile(`dns[0-9]*$`)
 )
 
+// dnsCandidate 是一组待验证的 DNS 服务器。
+type dnsCandidate struct {
+	label   string
+	servers []string
+}
+
 // ensureDNS 在 Android 上把 Go 的解析器救活，返回一份人可读的报告。
 // 非 Android（普通 Linux 桌面）上它什么都不做。
 func ensureDNS() []string {
-	var rep []string
-
 	// 有可用的 resolv.conf 就不插手：那是系统/用户自己的配置。
 	if fi, err := os.Stat("/etc/resolv.conf"); err == nil && fi.Size() > 0 {
 		return nil
@@ -73,31 +78,44 @@ func ensureDNS() []string {
 	if !runningOnAndroid() {
 		return nil
 	}
-	rep = append(rep, "dns: 没有 /etc/resolv.conf（Android 的正常现象）")
+	rep := []string{"dns: 没有 /etc/resolv.conf（Android 的正常现象）"}
 
-	// 先看现有解析器（可能是 androiddns 接管的 dnsproxyd）行不行。
-	if addrs, err := probeLookup(); err == nil {
-		rep = append(rep, fmt.Sprintf("dns: 自检 %s → %s（现有解析器可用）", probeHost, joinAddrs(addrs)))
-		return rep
+	// tailscale 的 androiddns 走 /dev/socket/dnsproxyd，比我们任何兜底都好
+	// （顺带拿到 per-network 配置与 Private DNS），所以它真能用就不动它。
+	// 但真机实测这条路常因 socket 权限连不上，而它连不上时**静默什么都不做** ——
+	// 所以这里以"自检能不能解析"为准，而不是只看它有没有接管。
+	if net.DefaultResolver.Dial != nil {
+		if addrs, err := probeLookup(); err == nil {
+			rep = append(rep, fmt.Sprintf("dns: 现有解析器（androiddns/dnsproxyd 已接管）自检通过 → %s", joinAddrs(addrs)))
+			return rep
+		} else {
+			rep = append(rep, fmt.Sprintf("dns: androiddns 已接管 dnsproxyd，但自检失败：%v", err))
+		}
 	} else {
-		rep = append(rep, fmt.Sprintf("dns: 自检 %s 失败：%v", probeHost, err))
+		rep = append(rep, "dns: androiddns 没有接管（/dev/socket/dnsproxyd 连不上，真机实测是 Permission denied）")
 	}
 
-	servers := androidDNSServers()
-	if len(servers) > 0 {
-		rep = append(rep, "dns: 从系统属性找到 "+strings.Join(servers, ", "))
+	var cands []dnsCandidate
+	if props := androidDNSServers(); len(props) > 0 {
+		cands = append(cands, dnsCandidate{"系统属性 " + strings.Join(props, ","), props})
 	} else {
-		servers = androidDNSFallback
-		rep = append(rep, "dns: 系统属性里没有任何 DNS，回退到公共解析器 "+strings.Join(servers, ", "))
+		rep = append(rep, "dns: 系统属性里没有任何以 dnsN 结尾的键")
 	}
+	cands = append(cands, dnsCandidate{"公共解析器 " + strings.Join(androidDNSFallback, ","), androidDNSFallback})
 
-	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: dialAnyDNSServer(servers)}
-
-	if addrs, err := probeLookup(); err == nil {
-		rep = append(rep, fmt.Sprintf("dns: 换用自建解析器后自检通过 → %s", joinAddrs(addrs)))
-	} else {
-		rep = append(rep, fmt.Sprintf("dns: 换用自建解析器后自检仍然失败：%v", err))
+	// 逐个候选集自检。**必须在这一层换候选**，不能靠 Dial 里轮询：
+	// UDP "连接"一台不可达的服务器不会失败（只会让查询超时），所以 Dial
+	// 永远返回第一个候选，后面的根本轮不到。
+	for _, c := range cands {
+		net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: dialAnyDNSServer(c.servers)}
+		if addrs, err := probeLookup(); err == nil {
+			rep = append(rep, fmt.Sprintf("dns: 用 %s 自检通过 → %s", c.label, joinAddrs(addrs)))
+			return rep
+		} else {
+			rep = append(rep, fmt.Sprintf("dns: 用 %s 自检失败：%v", c.label, err))
+		}
 	}
+	rep = append(rep, "dns: 所有兜底都失败，控制面大概率连不上")
 	return rep
 }
 
