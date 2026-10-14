@@ -44,8 +44,11 @@
     "LICENSE"
   ],
   "scripts": {
-    "selftest": "node lib/_selftest-discovery.mjs && node lib/_selftest-tsnet.mjs",
+    "selftest": "node lib/_selftest-tsnet.mjs",
     "selftest:tsnet": "node lib/_selftest-tsnet.mjs",
+    "selftest:live": "node lib/_selftest-tsnet-live.mjs",
+    "selftest:tailnet": "node lib/_selftest-tsnet-tailnet.mjs",
+    "selftest:lan": "node lib/_selftest-discovery.mjs",
     "check": "node scripts/check-version.mjs && node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "check:scope": "python3 tools/scopecheck.py lib/index.js"
