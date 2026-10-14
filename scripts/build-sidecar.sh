@@ -130,9 +130,24 @@ for target in "${TARGETS[@]}"; do
     # 也就是说它不依赖任何 libc，bionic 加载时只需要按 load bias 把 RELATIVE
     # 重定位刷一遍即可 —— 正是 Android 自家 PIE 可执行文件的形态。
     #
-    # 用 GOOS=linux 而不是 GOOS=android：这里不需要 libc，而 GOOS=android 这个
-    # port 需要 cgo + NDK 工具链。Termux 跑的本来就是 Linux ELF。
-    go_os=linux
+    # 用 GOOS=android 而不是 GOOS=linux（0.3.11 改）。
+    #
+    # 真机实测的最后一跳就卡在这里：tailscale 的 tsdial.SystemDial 会走
+    # net/netns 的 Dialer，而
+    #     netns_linux.go 的构建约束是 `linux && !android`
+    #     netns_android.go 是 `android`
+    # 所以 GOOS=linux 编出来的产物用的是 linux 版 controlC —— 它对每个 socket 调
+    #     netmon.DefaultRouteInterface()
+    # 拿默认路由接口名；而 Android 上 /proc/net/route 与 netlink 都是 EACCES，
+    # 于是它退化成绑 "lo"（或设 SO_MARK），拨号就出不去（sidecar 内部的裸
+    # net.Dialer 直连同一地址却成功，正是这个差别）。GOOS=android 的 controlC
+    # 在没有 Java 回调时**什么都不做**，拨号就是普通 net.Dialer。
+    #
+    # 其余配套：netmon 换成 android 的 polling 实现（不再碰 netlink）、
+    # Go 的 x509 走 goos.IsAndroid 分支读 /system/etc/security/cacerts、
+    # androidbin/androiddns 的 (android && !cgo) 分支照样注册。不需要 libc，所以
+    # CGO_ENABLED=0 即可（本机实测能构建出正确的 ET_DYN + /system/bin/linker64）。
+    go_os=android
     buildmode=(-buildmode=pie)
     extra_ldflags="-I /system/bin/linker64"
   fi
@@ -203,7 +218,10 @@ for name in sorted(os.listdir(dist)):
         bad.append(f"{name}: e_type={e_type}，Android 只吃 ET_DYN(3)")
     elif interp != EXPECTED_INTERP:
         bad.append(f"{name}: 解释器是 {interp!r}，应为 {EXPECTED_INTERP!r}（Android 上没有 /lib/ld-linux-*）")
-    elif want_tls is not None and (tls_align or 0) < want_tls:
+    elif want_tls is not None and tls_align is not None and tls_align < want_tls:
+        # 只在"确实有 PT_TLS 且对齐不够"时才算错。GOOS=android 的内部链接器
+        # 根本不发 PT_TLS 段（TLS 相关的那个分支只对 Hlinux 生效），所以
+        # tls_align 为 None 是正常的、也是好事 —— bionic 只在有该段时才挑对齐。
         bad.append(f"{name}: PT_TLS p_align={tls_align}，bionic 要求 >= {want_tls}")
     else:
         checked += 1

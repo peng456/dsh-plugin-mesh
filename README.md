@@ -245,6 +245,18 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > 照旧（最坏情况与今天一样连不上）。格式已用 tailscale 自己的读入口
 > （`dnscache.HookLookupDiskCache`）在本机验证过。
 >
+> **最后一跳的根因（0.3.11）**：`tailscale/net/netns` 的 linux 与 android 实现是
+> 两个文件 —— `netns_linux.go` 的约束是 `linux && !android`，`netns_android.go`
+> 是 `android`。GOOS=linux 编出来的产物走 linux 版 `controlC`：它对每个 socket 调
+> `netmon.DefaultRouteInterface()` 拿默认路由接口名，而 Android 上 `/proc/net/route`
+> 与 netlink 都是 EACCES，于是退化去绑 `"lo"`（或设 SO_MARK），**拨号因此出不去**。
+> 真机判据很干净：sidecar 内部用裸 `net.Dialer` 直连 `192.200.0.x:443` 成功、完整
+> HTTPS 拿到 200，而 tailscale 自己的拨号路径全灭 —— 两者唯一的差别就是这个
+> `Control` 钩子。`netns_android.go` 的 `controlC` 在没有 Java 回调时**什么都不做**，
+> 所以 android 资产改成 `GOOS=android` 编译（`CGO_ENABLED=0` 即可，不需要 NDK）：
+> 顺带把 netmon 换成 android 的 polling 实现、x509 走 `goos.IsAndroid` 分支读
+> `/system/etc/security/cacerts`，而且该构建不发 `PT_TLS` 段，TLS 对齐那个坑也消失。
+>
 > 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
 > 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束
