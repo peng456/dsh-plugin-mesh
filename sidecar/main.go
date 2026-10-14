@@ -58,6 +58,7 @@ var (
 	flDir        = flag.String("dir", "", "persistent state directory; required (keeps node identity stable)")
 	flControlURL = flag.String("control-url", "", "control server URL; empty means the official Tailscale control plane")
 	flToken      = flag.String("token", "", "shared secret required in X-Mesh-Token for the loopback control API")
+	flEphemeral  = flag.Bool("ephemeral", false, "register as an ephemeral node: control removes it from the tailnet once it disconnects")
 	flVersion    = flag.Bool("version", false, "print build info as JSON and exit")
 )
 
@@ -206,6 +207,9 @@ func main() {
 		Hostname: hostname,
 		Dir:      *flDir,
 		AuthKey:  os.Getenv(autoAuthKeyEnv),
+		// 临时节点：断开后由控制面自动移除，不长期占用设备名额。
+		// 主要给测试/演练用 —— 否则每跑一次就多两台设备，要手动去后台删。
+		Ephemeral: *flEphemeral,
 		Logf: func(format string, args ...any) {
 			// tsnet is chatty at info level; keep the stream useful by only
 			// forwarding warnings and errors.
