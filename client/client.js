@@ -456,12 +456,46 @@ window.__ModuleLoader__.load({
             { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
             h("strong", null, peer.machine),
             peer.online ? null : h("span", { style: S.tag }, "离线"),
-            // 标出这条是通过互联网组网（tailnet）找到的，而不是局域网
-            peer.transport === "tsnet"
-              ? h("span", { style: { ...S.tag, color: "#2ea043", borderColor: "#2ea043" }, title: "通过互联网组网发现，走 tailnet 隧道" }, "互联网")
-              : null,
-            h("span", { style: { ...S.muted, ...S.mono } }, `${peer.host}:${peer.port}`),
+            // 一台设备可能同时有局域网与互联网两条通道，任意一条通就算可达。
+            peer.endpoints
+              ? h(
+                  "span",
+                  { style: { ...S.muted, ...S.mono } },
+                  `${peer.host || "?"}:${peer.port || "?"}`,
+                )
+              : h("span", { style: { ...S.muted, ...S.mono } }, `${peer.host}:${peer.port}`),
           ),
+          // ── 通道明细 ──
+          //
+          // 一台设备可能同时有局域网与互联网两条通道，而且**任意一条通就算可达**。
+          // 把每条都摆出来并标出"当前在用哪条"，否则某条通道断掉时只能靠猜
+          // （今天在 dispatch-failed 上已经吃过一次这个亏）。
+          (peer.endpoints || []).length > 0
+            ? h(
+                "div",
+                { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 } },
+                (peer.endpoints || []).map((ep) => {
+                  const cooling = !!(ep.downUntil && Date.now() < ep.downUntil);
+                  const unverified = ep.verified === false;
+                  const active = ep.transport === peer.transport;
+                  const color = active ? "#2ea043" : cooling ? "#c0392b" : unverified ? "#9aa0a6" : "#666";
+                  const cname = ep.transport === "tsnet" ? "互联网" : "局域网";
+                  const cstate = active ? "在用" : cooling ? "冷却中" : unverified ? "未探测" : "备用";
+                  return h(
+                    "span",
+                    {
+                      key: ep.transport,
+                      style: { ...S.tag, color, borderColor: color, ...(active ? { fontWeight: 600 } : null) },
+                      title:
+                        `${cname} ${ep.host}:${ep.port} · ${cstate}` +
+                        (ep.rttMs ? ` · ${ep.rttMs}ms` : "") +
+                        ` · 成功 ${ep.okCount} 次 / 失败 ${ep.failCount} 次`,
+                    },
+                    `${cname} ${cstate}`,
+                  );
+                }),
+              )
+            : null,
           h(
             "div",
             { style: S.muted },
