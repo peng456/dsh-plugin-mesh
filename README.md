@@ -75,24 +75,49 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 
 **已发布的平台：**
 
-| 平台 | 适用 |
-|---|---|
-| `darwin/amd64` | Intel Mac |
-| `darwin/arm64` | Apple Silicon Mac |
-| `windows/amd64` | Windows |
-| `linux/amd64` | Linux x86_64、WSL、x86 Android(Termux) |
-| `linux/arm64` | ARM64 Linux、aarch64 Android(Termux)、树莓派 |
+| 平台 | 适用 | ELF 形态 |
+|---|---|---|
+| `darwin/amd64` | Intel Mac | Mach-O |
+| `darwin/arm64` | Apple Silicon Mac | Mach-O |
+| `windows/amd64` | Windows | PE |
+| `linux/amd64` | Linux x86_64、WSL | 全静态 ET_EXEC |
+| `linux/arm64` | ARM64 Linux、树莓派 | 全静态 ET_EXEC |
+| `android/amd64` | x86_64 Android / 模拟器上的 Termux | **PIE(ET_DYN) + `/system/bin/linker64`** |
+| `android/arm64` | aarch64 Android / 手机上的 Termux | **PIE(ET_DYN) + `/system/bin/linker64`** |
 
-> **Termux 的坑**：Node 在 Termux 下 `process.platform` 返回的是 **`android`**，
-> 不是 `linux`（实测那台 Android 的自述记录是 `os: 'android 5.10.43'`）。
-> 所以 `detectTarget()` 里显式把 `android` 映射到 `linux` —— Termux 跑的就是
-> Linux ELF 二进制。漏了这个映射的后果很隐蔽：抛异常发生在
-> `binaryInfo()→binaryPath()` 里，而 `binaryInfo()` 又被
-> `TsnetNode.status() → /mesh/api/state` 一路调用，于是**整个 Mesh 页面变成 500**，
-> 表现为「本机 undefined · undefined:undefined」且互联网组网卡片消失。
-> 这也是为什么 `binaryInfo()` 被改成绝不抛异常。
+> **Android 是独立平台，不是 linux 的别名**（真机实测，2026-10）。
 >
-> 但只堵这一处不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
+> 第一层坑是平台识别：Node 在 Termux 下 `process.platform` 返回的是 **`android`**，
+> 不是 `linux`。早期 `detectTarget()` 只认 darwin/win32/linux，于是抛
+> 「不支持的系统：android」。这个抛发生在 `binaryInfo()→binaryPath()` 里，而
+> `binaryInfo()` 又被 `TsnetNode.status() → /mesh/api/state` 一路调用，于是**整个
+> Mesh 页面变成 500**，表现为「本机 undefined · undefined:undefined」且互联网组网
+> 卡片消失。这也是为什么 `binaryInfo()` 被改成绝不抛异常。
+>
+> 第二层坑更隐蔽：当时把 `android` 映射到 `linux` 资产就以为完事了，但 Android 从
+> 5.0 起**只允许 PIE 可执行文件**，而给桌面准备的是全静态 `ET_EXEC`，真机 exec
+> 阶段会被 bionic 直接拒掉，原话就一句（下载、解压、sha256 全部正常，一跑就退）：
+>
+> ```
+> error: "/data/data/com.termux/files/home/.dsh/mesh/bin/sidecar-v1/dsh-mesh-tsnet" has unexpected e_type: 2
+> ```
+>
+> 与 glibc/bionic、`CGO_ENABLED=0` 与否、权限、防火墙都无关，**就是 ELF 类型不对**。
+> 所以 `android/*` 单独出一份产物：`-buildmode=pie` 拿到 `ET_DYN`，再用
+> `-ldflags=-I /system/bin/linker64` 把解释器指到 bionic。
+>
+> 只加 `-buildmode=pie` **不够**：Go（实测 go1.25.5）内部链接器产的 linux/arm64 PIE
+> 带 `PT_INTERP=/lib/ld-linux-aarch64.so.1`，这个路径在 Android 上不存在，内核会以
+> ENOENT 收场。必须显式改解释器路径。好在纯 Go 的 PIE 里 `DT_NEEDED` 为空、动态
+> 符号表无未定义符号、重定位全是 `R_AARCH64_RELATIVE`（实测 113089 条），bionic
+> 加载时只需刷一遍相对重定位，不依赖任何 libc —— 正是 Android 自家 PIE 的形态。
+>
+> 桌面 `linux/*` 则**刻意保持全静态 ET_EXEC**：给它加 PIE 会把解释器钉成
+> `/lib64/ld-linux-x86-64.so.2`，Alpine 这类 musl 发行版没有该路径，等于用一点
+> 安全加固换掉一整类系统。构建脚本里对 android 产物有硬校验（不是 ET_DYN 或解释器
+> 不对就直接拒绝发布），免得这个坑再溜出去。
+>
+> 只堵平台映射还不够：`#spawnOwn()` 的第一行 `binaryInfo()/looksExecutable()` 在任何
 > `try` 之外，而 `start()` 是**先把 phase 置成 `"starting"` 才调它** —— 异常 reject 到
 > 调用方只留一条 warning，phase 就永远停在 `"starting"`，页面显示「正在组网中」永不结束
 > （真机实测：`POST /mesh/api/tsnet/start` 返回 `{"ok":false,...,"node":{"phase":"starting"}}`）。
@@ -493,13 +518,12 @@ Mesh 页面看到，不会被丢弃）：
 5. **`sidebar.panellist` 槽位官方插件没人用过**（翻遍 58 个客户端 bundle，只有官方侧栏
    自己声明它）。我按源码契约接的，实测注册和渲染都正常，但不如 `sidebar.footer.action`
    那样有第三方先例。
-6. **Android 上 sidecar（互联网组网）默认不可用**：`detectTarget()` 已把 `android` 映射到
-   `linux`（见上文 Termux 的坑），`scripts/build-sidecar.sh` 确有 `linux/arm64` 目标，
-   产物也是 `CGO_ENABLED=0` 的**静态 ELF**（`file` 实测：statically linked，无
-   glibc/bionic 解释器依赖 → 不存在「解释器路径对不上」这个经典坑；设备上真正
-   exec 起来仍待那台机器实测）。
-   真正的拦路虎是**下载源**：实测那台 Android 上 ghfast.top / gh-proxy.com / ghproxy.net /
-   github.com 全部不通，所以 Android 上默认请保持 `tsnetEnabled: false`。
+6. **Android 上 sidecar 需要专用资产，且下载源仍是拦路虎**：`detectTarget()` 现在把
+   `android` 映射到 `android` 资产（PIE + `/system/bin/linker64`，见上文 Termux 的坑）。
+   原先那份全静态 `linux/arm64` 在真机上 exec 会被 bionic 拒掉（`has unexpected e_type: 2`），
+   所以**老版本插件 + 新 sidecar** 或**新插件 + 老 sidecar** 都不行，两边要一起升。
+   剩下的真正拦路虎是**下载源**：实测那台 Android 上 ghfast.top / gh-proxy.com / ghproxy.net /
+   github.com 全部不通，只能靠同网段的镜子（见下一节）。装好之后 sidecar 本身可以正常跑。
    **平台不支持不该拖垮页面**：`binaryInfo()` 只返回 `{installed:false, error}` 从不抛异常，
    `TsnetNode.status()` 外再兜一层 try/catch，`/mesh/api/state` 在 Android 上仍为 `ok:true`。
 

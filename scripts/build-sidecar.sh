@@ -27,11 +27,16 @@ REPO="peng456/dsh-plugin-mesh"
 
 # Windows/arm64 is omitted deliberately: it is vanishingly rare and each extra
 # target costs a full rebuild of the whole tailscale dependency tree.
+#
+# android/* 是**独立平台**，不是 linux 的别名 —— 它的产物形态必须不同，见
+# 循环里的 ANDROID 分支。两者不能共用一个资产。
 ALL_TARGETS=(
   "darwin/amd64"
   "darwin/arm64"
   "linux/amd64"
   "linux/arm64"
+  "android/amd64"
+  "android/arm64"
   "windows/amd64"
 )
 TARGETS=("${ALL_TARGETS[@]}")
@@ -94,10 +99,48 @@ for target in "${TARGETS[@]}"; do
   asset="dsh-mesh-tsnet-${os}-${arch}"
   [ "$os" = "windows" ] && asset="${asset}.exe"
 
+  # 默认：CGO_ENABLED=0 的**全静态 ET_EXEC**（-buildmode=exe），没有任何
+  # PT_INTERP / DT_NEEDED，glibc 与 musl(Alpine) 上都能直接跑。
+  #
+  # 刻意**不给桌面 linux 加 -buildmode=pie**：PIE 会把解释器钉成
+  # /lib64/ld-linux-x86-64.so.2（arm64 是 /lib/ld-linux-aarch64.so.1），
+  # Alpine 这类 musl 发行版根本没有该路径，等于用一点安全加固换掉一整类系统。
+  # Android 才真正需要 PIE，而且需要的形态还不一样 → 见下面的分支。
+  go_os="$os"
+  buildmode=()
+  extra_ldflags=""
+
+  if [ "$os" = "android" ]; then
+    # ANDROID：**必须**是 PIE（ET_DYN）。
+    #
+    # Android 从 5.0 起只允许 PIE 可执行文件，静态 ET_EXEC 会在 exec 阶段被
+    # bionic 直接拒掉，原话就一句（真机实测，2026-10）：
+    #     error: "…/dsh-mesh-tsnet" has unexpected e_type: 2
+    # 与 glibc/bionic、CGO_ENABLED 与否、权限都无关，就是 ELF 类型不对。
+    #
+    # 但**只加 -buildmode=pie 还不够**：Go 内部链接器产的 PIE 带
+    #     PT_INTERP=/lib/ld-linux-aarch64.so.1
+    # （实测 go1.25.5 linux/arm64），这个路径在 Android 上不存在 —— Android 的
+    # 加载器是 /system/bin/linker64，内核按 PT_INTERP 找 loader 会以 ENOENT
+    # 收场。所以必须用 -I 把解释器显式指到 bionic。
+    #
+    # 这么做的底气来自实测的 ELF 内容：这种 PIE 里
+    #   · e_type=3(ET_DYN)、DT_NEEDED 为空、动态符号表无未定义符号
+    #   · 重定位全是 R_AARCH64_RELATIVE（linux/arm64 实测 113089 条）、.rela.plt 为空
+    # 也就是说它不依赖任何 libc，bionic 加载时只需要按 load bias 把 RELATIVE
+    # 重定位刷一遍即可 —— 正是 Android 自家 PIE 可执行文件的形态。
+    #
+    # 用 GOOS=linux 而不是 GOOS=android：这里不需要 libc，而 GOOS=android 这个
+    # port 需要 cgo + NDK 工具链。Termux 跑的本来就是 Linux ELF。
+    go_os=linux
+    buildmode=(-buildmode=pie)
+    extra_ldflags="-I /system/bin/linker64"
+  fi
+
   echo "  [start] $os/$arch  ($(date -u +%H:%M:%S))"
-  if GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 GOMAXPROCS="$JOBS" \
-      go build -C "$SIDECAR_DIR" -p "$JOBS" -trimpath \
-      -ldflags="-s -w -X main.buildStamp=$BUILD_STAMP" \
+  if GOOS="$go_os" GOARCH="$arch" CGO_ENABLED=0 GOMAXPROCS="$JOBS" \
+      go build -C "$SIDECAR_DIR" -p "$JOBS" -trimpath ${buildmode[@]+"${buildmode[@]}"} \
+      -ldflags="-s -w -X main.buildStamp=$BUILD_STAMP $extra_ldflags" \
       -o "$DIST_DIR/$asset" . 2>"$DIST_DIR/.build-$os-$arch.err"; then
     gzip -9 -f "$DIST_DIR/$asset"
     echo "  [done ] $os/$arch  $(du -h "$DIST_DIR/${asset}.gz" | cut -f1)  ($(date -u +%H:%M:%S))"
@@ -114,6 +157,49 @@ if [ "$failed" -ne 0 ]; then
   echo "构建失败，未生成发布产物。" >&2
   exit 1
 fi
+
+# 断言 android 产物的 ELF 形态 —— 这一步是为了让「非 PIE」这个坑不可能再溜出去：
+# 它当初的表现是设备上 exec 直接失败，而本地怎么看都"编好了"。构建期检查是
+# 唯一能在发布前拦住它的地方。
+echo
+echo "==> 校验 android 产物形态（必须是 ET_DYN 且解释器指向 bionic）"
+python3 - "$DIST_DIR" <<'PY'
+import gzip, os, struct, sys
+
+dist = sys.argv[1]
+EXPECTED_INTERP = b"/system/bin/linker64"
+bad = []
+checked = 0
+for name in sorted(os.listdir(dist)):
+    if not (name.startswith("dsh-mesh-tsnet-android-") and name.endswith(".gz")):
+        continue
+    raw = gzip.open(os.path.join(dist, name), "rb").read()
+    if raw[:4] != b"\x7fELF" or raw[4] != 2:
+        bad.append(f"{name}: 不是 64 位 ELF")
+        continue
+    e_type = struct.unpack_from("<H", raw, 16)[0]
+    phoff, = struct.unpack_from("<Q", raw, 32)
+    phentsize, phnum = struct.unpack_from("<HH", raw, 54)
+    interp = None
+    for i in range(phnum):
+        off = phoff + i * phentsize
+        if struct.unpack_from("<I", raw, off)[0] == 3:  # PT_INTERP
+            io_, sz = struct.unpack_from("<QQ", raw, off + 8)[0], struct.unpack_from("<Q", raw, off + 32)[0]
+            interp = raw[io_:io_ + sz].rstrip(b"\0")
+    if e_type != 3:
+        bad.append(f"{name}: e_type={e_type}，Android 只吃 ET_DYN(3)")
+    elif interp != EXPECTED_INTERP:
+        bad.append(f"{name}: 解释器是 {interp!r}，应为 {EXPECTED_INTERP!r}（Android 上没有 /lib/ld-linux-*）")
+    else:
+        checked += 1
+        print(f"    ✓ {name}: ET_DYN + {interp.decode()}")
+
+if bad:
+    print("\n".join("    ✗ " + b for b in bad), file=sys.stderr)
+    sys.exit("android 产物形态不对，拒绝生成发布清单")
+if checked == 0:
+    sys.exit("没有找到任何 android 产物，构建清单不完整")
+PY
 
 echo
 echo "==> 生成 sha256 清单"
