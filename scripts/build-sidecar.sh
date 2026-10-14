@@ -68,7 +68,17 @@ if [ "$SRC_PROTOCOL" != "$PROTOCOL_VERSION" ]; then
   exit 1
 fi
 
-BUILD_STAMP="$(date -u +%Y%m%d-%H%M%S)"
+# 构建戳用 sidecar 源码的 git 提交哈希，而不是时间戳。
+#
+# Go 构建是可复现的（实测：同输入连编两次逐字节相同），所以拿内容哈希当戳时，
+# **未改动的平台重编后产物完全一致、sha256 不变**。这样补一个新平台（比如后来
+# 才需要 linux/arm64）不会让已装的机器被迫重下 8.5MB。用时间戳则每次发版全平台
+# 哈希都变，所有机器都要重下一遍。
+BUILD_STAMP="$(git -C "$REPO_ROOT" log -1 --format=%h -- sidecar 2>/dev/null || true)"
+[ -n "$BUILD_STAMP" ] || BUILD_STAMP="nogit"
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain -- sidecar 2>/dev/null)" ]; then
+  BUILD_STAMP="${BUILD_STAMP}-dirty"
+fi
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 

@@ -73,6 +73,22 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 （实测 `tsnet` 包是个无描述无仓库的空壳，`tailscale` 包是占位符）。所以由
 `scripts/build-sidecar.sh` 交叉编译各平台产物，随 GitHub Release 发布。
 
+**已发布的平台：**
+
+| 平台 | 适用 |
+|---|---|
+| `darwin/amd64` | Intel Mac |
+| `darwin/arm64` | Apple Silicon Mac |
+| `windows/amd64` | Windows |
+| `linux/amd64` | Linux x86_64、WSL、x86 Android(Termux) |
+| `linux/arm64` | ARM64 Linux、aarch64 Android(Termux)、树莓派 |
+
+补新平台只要跑一次 `scripts/build-sidecar.sh --targets ... --publish`。
+
+构建戳取的是 **sidecar 源码的 git 提交哈希**，而不是时间戳。因为 Go 构建是可复现的
+（实测同输入连编两次逐字节相同），所以未改动的平台重编后 sha256 不变，**补新平台
+不会让已装的机器白重下 8.5MB**；用时间戳则每次发版全平台哈希都变。
+
 ### 为什么是"用户态"节点
 
 tsnet 不建 TUN 设备、不要 root、也不碰系统上装的 Tailscale，它跑在自己的用户态
