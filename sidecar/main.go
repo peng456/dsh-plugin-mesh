@@ -295,6 +295,21 @@ func main() {
 
 	sc := &sidecar{token: *flToken, hostname: hostname, forwards: map[int]net.Listener{}}
 
+	// 解析器**必须在这里**装，早于任何可能启动 tsnet 的代码。
+	//
+	// 真机踩过（0.3.7）：把它放在 srv.Up() 的 goroutine 里，结果整段 diag 是
+	//   [52] StartLoginInteractiveAs("")   ← 控制面登录已经开始了
+	//   [61] trying bootstrapDNS(...)       ← 第一次解析已经失败
+	//   [62] dns: …（我们的自检/安装）      ← 才轮到我们
+	// 原因是 watchStatus 每秒调 currentStatus()，而 currentStatus() 会
+	// srv.LocalClient() → tsnet 的 LocalClient() 内部就调 s.Start()，整套后端
+	// （含第一次 TryLogin）在 1 秒内就起来了。等我们装好解析器时，第一次查
+	// controlplane 早就失败了，只能退到 DERP 裸 IP 的 bootstrap（在这台机器的
+	// 按域名放行代理下必然全灭）。
+	for _, line := range ensureDNS() {
+		sc.note("%s", line)
+	}
+
 	srv := &tsnet.Server{
 		Hostname: hostname,
 		Dir:      *flDir,
@@ -373,11 +388,9 @@ func main() {
 
 	upDone := make(chan error, 1)
 	go func() {
-		// DNS 兜底放在这里而不是更早：控制 API 已经在监听、插件立刻就能看到
-		// listening，而自检最多花十几秒 —— 不该让它卡住握手。
-		// Android 上没有 /etc/resolv.conf，Go 的纯 Go 解析器会去试 127.0.0.1:53
-		// 然后每个查询都失败，表现就是节点永远停在 NeedsLogin。
-		for _, line := range ensureDNS() {
+		// 拉起 tailnet 前复查一遍控制面解析器：上一版"自检通过、登录却解析失败"
+		// 就是安装时机晚于第一次 TryLogin，这一行让下次 diag 一眼能看出来。
+		if line := dnsUpCheck(); line != "" {
 			sc.note("%s", line)
 		}
 		_, err := srv.Up(ctx)

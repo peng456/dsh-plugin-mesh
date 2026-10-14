@@ -164,6 +164,22 @@ func probeWith(r *net.Resolver) ([]net.IP, error) {
 	return r.LookupIP(ctx, "ip4", probeHost)
 }
 
+// dnsUpCheck 在真正拉起 tailnet 之前复查一遍控制面解析器。
+//
+// 上一版就是"安装晚于第一次 TryLogin"，表现是自检通过、登录却解析失败。
+// 这一行让下一次 diag 一眼能看出是不是又抢跑了。
+func dnsUpCheck() string {
+	r := controlResolver()
+	if r.Dial == nil {
+		return "dns: 拉起 tailnet 前复查：控制面解析器 Dial=nil（从未被装过，仍按系统配置走）"
+	}
+	if addrs, err := probeWith(r); err != nil {
+		return fmt.Sprintf("dns: 拉起 tailnet 前复查：控制面解析器已装 Dial，但自检失败：%v", err)
+	} else {
+		return fmt.Sprintf("dns: 拉起 tailnet 前复查：控制面解析器已装 Dial，自检 OK → %s", joinAddrs(addrs))
+	}
+}
+
 func joinAddrs(addrs []net.IP) string {
 	if len(addrs) == 0 {
 		return "（空）"

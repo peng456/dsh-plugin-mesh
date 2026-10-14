@@ -211,6 +211,16 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 > 另外**只能原地改字段、不能替换 `net.DefaultResolver` 指针**：有代码在 init 时
 > 就把那个指针存下来了，替换指针它们看不到。
 >
+> **安装时机同样致命**：`ensureDNS()` 必须早于任何可能启动 tsnet 的代码。真机
+> diag 的先后顺序是 `[52] StartLoginInteractiveAs` → `[61] trying bootstrapDNS`
+> → `[62] dns: …`，即第一次 `TryLogin` 已经失败，我们才装好解析器。原因是
+> `watchStatus` 每秒调 `currentStatus()`，而它调 `srv.LocalClient()` ——
+> tsnet 的 `LocalClient()` 内部就调 `s.Start()`，整套后端（含第一次登录）会在
+> 一秒内起来。等装好时早已退到 DERP 裸 IP 的 bootstrap，在那台机器"按域名放行"
+> 的出口代理下必然全灭。现在 `ensureDNS()` 在 `sc` 建好之后立刻执行，位于
+> `go sc.watchStatus(ctx)` 之前；`srv.Up()` 之前还会再打一行 `dnsUpCheck()` 复查
+> 控制面解析器的 `Dial` 状态与自检结果，下次一眼能看出有没有抢跑。
+>
 > 顺带把 tsnet 的日志口径放宽了：原来只放 `tsnet: ` 前缀且含 error/fail/warning 的行，
 > 结果 DNS 卡住时 stdout 上一行线索都没有、只能靠 `/status` 猜。现在**全部**进 `diag`
 > （容量 40→200 行），其中建链关键路径（control/dns/login/auth/derp/magicsock）实时推
