@@ -83,6 +83,15 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 | `linux/amd64` | Linux x86_64、WSL、x86 Android(Termux) |
 | `linux/arm64` | ARM64 Linux、aarch64 Android(Termux)、树莓派 |
 
+> **Termux 的坑**：Node 在 Termux 下 `process.platform` 返回的是 **`android`**，
+> 不是 `linux`（实测那台 Android 的自述记录是 `os: 'android 5.10.43'`）。
+> 所以 `detectTarget()` 里显式把 `android` 映射到 `linux` —— Termux 跑的就是
+> Linux ELF 二进制。漏了这个映射的后果很隐蔽：抛异常发生在
+> `binaryInfo()→binaryPath()` 里，而 `binaryInfo()` 又被
+> `TsnetNode.status() → /mesh/api/state` 一路调用，于是**整个 Mesh 页面变成 500**，
+> 表现为「本机 undefined · undefined:undefined」且互联网组网卡片消失。
+> 这也是为什么 `binaryInfo()` 被改成绝不抛异常。
+
 补新平台只要跑一次 `scripts/build-sidecar.sh --targets ... --publish`。
 
 构建戳取的是 **sidecar 源码的 git 提交哈希**，而不是时间戳。因为 Go 构建是可复现的

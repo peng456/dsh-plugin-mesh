@@ -608,6 +608,29 @@ window.__ModuleLoader__.load({
       }
       if (!state) return h("div", { style: S.page }, h("div", { style: S.pageInner }, "正在加载…"));
 
+      // 主机侧出错时 /mesh/api/state 返回的是 {ok:false, error}，没有 self。
+      // 之前这里会静默渲染成「本机 undefined · undefined:undefined」，把真正的原因
+      // 整个藏起来（实测踩过：Android 上 detectTarget 抛异常，整页变成 undefined，
+      // 却看不出为什么）。所以显式把错误摆到页面上。
+      if (state.ok === false) {
+        return h(
+          "div",
+          { style: S.page },
+          h(
+            "div",
+            { style: S.pageInner },
+            h("h1", { style: S.h1 }, "局域网 Mesh"),
+            h(
+              "div",
+              { style: { ...S.card, borderColor: "#c0392b" } },
+              "主机侧返回错误，无法读取状态：",
+              h("div", { style: { ...S.mono, marginTop: 8, wordBreak: "break-all" } }, String(state.error || "(未提供错误信息)")),
+              h("div", { style: { ...S.muted, marginTop: 8 } }, "请把这段错误原文发给开发者。"),
+            ),
+          ),
+        );
+      }
+
       const self = state.self || {};
       const cfg = state.config || {};
       const peers = state.peers || [];
