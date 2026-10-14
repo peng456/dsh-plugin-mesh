@@ -46,7 +46,7 @@
   "scripts": {
     "selftest": "node lib/_selftest-discovery.mjs && node lib/_selftest-tsnet.mjs",
     "selftest:tsnet": "node lib/_selftest-tsnet.mjs",
-    "check": "node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
+    "check": "node scripts/check-version.mjs && node --check lib/index.js && node --check lib/discovery.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "check:scope": "python3 tools/scopecheck.py lib/index.js"
   },
