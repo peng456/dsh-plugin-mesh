@@ -1010,6 +1010,10 @@ capabilities: {
    （"整批归零"的形状，几乎必定是 PATH 问题）。
 3. **PATH 健全判据**（最关键的一条）：主 PATH 里**没有任何本平台常见工具目录**
    → 也算"未探准"。因为此时"找不到"可能只是"没覆盖到"，**所有 ENOENT 结论都不可信**。
+   **Android 单列**：它没有"Unix 常见目录"这套前提（Termux 的 prefix 是唯一常用落点、
+   `/system/bin` 在多数设备的 PATH 里并不存在、root 与 `termux-exec` 都会改变布局），
+   所以我们**无法可靠区分"没装"与"装在别的 prefix"** → **Android 上 ENOENT 一律
+   当作不确定**。代价是 Android 侧可能过度谨慎；收益是不再对"这台没有 go"下没有依据的断言。
 
 ##### 为什么是"PATH 健全"而不是"有失败就报"
 
@@ -1020,10 +1024,13 @@ capabilities: {
 | --- | --- | --- | --- | --- |
 | 本机 darwin | 6 个（非空） | `rustc`、`adb` | **是**，`command -v` 也找不到 | `incomplete=false` ✅ |
 | 文超-win | **0 个** | 全部 | 否 —— 它跑在 Node 上 | `incomplete=true` ✅ |
+| 对端 Android | 3 个（非空） | 6 项 | **无法判定**（prefix 布局不可靠） | `incomplete=true` ✅ |
 
 按"有失败就报"，本机会被误标成 incomplete（`rustc`/`adb` 真的没有），于是 Placement
 永远不敢断言"这台机器没装 rustc"。**判断 ENOENT 可不可信的依据是 PATH 健不健全，
-不是失败项有多少。** 三道防线合起来才能同时覆盖"整批归零"和"非空但部分失败"。
+不是失败项有多少。** 三道防线合起来才能同时覆盖"整批归零"、"非空但部分失败"
+（Android 那台就是这一格 —— 早先的形状守卫**按设计修不到它**，是对端连续两轮
+指出来的），并且不误伤正常机器。
 
 ##### `probeFailCount`：让失败信号**能过网线**
 
@@ -1058,7 +1065,7 @@ capabilities: {
 回归脚本：
 
 ```bash
-npm test                     # = check + 四个回归脚本（共 147 项，默认不碰网络）
+npm test                     # = check + 四个回归脚本（共 149 项，默认不碰网络）
 npm run selftest             # 52 项：发现/通道/会话键
 npm run selftest:prompt      # 10 项：任务提示词（回派目标必须是机器名）
 npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）
