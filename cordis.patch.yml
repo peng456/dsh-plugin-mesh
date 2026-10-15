@@ -75,6 +75,6 @@
         # 上面那个计数的滑动窗口长度（毫秒）。3600000 = 1 小时
         threadWindowMs: 3600000
         # 两次自动唤醒之间的最小间隔（毫秒），管突发；0 = 不限制
-        threadCooldownMs: 20000
+        threadCooldownMs: 5000
         # 单条任务正文短于此长度就只入箱不唤醒（挡 ping/ack 这类寒暄）
         minTaskChars: 24
