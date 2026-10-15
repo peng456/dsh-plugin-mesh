@@ -131,6 +131,30 @@ app_pid_list() { app_pids | tr '\n' ' '; }
   pid_before="$(app_pid_list)"
   echo "$(date '+%T') 重启前 pid: [${pid_before:-无}]"
 
+  # ── 重启**之前**：磁盘上的插件必须真的能被加载 ──
+  #
+  # 这是下面"进程自述版本"那条的**互补轴**，缺一不可：
+  #   · 这里挡的是**半态**（package.json/index.js 已是新版，但 lib/prompt.js
+  #     之类还没拷进来）→ 进程 import 时 ERR_MODULE_NOT_FOUND 当场崩；
+  #   · 下面那条挡的是"加载了但不是新代码"。
+  # 只做下面那条会放过半态（version 会**正确地**报新版本、检查放行，然后崩）。
+  #
+  # 语义上刻意**只警告不中止**：DHS 此刻可能正跑得好好的，磁盘半态并不影响
+  # 它。为了"磁盘可疑"就拒绝重启、把用户卡在旧代码上，弊大于利。但**必须**
+  # 把话说清楚，否则用户会以为重启成功了。
+  LOADABLE="$REPO_ROOT/scripts/check-loadable.mjs"
+  INST_PLUGIN="$HOME/.dsh/profiles/${DSH_PROFILE:-desktop}/node_modules/dsh-plugin-mesh"
+  if [ -f "$LOADABLE" ] && [ -d "$INST_PLUGIN" ]; then
+    if node "$LOADABLE" "$INST_PLUGIN" >/tmp/mesh-loadable.$$ 2>&1; then
+      echo "$(date '+%T') [OK] 安装路径可加载（半态门禁通过）"
+    else
+      echo "$(date '+%T') [WARN] 安装路径**不可加载** —— 重启后插件会加载失败："
+      sed 's/^/    /' /tmp/mesh-loadable.$$ | head -12
+      echo "$(date '+%T') [WARN] 先补齐文件或回滚，再重启"
+    fi
+    rm -f /tmp/mesh-loadable.$$
+  fi
+
   if [ -z "$pid_before" ]; then
     echo "$(date '+%T') 没检测到在运行的实例，直接打开"
   else
