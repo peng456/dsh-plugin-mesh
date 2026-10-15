@@ -954,13 +954,36 @@ capabilities: {
 > `0.2.x` 回填了 `capabilities` 字段，这条判据就会误报"不支持"。真要做到无懈可击，
 > 得在接收侧留一个"原始名片里有没有这个 key"的布尔位再投影出去 —— 现在没有。
 
+#### ⚠️ `runtimes: {}` 也可能是**假的**（Windows 踩过）
+
+`runtimesIncomplete: false` 的语义是"所有探测都得到了**确定**答案，可以据此断言
+这台机器**没有**任何运行时"。但"确定没装"和"PATH 里找不到"在数据上长得一模一样 ——
+`isUncertain()` 把 `ENOENT` 当作确定答案。只要 **PATH 本身是错的**，整批 `ENOENT`
+就会被翻译成"确定没装"。
+
+实测：对端 `文超-win` 升到 0.3.28 后报回 `runtimes: {}` + `runtimesIncomplete: false`
+—— 即在名片上宣称"确定没有任何运行时"，**而它自己就跑在 Node 上**（DSH 是 Node 应用）。
+根因是 `extraPathDirs()` 当时**没有 Windows 分支**，补的全是 Unix 路径
+（`/opt/homebrew/bin`、`/usr/local/bin`…），在 Windows 上等于没补。
+
+两道防线（本次修复起，版本号未变，仍是 0.3.28）：
+
+1. `extraPathDirs()` 分平台。Windows 分支补 `%ProgramFiles%\nodejs`、`%APPDATA%\npm`、
+   `%LOCALAPPDATA%\Programs\Python`、`%ProgramFiles%\Git\cmd`、scoop/chocolatey shims 等；
+   并且 **PATH 分隔符跟平台走**（Windows 是 `;`）—— 写死 `:` 会让整个 PATH 变成
+   一个"目录名"，比不补还糟。
+2. **形状守卫**：`runtimes` 为空**且**存在失败项 → 一律标 `runtimesIncomplete: true`。
+   理由是代价不对称：误报"没装"会把一台能跑的机器**无声排除**；误报"未探准"只是
+   让人多问一句。代价是真正干净的容器会被标成"未探准" —— 可接受，那种机器本就该
+   由人确认，不该由探测替人拍板。
+
 诊断：`/mesh/api/state` 的 `self.capabilities`（本机）与 `peers[].capabilities`
 （对端）；`self.capabilityProbePath` 是探测实际使用的 PATH。
 
 回归脚本：
 
 ```bash
-npm test                     # = check + 四个回归脚本（共 136 项，默认不碰网络）
+npm test                     # = check + 四个回归脚本（共 141 项，默认不碰网络）
 npm run selftest             # 52 项：发现/通道/会话键
 npm run selftest:prompt      # 10 项：任务提示词（回派目标必须是机器名）
 npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）
