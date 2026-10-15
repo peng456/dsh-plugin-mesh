@@ -87,3 +87,37 @@ curl -s -m 300 -X POST -H "Authorization: token $TOKEN" -H "Content-Type: applic
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  ✓", d.get("name"), d.get("size"), "字节") if d.get("id") else print("  ✗", d.get("message"))'
 
 echo "✓ https://github.com/$REPO/releases/tag/$TAG"
+
+# ── 同步到局域网镜像，并打印可直接粘贴的升级命令 ──
+#
+# 为什么这一步要自动化：不能 git clone 的机器（实测那台 Android）连 github.com /
+# ghfast.top / gh-proxy.com 全都不通，唯一可用的通路就是同网段的镜像。以前每次
+# 发版都要手工 `cp` 一次到镜像目录，忘了就会出现"release 发了但对端下不到"——
+# 而且是**静默**的，对端只会报 404/超时。所以发完版顺手同步，并把命令打出来。
+#
+# 镜像目录可用 MESH_MIRROR_DIR 覆盖；目录不存在就跳过（不是每台机器都当镜子）。
+MIRROR_DIR="${MESH_MIRROR_DIR:-/Users/peng/mesh-mirror-8791}"
+if [ -d "$MIRROR_DIR" ]; then
+  cp "$DIST/$ASSET" "$MIRROR_DIR/" && echo "✓ 已同步到镜像 $MIRROR_DIR"
+  MIRROR_HOST="${MESH_MIRROR_HOST:-192.168.1.6:8791}"
+  cat <<EOF
+
+── 让对端升级（把 <PLUGIN> 换成它的插件目录）──────────────────
+# ⚠ Android 上**没有 /tmp**（根文件系统只读），必须用 \$TMPDIR
+T="\${TMPDIR:-\$HOME/tmp}"; mkdir -p "\$T"
+curl -fL -o "\$T/mesh-$VERSION.tar.gz" http://$MIRROR_HOST/$ASSET
+mkdir -p "\$T/mesh-new" && tar xzf "\$T/mesh-$VERSION.tar.gz" -C "\$T/mesh-new"
+grep -m1 '"version"' "\$T/mesh-new/package.json"     # 应显示 $VERSION
+
+PLUGIN=<对端插件目录>                                  # 例：\$HOME/.dsh/profiles/web/node_modules/dsh-plugin-mesh
+cp -R "\$PLUGIN" "\$PLUGIN.bak-$VERSION"
+rm -rf "\$PLUGIN/lib" "\$PLUGIN/client" "\$PLUGIN/scripts" "\$PLUGIN/sidecar"
+cp -R "\$T/mesh-new/lib" "\$T/mesh-new/client" "\$T/mesh-new/scripts" "\$T/mesh-new/sidecar" "\$PLUGIN/"
+cp "\$T/mesh-new/package.json" "\$T/mesh-new/cordis.patch.yml" "\$PLUGIN/"
+grep -m1 '"version"' "\$PLUGIN/package.json"          # 应显示 $VERSION
+# 然后**重启对端的 DSH** 才会加载新版本
+────────────────────────────────────────────────────────────
+EOF
+else
+  echo "（跳过镜像同步：$MIRROR_DIR 不存在）"
+fi

@@ -512,6 +512,37 @@ dsh plugin add /path/to/dsh-plugin-mesh
 （`bin.js:29`：profile "desktop" is managed exclusively by the Electron application），
 必须用应用自带的那个终端。
 
+### 升级已安装的插件
+
+`release-plugin.sh --publish` 发完版会**自动同步到局域网镜像**并打印一段可直接
+粘贴到对端的命令。对端（尤其是 Android，见下面的 `/tmp` 坑）执行后**必须重启 DSH**
+才会加载新版本。
+
+手工步骤就是：下载 → 解压 → 备份 → 覆盖 → 重启。
+
+```bash
+# 对端可写临时目录（Android 用 $TMPDIR，见下）
+T="${TMPDIR:-$HOME/tmp}"; mkdir -p "$T"
+curl -fL -o "$T/mesh-0.3.26.tar.gz" http://192.168.1.6:8791/dsh-plugin-mesh-0.3.26.tar.gz
+
+mkdir -p "$T/mesh-new" && tar xzf "$T/mesh-0.3.26.tar.gz" -C "$T/mesh-new"
+grep -m1 '"version"' "$T/mesh-new/package.json"     # 应显示目标版本
+
+PLUGIN="$HOME/.dsh/profiles/<profile>/node_modules/dsh-plugin-mesh"
+cp -R "$PLUGIN" "$PLUGIN.bak"
+rm -rf "$PLUGIN/lib" "$PLUGIN/client" "$PLUGIN/scripts" "$PLUGIN/sidecar"
+cp -R "$T/mesh-new/lib" "$T/mesh-new/client" "$T/mesh-new/scripts" "$T/mesh-new/sidecar" "$PLUGIN/"
+cp "$T/mesh-new/package.json" "$T/mesh-new/cordis.patch.yml" "$PLUGIN/"
+# 然后重启 DSH
+```
+
+先 `rm -rf` 那几个子目录再拷，是为了不让**上一版删掉的文件**残留下来。
+
+> ⚠️ **Android 上没有 `/tmp`**（根文件系统只读，`mkdir /tmp` 报
+> `Read-only file system`）。给 Android 的命令必须用 `$TMPDIR`，否则你会看到
+> `curl: (23) client returned ERROR on write` —— 一个看起来像网络故障、
+> 实际是"盘不存在"的错误。
+
 ### Windows 防火墙
 
 ```powershell
@@ -780,7 +811,7 @@ DSH_HOME=/tmp/mesh-dsh ELECTRON_RUN_AS_NODE=1 \
 node lib/_selftest-discovery.mjs alpha 45900 9000   # 两个进程同时跑可验证互相发现
 ```
 
-### ⚠️ 两个反复踩到的坑（改这个代码前请先读）
+### ⚠️ 三个反复踩到的坑（改这个代码前请先读）
 
 **1. 改 schema 的 `.default()` 不等于改生效值。** `cordis.patch.yml` 里显式写了
 的键会**覆盖** schema 默认值，用户 profile 里的 `cordis.patch.yml` 又是第三份。
@@ -800,6 +831,18 @@ grep -n "你要改的键" cordis.patch.yml ~/.dsh/profiles/*/cordis.patch.yml
 所以规矩是：**任何"我们没问出答案"的情况，都要和"答案是明确的否定"分开存**，
 并且要能被看见（`probeErrors` / `runtimesIncomplete` / `routeDecision` /
 `dispatchError` 都是这条规矩的产物）。
+
+**3. 环境差异会伪装成功能故障。** 实测两次，两次都先怀疑错了方向：
+
+- Android 上**没有 `/tmp`** → `curl -o /tmp/...` 报 `(23) ... on write`，
+  看着像网络问题，其实是根文件系统只读。对端命令一律用 `$TMPDIR`。
+- **GUI 启动的 DSH 继承的 PATH 极简**（`/usr/bin:/bin:/usr/sbin:/sbin`），
+  Homebrew / `~/go/bin` / conda 全都不在 → 能力探测报"什么运行时都没装"。
+  所以 `capabilities.js` 补全 PATH，`state().self.capabilityProbePath` 把实际
+  用的 PATH 暴露出来。
+
+教训：对端报"功能不对"时，**先确认那台机器的环境**（盘、PATH、shell），
+再怀疑代码。
 
 ### 能力名片（Placement 第 1 步）
 
