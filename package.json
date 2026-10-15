@@ -54,9 +54,11 @@
     "selftest:caps": "node lib/_selftest-capabilities.mjs",
     "selftest:newsession": "node lib/_selftest-newsession.mjs",
     "test": "npm run check && npm run selftest && npm run selftest:prompt && npm run selftest:client && npm run selftest:caps",
-    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
+    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js && npm run check:loadable",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
+    "check:loadable": "node scripts/check-loadable.mjs --allow-missing-runtime-dep",
+    "check:deploy": "node scripts/check-loadable.mjs",
     "check:scope": "python3 tools/scopecheck.py lib/index.js"
   },
   "peerDependencies": {

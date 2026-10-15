@@ -115,6 +115,12 @@ rm -rf "\$PLUGIN/lib" "\$PLUGIN/client" "\$PLUGIN/scripts" "\$PLUGIN/sidecar"
 cp -R "\$T/mesh-new/lib" "\$T/mesh-new/client" "\$T/mesh-new/scripts" "\$T/mesh-new/sidecar" "\$PLUGIN/"
 cp "\$T/mesh-new/package.json" "\$T/mesh-new/cordis.patch.yml" "\$PLUGIN/"
 grep -m1 '"version"' "\$PLUGIN/package.json"          # 应显示 $VERSION
+
+# ⚠ 重启前必须验「可加载」，光验"文件对得上"兜不住半态：新代码若新增了 import
+#   而落盘漏了那个文件，文件级 cmp 全绿、node --check 也全绿，但重启时 DSH
+#   加载插件会**当场崩**。只有真的 import 一次入口才复现得出来。
+node -e "(async()=>{const m=await import('file://\$PLUGIN/lib/index.js');console.log('✓ 可加载',Object.keys(m).join(','))})().catch(e=>{console.error('✗ 不可加载，**不要重启**，先回滚:',e.code||e.message);process.exit(1)})"
+# 退出码 0 才继续。回滚：rm -rf "\$PLUGIN" && mv "\$PLUGIN.bak-$VERSION" "\$PLUGIN"
 # 然后**重启对端的 DSH** 才会加载新版本
 ────────────────────────────────────────────────────────────
 EOF

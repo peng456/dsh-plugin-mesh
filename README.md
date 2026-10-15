@@ -538,6 +538,51 @@ cp "$T/mesh-new/package.json" "$T/mesh-new/cordis.patch.yml" "$PLUGIN/"
 
 先 `rm -rf` 那几个子目录再拷，是为了不让**上一版删掉的文件**残留下来。
 
+#### ⚠️ 重启前必须先验「可加载」，不能只验「文件对得上」
+
+升级是**先落盘、后重启**两段式的，中间有一段**半态窗口**：磁盘已是新版本，
+进程还是旧版本（`VERSION` 是启动时读入的常量，不跟着磁盘变）。这个窗口里如果
+新代码**新增了一个 import 而落盘漏了那个文件**，重启会在 DSH 加载插件时**当场崩**。
+
+两种常规自检都兜不住这个失败模式：
+
+| 自检 | 为什么兜不住 |
+| --- | --- |
+| `find` + 逐字节 `cmp` | 被漏掉的文件**根本不在磁盘上**，没有"不一致"可比对，只会报全部一致 |
+| `node --check <file>` | 只做**单文件语法**解析，不解析 import 图，缺文件照样通过 |
+
+唯一能精确复现"重启即崩"的，是**从安装路径实际 import 一次入口**：
+
+```bash
+PLUGIN="$HOME/.dsh/profiles/<profile>/node_modules/dsh-plugin-mesh"
+
+# ① 一条命令版（不依赖安装路径里有脚本，任何机器都能跑）
+node -e "(async()=>{const m=await import('file://$PLUGIN/lib/index.js');console.log('OK',Object.keys(m))})()"
+
+# ② 仓库里的封装命令（打印版本/exports，退出码可直接当门禁）
+npm run check:deploy -- "$PLUGIN"          # 严格模式：面向"落盘后的安装路径"
+npm run check:loadable                     # 仓库自检：忽略"缺运行时依赖"这一类误报
+```
+
+退出码 **0 = 可加载**，非 0 = **别重启，先回滚**。`check:loadable` 已挂在
+`npm run check` 末尾，发版时就会跑到。
+
+> ⚠️ `check-loadable.mjs` **不能 `cd "$PLUGIN"` 再跑** —— 升级只覆盖
+> `lib/client/sidecar/scripts`，但你手上这份安装目录未必带 `scripts/`（我的就没有），
+> 于是 `node scripts/check-loadable.mjs` 会报 `Cannot find module`。那是"脚本不在
+> 那儿"，**不是**半态。所以校验脚本要放在**仓库**里、把安装路径当参数传；或者用
+> 上面 ① 那行 `node -e`，它不需要安装目录里有任何脚本。
+>
+> ⚠️ 校验**仓库**副本时缺 `@deepseek-ai/dsh-brand` 是正常的（那是 DSH 运行时提供的
+> 依赖，只有安装路径才解析得到），别误判成半态 —— 这就是 `check:loadable` 要加
+> `--allow-missing-runtime-dep` 的原因。
+
+> 这一步是拿真实事故换来的：0.3.28 新增了 `lib/prompt.js` 并由 `index.js` 顶层
+> import 它，磁盘一度处于"新 `index.js` + 缺 `prompt.js`"的半态 —— `cmp` 全绿、
+> `--check` 全绿，差点带着它重启。由对端 hos 复现并给出这条做法，实测有效。
+
+回滚就是 `cp -R "$PLUGIN.bak" "$PLUGIN"`，再重跑一次上面的校验。
+
 > ⚠️ **Android 上没有 `/tmp`**（根文件系统只读，`mkdir /tmp` 报
 > `Read-only file system`）。给 Android 的命令必须用 `$TMPDIR`，否则你会看到
 > `curl: (23) client returned ERROR on write` —— 一个看起来像网络故障、
