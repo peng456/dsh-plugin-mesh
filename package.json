@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-mesh",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "type": "module",
   "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例，并可通过内置的 Tailscale 用户态节点跨互联网自组网，双向派发任务。",
   "license": "MIT",
@@ -49,7 +49,7 @@
     "selftest:live": "node lib/_selftest-tsnet-live.mjs",
     "selftest:tailnet": "node lib/_selftest-tsnet-tailnet.mjs",
     "selftest:lan": "node lib/_selftest-discovery.mjs",
-    "check": "node scripts/check-version.mjs && node --check lib/index.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
+    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check client/client.js",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
     "check:scope": "python3 tools/scopecheck.py lib/index.js"
