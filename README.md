@@ -99,6 +99,27 @@ curl -fsS --max-time 3 http://127.0.0.1:45917/mesh/v1/health   # 取 .version
 
 （不依赖 `node`：优先 `python3` 解 JSON，退回到正则抠 `version` 字段。）
 
+##### ⚠️ 只许比 `version`；两条轴**互补，缺一不可**
+
+**① 绝不能把 `capabilities` 拉进这个比对"求更严"。**
+能力块（`gpu` / `runtimes` / `capabilitiesAt`）是**热刷新**的，与重启完全解耦：
+实测同一个 pid 在不重启的情况下 `capabilitiesAt` 一路前进，而 `version` 纹丝不动。
+把能力字段纳入比对会造成**反向误诊**。对端给过的反例：它进程是 0.3.27 旧码，
+但"磁盘代码采出的 `gpu`"与"进程报的 `gpu`"**都是 `null`**，两者相等 → 检查会
+误判成"新码已加载"。**能力相等什么都证明不了。**
+
+**② 两条轴管的是不同的失败**：
+
+| 轴 | 时机 | 兜住的失败 | 工具 |
+| --- | --- | --- | --- |
+| ① 可加载性 | 重启**前** | **半加载**：`index.js`/`package.json` 已是新版，但新 import 的文件没拷全 → 重启即崩 | `check-loadable.mjs`（真 import 一次入口） |
+| ② 进程自述版本 | 重启**后** | **加载了但没重启**：磁盘换了、进程还是旧码 | `/mesh/v1/health` 的 `.version` |
+
+`version` 检查**覆盖不到半加载**：那种情况下它读到的是**新**版本号（常量来自
+`index.js`，而 `index.js` 已经换过了），于是**正确地**报新版本、检查**放行**，
+可进程 import 时直接 `ERR_MODULE_NOT_FOUND` 崩。
+所以只做 ② 会漏半加载，只做 ① 会漏"加载了但没重启"。
+
 ### 组播的作用范围：比"局域网"更窄
 
 `239.255.42.99:45892` 是我在私有组播段里挑的（`239.0.0.0/8` 是 RFC 2365 定义的
@@ -1008,29 +1029,43 @@ capabilities: {
    一个"目录名"，比不补还糟。
 2. **形状守卫**：`runtimes` 为空**且**存在失败项 → 标 `runtimesIncomplete: true`
    （"整批归零"的形状，几乎必定是 PATH 问题）。
-3. **PATH 健全判据**（最关键的一条）：主 PATH 里**没有任何本平台常见工具目录**
-   → 也算"未探准"。因为此时"找不到"可能只是"没覆盖到"，**所有 ENOENT 结论都不可信**。
-   **Android 单列**：它没有"Unix 常见目录"这套前提（Termux 的 prefix 是唯一常用落点、
-   `/system/bin` 在多数设备的 PATH 里并不存在、root 与 `termux-exec` 都会改变布局），
-   所以我们**无法可靠区分"没装"与"装在别的 prefix"** → **Android 上 ENOENT 一律
-   当作不确定**。代价是 Android 侧可能过度谨慎；收益是不再对"这台没有 go"下没有依据的断言。
+3. **补全生效判据**（最关键的一条）：`extraPathDirs()` 在**这台机器上**一个存在的
+   目录都加不进去 → 说明我们自己的兜底没做成 → 此时 **所有 ENOENT 结论都不可信**，
+   照样标 `runtimesIncomplete: true`。
 
-##### 为什么是"PATH 健全"而不是"有失败就报"
+##### 判据为什么用"补全有没有生效"，而不是"目录白名单"
 
-对端 hos 曾提议把判据简化成"`errors.length > 0` → incomplete"（失败即不确定）。
-**这条会误报**，我拒绝了，理由是实测反例 —— 就是本机：
+一开始我写的是"主 PATH 里有没有本平台常见工具目录"（硬编码 `darwin`/`linux`/`android`
+三套根）。对端当场指出这会**假阳性**：它的 runtimes 实际住在
+`/data/data/com.dsharnessmobile.shell/files/usr/bin`，**不在任何常见白名单里** ——
+白名单一旦遇到白名单之外的 prefix 就会误判"PATH 残缺"。
+
+改成**自校验**式：问的不是"PATH 里有没有我认识的目录"，而是
+**"我们自己的兜底机制有没有真的加进一个存在的目录"**。这与平台布局无关，
+也不需要维护清单；Windows（`%ProgramFiles%\nodejs` 不存在时）和 Android/Termux
+都自然落到"补全没生效 → ENOENT 不可信"，而 darwin/linux 正常机器落到"生效 → 可信"。
+
+##### 为什么不是"有失败就报"
+
+对端 hos 曾提议简化成"`errors.length > 0` → incomplete"。**这条会误报**，
+我拒绝了，理由是实测反例 —— 就是本机：
 
 | 机器 | runtimes | ENOENT 项 | 那些项真的没装吗 | 正确结论 |
 | --- | --- | --- | --- | --- |
 | 本机 darwin | 6 个（非空） | `rustc`、`adb` | **是**，`command -v` 也找不到 | `incomplete=false` ✅ |
 | 文超-win | **0 个** | 全部 | 否 —— 它跑在 Node 上 | `incomplete=true` ✅ |
-| 对端 Android | 3 个（非空） | 6 项 | **无法判定**（prefix 布局不可靠） | `incomplete=true` ✅ |
+| 对端 Android | 3 个（非空） | 6 项 | **是**（它自查 `command -v` 确认） | `incomplete=false` ✅ |
 
 按"有失败就报"，本机会被误标成 incomplete（`rustc`/`adb` 真的没有），于是 Placement
-永远不敢断言"这台机器没装 rustc"。**判断 ENOENT 可不可信的依据是 PATH 健不健全，
-不是失败项有多少。** 三道防线合起来才能同时覆盖"整批归零"、"非空但部分失败"
-（Android 那台就是这一格 —— 早先的形状守卫**按设计修不到它**，是对端连续两轮
-指出来的），并且不误伤正常机器。
+永远不敢断言"这台机器没装 rustc" —— **代价不是"谨慎"，是让这个字段失去区分度**。
+
+> 这一行的第三个格曾反复过：对端先断言"我这台是活反例"，我据此把 Android 改成
+> 无条件 `incomplete=true`；**随后它自己跑了 `command -v`，确认那 6 个确实都没装，
+> 于是撤回**。那条无条件改动是**假阳性**，已随本判据一起改掉。
+> 教训：`command -v` 自查是**必要条件不是充分条件** —— `FOUND` 能证伪
+> （一定有 ⇒ 真漏报），`absent` **只在 PATH 健全时才可下结论**，而这条自查用的
+> 正是同一个 PATH 机制，所以它本身是**循环**的。另外它对 shell 生效，探针走的是
+> node 子进程的 PATH，两者在异常环境下可能不同。
 
 ##### `probeFailCount`：让失败信号**能过网线**
 
@@ -1065,7 +1100,7 @@ capabilities: {
 回归脚本：
 
 ```bash
-npm test                     # = check + 四个回归脚本（共 149 项，默认不碰网络）
+npm test                     # = check + 四个回归脚本（共 139 项，默认不碰网络）
 npm run selftest             # 52 项：发现/通道/会话键
 npm run selftest:prompt      # 10 项：任务提示词（回派目标必须是机器名）
 npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）

@@ -204,6 +204,20 @@ app_pid_list() { app_pids | tr '\n' ' '; }
   # 踩过：升级窗口里磁盘 16:11:06 就是 0.3.28、进程到 16:14:06 才换 —— 那段
   # 时间日志里三行全是绿的，但跑的还是旧码。VERSION 是**启动时冻结**的常量，
   # 所以"进程自述的版本"才是唯一硬证据，而它只有 /mesh/v1/health 给得出。
+  #
+  # ⚠️ **只许比 version，绝不把 capabilities 拉进来"求更严"。**
+  # 能力块（gpu / runtimes / capabilitiesAt）是**热刷新**的，与重启完全解耦：
+  # 实测同一个 pid 在不重启的情况下 capabilitiesAt 一路前进，而 version 纹丝不动。
+  # 把能力字段纳入比对会造成**反向误诊** —— 对端 hos 给过反例：它进程是 0.3.27
+  # 旧码，但"磁盘代码采出的 gpu"与"进程报的 gpu"都是 null，两者相等 → 会误判成
+  # "新码已加载"。**能力相等什么都证明不了。**
+  #
+  # 另一头：本检查**覆盖不到"半加载"**（package.json/index.js 已是新版本、
+  # 但 lib/prompt.js 还没拷进来）。那种情况下 version 会**正确地**报新版本、
+  # 这里会放行，而进程 import 时直接 ERR_MODULE_NOT_FOUND 崩掉。
+  # 兜住那一类的是**重启前**的 `scripts/check-loadable.mjs`（从安装路径真 import
+  # 一次入口）。两条是**互补的两轴**：① 重启前排除半加载 ② 重启后证明加载了当前磁盘。
+  # 只做 ② 会漏半加载；只做 ① 会漏"加载了但没重启"。缺一不可。
   PORT="${MESH_PORT:-45917}"
   up=""
   for _ in $(seq 1 30); do
