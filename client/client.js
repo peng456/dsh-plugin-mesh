@@ -442,6 +442,96 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 「这台机器能干什么」——Placement 第 2 步的展示层。
+     *
+     * 三种「不知道」必须**分开显示**，绝不能都渲染成「什么都没装」：
+     *   · 对端没报能力     → 明说「未知」（老版本插件 / 还没采集完）
+     *   · 报过但已过期     → 标「能力已过期」，仍展示但仅供参考
+     *   · 有探测项没探准   → 标「探测未探准」，并说明此处的「缺失」不能当结论
+     *
+     * 混起来显示的后果很具体：用户看到一台没有任何运行时的机器，会把任务派到
+     * 跑不了的机器上；而真正的原因（对端没报 / 探测超时）反而完全看不见。
+     */
+    function CapabilityLine({ peer }) {
+      const caps = peer && peer.capabilities;
+      if (!caps) {
+        return h(
+          "div",
+          { style: { ...S.muted, marginTop: 4 } },
+          "能力：未知（对端未上报；可能是旧版本插件，或还没采集完）",
+        );
+      }
+
+      // 形状校验不能省：`Object.entries("nope")` 会给出 ["0","n"],["1","o"]…
+      // 于是坏数据会被渲染成一串莫名其妙的徽章，而不是干净地降级。
+      // （正常路径上主机侧已经净化过，但渲染函数应该是全函数。）
+      const rtRaw = caps.runtimes;
+      const runtimes =
+        rtRaw && typeof rtRaw === "object" && !Array.isArray(rtRaw) ? Object.entries(rtRaw) : [];
+      const badges = runtimes.map(([name, ver]) =>
+        h(
+          "span",
+          { key: `rt-${name}`, style: { ...S.tag, color: "#1a7f37", borderColor: "#8cd19d" } },
+          `${name} ${ver}`,
+        ),
+      );
+
+      const specs = [];
+      if (caps.cpuCores) specs.push(`${caps.cpuCores} 核`);
+      if (caps.memMb) specs.push(`${Math.round(caps.memMb / 1024)} GB 内存`);
+      if (caps.arch) specs.push(caps.arch);
+
+      const hints = caps.workspaceHints || [];
+      // 悬停给出完整信息：徽章只放最需要一眼看到的东西
+      const tip = [
+        `操作系统：${caps.os || "?"}`,
+        `运行时：${runtimes.length ? runtimes.map(([k, v]) => `${k} ${v}`).join("、") : "（未探到）"}`,
+        caps.gpu && caps.gpu.name
+          ? `显卡：${caps.gpu.name}${caps.gpu.vramMb ? ` ${caps.gpu.vramMb}MB` : ""}`
+          : "显卡：未探到或没有独立显卡",
+        hints.length ? `常用目录：${hints.join("  ")}` : "",
+        caps.capabilitiesAt ? `采集于 ${new Date(caps.capabilitiesAt).toLocaleString()}` : "采集时间未知",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return h(
+        "div",
+        {
+          style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 5 },
+          title: tip,
+        },
+        badges.length ? badges : h("span", { style: S.muted }, "未探到运行时"),
+        caps.gpu && caps.gpu.name
+          ? h("span", { style: { ...S.tag, color: "#8250df", borderColor: "#c9a7f5" } }, `GPU ${caps.gpu.name}`)
+          : null,
+        specs.length ? h("span", { style: S.muted }, specs.join(" / ")) : null,
+        peer.capabilitiesStale
+          ? h(
+              "span",
+              {
+                style: { ...S.tag, color: "#bf8700", borderColor: "#e0b64a" },
+                title: "对端的能力名片太旧了，可能已经不准（比如中途装了新运行时）",
+              },
+              "能力已过期",
+            )
+          : null,
+        caps.runtimesIncomplete
+          ? h(
+              "span",
+              {
+                style: { ...S.tag, color: "#bf8700", borderColor: "#e0b64a" },
+                title:
+                  "对端有探测项没探准（多半是它当时机器忙、探测超时）。" +
+                  "所以这里「没有某个运行时」不能当结论用 —— 别据此排除这台机器。",
+              },
+              "探测未探准",
+            )
+          : null,
+      );
+    }
+
     function PeerRow({ peer, onSend, onProbe, probe }) {
       const target = peer.machine;
       return h(
@@ -503,6 +593,8 @@ window.__ModuleLoader__.load({
             peer.profile ? ` · profile=${peer.profile}` : "",
             ` · 最后心跳 ${new Date(peer.lastSeen).toLocaleTimeString()}`,
           ),
+          // 这台机器能干什么 —— 决定任务该派给谁的依据
+          h(CapabilityLine, { peer }),
           peer.hostname || peer.mac
             ? h(
                 "div",
@@ -728,6 +820,20 @@ window.__ModuleLoader__.load({
               h("button", { style: S.btnSm, onClick: () => setTab(tab === "peers" ? "tasks" : "peers") }, tab === "peers" ? "看任务记录" : "看机器列表"),
             ),
           ),
+          // 本机也能干什么 —— 和下面每台对端并排看，才知道"这活该放哪"
+          h(
+            "div",
+            { style: { ...S.peer, flexDirection: "column", alignItems: "stretch", background: "var(--dsw-alias-bg-base, #fafbfc)" } },
+            h(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+              h("span", { style: S.tag }, "本机"),
+              h("strong", null, self.machine || "?"),
+              h("span", { style: { ...S.muted, ...S.mono } }, `${self.host || "?"}:${self.port || "?"}`),
+            ),
+            // self 没有 capabilitiesStale（本机的能力是现算的，不存在过期）
+            h(CapabilityLine, { peer: { capabilities: self.capabilities || null } }),
+          ),
           tab === "peers"
             ? peers.length === 0
               ? h(
@@ -840,6 +946,13 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
+    // 仅供仓库内自测（`lib/_selftest-client.mjs`）。浏览器侧只读 apply/inject。
+    //
+    // 为什么要有这个出口：这是个**手写 bundle、没有构建步骤**，而这个安装里
+    // 也没有 react-dom，所以没有别的方式在无浏览器环境下验证渲染逻辑。
+    // 组件都是纯函数（CapabilityLine 不用 hook），拿 createElement 的返回树
+    // 直接走一遍就能断言文案与标记 —— 比"看代码觉得对"强得多。
+    exports.__test = { CapabilityLine, PeerRow, MeshPage };
     return module.exports;
   },
 });

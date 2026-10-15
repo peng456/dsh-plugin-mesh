@@ -433,6 +433,8 @@ VPN，换网 MAC 就变；iOS / Android / macOS 现在默认按 SSID 使用随�
 | **老版本对端向后兼容** | ✅ 对 0.3.18 与 0.3.24 的对端显示「能力未知」且不报错，其余功能照常 |
 | **同机两实例并存** | ✅ 两个 profile 同时在线，互不顶掉（指纹认领加了边界条件前会被互相删除） |
 | **探测失败可辨识 + 串行重试** | ✅ 自测里用「睡 4 秒再报版本」的假命令验证：首轮超时 → 串行重试拿到真值（7343ms） |
+| **Mesh 页面展示能力** | ✅ 每个运行时一枚徽章 + GPU + 规格，悬停给完整信息；三种「不知道」分开渲染 |
+| **客户端渲染（无浏览器）** | ✅ 12 项：假 module loader + 最小 react stub，遍历 `createElement` 返回树断言文案 |
 
 **没验证的**（如实说明）：
 - 没在你**正在运行的** DSH Desktop 里验证 —— 需要重启应用，会掐断本次会话。
@@ -825,9 +827,19 @@ capabilities: {
 回归脚本：
 
 ```bash
+npm test                     # = check + 三个回归脚本（共 120 项，默认不碰网络）
+npm run selftest             # 52 项：发现/通道/会话键
+npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）
 npm run selftest:caps        # 56 项：净化/过期/重试/名片兼容/认领边界
 npm run selftest:newsession  # 需要先跑起 dev 实例，见文件头注释
 ```
+
+**客户端怎么在没有浏览器的情况下测**：这是个手写 bundle、没有构建步骤，安装里
+也没有 react-dom。但组件都是纯函数（不用 hook），`createElement` 的返回树就是普通
+对象 —— 所以 `_selftest-client.mjs` 用假的 `window.__ModuleLoader__` 把 factory
+抓出来，用最小 react stub 执行它，再直接调用组件、遍历返回树断言文案。这比"看代码
+觉得对"强：写这套测试时当场抓到一个真 bug（形状不对的 `runtimes` 会被渲染成一串
+乱码徽章，而不是干净降级）。
 
 ---
 
