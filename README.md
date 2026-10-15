@@ -50,7 +50,11 @@ DSH 的 Mesh 插件：**启动后自动发现同一网段的其他 DSH 实例**�
 | 端口 | 绑定 | 谁能读 |
 | --- | --- | --- |
 | `45917`（mesh 口） | `*:45917`（全网卡） | **局域网内任意机器** —— `/mesh/v1/health`（免鉴权）、`/mesh/v1/peers`（需配对） |
-| DSH 的 Web/GUI 端口（我这台是 `43120`） | `127.0.0.1:43120`（**仅 loopback**） | 只有本机。`/mesh/api/state` 挂在这上面，**跨机一定读不到** |
+| DSH 的 Web/GUI 端口（这台的 Mac 是 `43120`，Android 对端是 `3080`） | `127.0.0.1:<端口>`（**仅 loopback**） | 只有本机。`/mesh/api/state` 挂在这上面，**跨机一定读不到** |
+
+> 已在 **macOS 与 Android 两个独立平台**实测同构（不是某个平台的特性）：
+> `127.0.0.1:<GUI端口>/mesh/api/state` → 200，`<LAN IP>:<GUI端口>/...` → 连不上；
+> 而 `<LAN IP>:45917/mesh/v1/health` → 200。GUI 端口各平台不同（loopback-only 相同）。
 
 所以：
 
@@ -60,6 +64,13 @@ DSH 的 Mesh 插件：**启动后自动发现同一网段的其他 DSH 实例**�
   `id === this.#id`）。读本机的 version 要看 `state.self` 或直接打 `/mesh/v1/health`。
 - 跨机排查时**不要**把 GUI 端口写进任何文档或脚本 —— 它在对端一定是不通的，
   而失败现象（连接超时/拒绝）看起来像"对端没开服务"，很容易误诊。
+- **受限环境下本机 socket 表可能根本读不到**（Android 无 root：`ss` 报
+  `netlink socket: Permission denied`、`netstat` 不支持 AF_INET、`/proc/net/tcp`
+  也 denied）。这时**别据"读不到"下结论** —— 只能靠**功能判据**：
+  `192.168.x.x:<mesh端口>/mesh/v1/health` 通 → 对外可服务；
+  同一 IP 的 GUI 端口不通 → 证实它 loopback-only。
+  "本机看不到 socket 表" + "跨机读 GUI 面失败" 两者叠加，现象与"对端没开服务"
+  **完全一样** —— 这正是最容易误诊的组合，必须用双向探测把两者分开。
 
 > 这组区分是踩出来的：跨机验证重启时用 `/mesh/api/state` 会拿到 403/连不上，
 > 用 `/mesh/v1/health` 才拿得到对端自述的 `version`（判断"进程是否已重启"的
@@ -1000,13 +1011,32 @@ capabilities: {
    让人多问一句。代价是真正干净的容器会被标成"未探准" —— 可接受，那种机器本就该
    由人确认，不该由探测替人拍板。
 
+#### `gpu === null` 有**三种**成因，投影层区分不了
+
+| 成因 | 含义 |
+| --- | --- |
+| ① 对端没有 `capabilities` 字段（版本 < 0.3.25） | 不支持 |
+| ② 有字段，但探测本身没给出结论（`nvidia-smi` ENOENT / 超时等） | 探测未果 |
+| ③ 有字段，对端**明确报了** `present:false` | 对端说"没有"，但…… |
+
+③ 的特殊之处：`sanitizeCapabilities` 里 `const name = safeStr(raw.gpu.name,60); if (name) gpu = {...}`
+—— **名字为空就把整块 gpu 丢掉**。也就是说对端想说"确定没有"，经投影会被
+**提升成"未知"**。方向与我们常防的"自家 bug 伪装成对端事实"（假阳性）**相反**：
+这是"对端事实被抹成未知"（假阴性→未知）。对 Placement 的影响是**保守**的
+（不会误排除机器），但语义上 `null` 不再等于"不知道"。
+
+根上已收口：解析函数**解析不出型号一律返回 `null`**（不再返回
+`{present:false,name:""}`），所以成因 ③ 现在不可达。见下方 `parseMacGpu`。
+要真正区分三者，仍需要在接收侧保留"原始名片有没有这个 key / present 是什么"
+的额外位 —— 目前没有，与 `capabilities` 那条结论同源。
+
 诊断：`/mesh/api/state` 的 `self.capabilities`（本机）与 `peers[].capabilities`
 （对端）；`self.capabilityProbePath` 是探测实际使用的 PATH。
 
 回归脚本：
 
 ```bash
-npm test                     # = check + 四个回归脚本（共 141 项，默认不碰网络）
+npm test                     # = check + 四个回归脚本（共 142 项，默认不碰网络）
 npm run selftest             # 52 项：发现/通道/会话键
 npm run selftest:prompt      # 10 项：任务提示词（回派目标必须是机器名）
 npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）
