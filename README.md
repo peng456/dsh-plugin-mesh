@@ -361,18 +361,36 @@ DSH profile 通过 `~/.dsh/mesh/tsnet/rendezvous.json` 复用同一个 sidecar�
 
 ## 身份与命名
 
-每台机器有**两个**标识，分工不同：
+每台机器有**三个**标识，分工不同：
 
 | 标识 | 是什么 | 稳定性 | 用途 |
 |---|---|---|---|
-| **instanceId** | 启动时随机生成的 8 字节 hex | 每次启动都变 | 内部用：去重、识别"这条是我自己发的" |
+| **instanceId** | 持久 UUID（存在 `state.json`） | 同一 profile 内不变 | 内部用：去重、识别"这条是我自己发的" |
 | **machineName** | 人可读的名字，如 `客厅的Mac` | 持久保存 | 你和 agent 用它指代这台机器 |
+| **fingerprint** | OS 机器 ID 的 sha256 截断（见 `lib/identity.js`） | 按**物理机**不变 | 只用来**认领**：state.json 丢了/插件重装后，认出"这还是同一台机器" |
+
+**为什么身份用 UUID 而不是 MAC**：一台笔记本同时有 Wi-Fi / 有线 / Thunderbolt 网桥 /
+VPN，换网 MAC 就变；iOS / Android / macOS 现在默认按 SSID 使用随机 MAC；Android 上
+也拿不到稳定 ID。用 MAC 当身份会让"切个网"变成"多出一台新设备"。指纹经过 sha256
+截断后才上网，不可逆推硬件 ID。
 
 **名字解析优先级**：插件配置 `machineName` > 用户首次启动时填的 > 系统主机名。
 
 首次启动时（还没命名过、落在主机名上）Mesh 页面会主动问你一次：输入框预填主机名，
 点「就这个」直接用，或改成你想要的名字。名字存在 `$DSH_HOME/mesh/state.json`
 （和配对码同一个文件，权限 0600），**改完立刻重新广播**，对端不用重启就能看到。
+
+### 指纹认领的边界（同一台机器上跑多个 profile）
+
+指纹是**按物理机**算的，所以同一台 Mac 上的每个 DSH profile 指纹都相同。认领
+因此有个必须的条件，否则两个都活着的实例会**互相删掉对方**（连自己都被删）：
+
+| 情况 | 是否认领 |
+|---|---|
+| 指纹相同 + **机器名相同** | ✅ 认领（重装/丢 state.json，名字一般不变） |
+| 指纹相同 + 机器名不同 + **旧记录已离线** | ✅ 认领（重启残留，正是认领要解决的场景） |
+| 指纹相同 + 机器名不同 + **两台都在线** | ❌ **不认领**（同机两个 profile，各自合法） |
+| 指纹不同 | ❌ 绝不认领（不同物理机，重名交给重名告警） |
 
 ### 重名怎么办
 
@@ -410,6 +428,11 @@ DSH profile 通过 `~/.dsh/mesh/tsnet/rendezvous.json` 复用同一个 sidecar�
 | 客户端 bundle 被提供 | ✅ 出现在 `__DSH_BOOT__`，路由 200，内容与源码逐字节一致 |
 | UI 页面渲染 | ✅ 机器列表 / 任务记录两个 tab |
 | 不花你的 token | ✅ 测试环境无模型密钥，agent 止步于 `no API key` |
+| **`newSession` 强制新起会话** | ✅ 同一 thread 隔 8 秒发两条：带 `newSession` → 绑到两个不同 `mesh-*` 会话；**对照组不带 → 复用同一个**（证明差异确实来自这个标志） |
+| **能力名片双向交换** | ✅ 两个真实实例互相拿到对方完整 `runtimes`（node/python/go/docker/git/ffmpeg）+ CPU/内存/GPU |
+| **老版本对端向后兼容** | ✅ 对 0.3.18 与 0.3.24 的对端显示「能力未知」且不报错，其余功能照常 |
+| **同机两实例并存** | ✅ 两个 profile 同时在线，互不顶掉（指纹认领加了边界条件前会被互相删除） |
+| **探测失败可辨识 + 串行重试** | ✅ 自测里用「睡 4 秒再报版本」的假命令验证：首轮超时 → 串行重试拿到真值（7343ms） |
 
 **没验证的**（如实说明）：
 - 没在你**正在运行的** DSH Desktop 里验证 —— 需要重启应用，会掐断本次会话。
@@ -755,6 +778,57 @@ DSH_HOME=/tmp/mesh-dsh ELECTRON_RUN_AS_NODE=1 \
 node lib/_selftest-discovery.mjs alpha 45900 9000   # 两个进程同时跑可验证互相发现
 ```
 
+### ⚠️ 两个反复踩到的坑（改这个代码前请先读）
+
+**1. 改 schema 的 `.default()` 不等于改生效值。** `cordis.patch.yml` 里显式写了
+的键会**覆盖** schema 默认值，用户 profile 里的 `cordis.patch.yml` 又是第三份。
+所以改默认值时必须查三处：
+
+```bash
+grep -n "你要改的键" cordis.patch.yml ~/.dsh/profiles/*/cordis.patch.yml
+```
+
+漏了的话现象是"代码改了、行为完全没变"，极容易误判成代码没生效。
+
+**2. "探测失败"绝不能等同于"没有"。** 这个项目已经因此吃亏两次：
+
+- `execFile` 超时/失败一律降级成空 → 机器忙时名片报出"什么运行时都没装"
+- 只有 `status` 没有原因 → 任务卡在 `dispatch-failed` 时无从查起（后来加了 `dispatchError`）
+
+所以规矩是：**任何"我们没问出答案"的情况，都要和"答案是明确的否定"分开存**，
+并且要能被看见（`probeErrors` / `runtimesIncomplete` / `routeDecision` /
+`dispatchError` 都是这条规矩的产物）。
+
+### 能力名片（Placement 第 1 步）
+
+每台设备启动后采集一次自己的能力并**挂在现有名片上**广播（不新增协议、
+不在心跳里探测）：
+
+```js
+capabilities: {
+  os, arch, cpuCores, memMb,
+  runtimes: { node: "20.19", python: "3.12", go: "1.25", ... },
+  gpu: { present, name, vramMb } | null,
+  workspaceHints: ["~/projects"],   // 家目录缩写成 ~，不带用户名
+  runtimesIncomplete: false,        // true = 有探测项没探准，缺失不能当结论
+  capabilitiesAt: 1791999999999
+}
+```
+
+对面收到后净化（限长、封顶、剥控制字符）再存。**`null` 与 `{}` 语义不同**：
+`null` = 还没报（老版本 / 刚开始采集）→ 该去问人；`{}` = 报过了确实没有 →
+可以直接排除。`runtimesIncomplete` 为真时同理不可用于硬门槛判断。
+
+诊断：`/mesh/api/state` 的 `self.capabilities`（本机）与 `peers[].capabilities`
+（对端）；`self.capabilityProbePath` 是探测实际使用的 PATH。
+
+回归脚本：
+
+```bash
+npm run selftest:caps        # 56 项：净化/过期/重试/名片兼容/认领边界
+npm run selftest:newsession  # 需要先跑起 dev 实例，见文件头注释
+```
+
 ---
 
 ## 文件结构
@@ -765,12 +839,19 @@ dsh-plugin-mesh/
 ├── cordis.patch.yml       # 只插入本插件（含默认配置）
 ├── lib/
 │   ├── index.js           # 主机侧：发现编排 + 对端 HTTP + agent 工具 + UI 接口 + 入站唤醒
-│   ├── discovery.js       # UDP 组播被动发现 + 对端注册表 + 过期清理
+│   ├── discovery.js       # UDP 组播被动发现 + 对端注册表 + 过期清理 + 指纹认领
+│   ├── identity.js        # 持久 UUID 身份 + OS 机器指纹（只用于认领）
+│   ├── conversation.js    # 会话键 + 回信地址（两端各自算，不协商）
+│   ├── capabilities.js    # 能力采集/净化/摘要（Placement 第 1 步）
 │   ├── scan.js            # 主动扫描（固定端口 + CIDR 展开）
-│   └── _selftest-discovery.mjs
+│   ├── tsnet/             # 用户态 tailscale 节点（sidecar 下载/管理/桥接）
+│   └── _selftest-*.mjs    # 回归脚本（默认不碰网络）
+├── sidecar/               # Go 源码：tsnet 用户态节点
 ├── client/
 │   └── client.js          # 浏览器侧：手写 bundle，无需打包工具
 ├── dev-setup.sh           # 隔离测试环境搭建
 ├── dev-boot.mjs           # 带模块解析器的测试启动器
+├── Placement设计.md        # 步骤 ③ 设计 + 实施记录
+├── 设备身份与多通道设计.md   # 步骤 ① 设计
 └── README.md
 ```
