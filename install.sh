@@ -122,7 +122,11 @@ if [ -d "$DEST" ]; then
   run "rm -rf '$DEST'"
 fi
 run "mkdir -p '$DEST'"
-for item in lib client package.json cordis.patch.yml README.md LICENSE; do
+# `scripts/` 必须一起装：里面是 check-loadable.mjs（重启前的半态门禁）和
+# restart-dsh.sh 自己 —— restart-dsh.sh 会从**安装树**里取门禁脚本来跑。
+# 漏掉它不会报错，只会让门禁被 `[ -f ]` **静默跳过**（"设计了但没接线"，
+# 实测就是这么发生的）。发布 tar 包一直含 scripts/，只有这里漏了。
+for item in lib client scripts package.json cordis.patch.yml README.md LICENSE; do
   [ -e "$SRC/$item" ] || continue
   run "cp -R '$SRC/$item' '$DEST/'"
 done

@@ -49,6 +49,19 @@ detect_app() {
   [ -n "$best" ] && printf '%s' "$best"
 }
 
+# ── --check-only：只跑重启前检查，绝不碰 DSH ──────────────────
+#
+# 为什么需要它：否则"验证这个脚本"和"真的重启一次"没法分开，而重启会杀掉
+# 正在验证它的那条会话 —— 结果是没人会去验证它。实测就是这么漏掉一个
+# `unbound variable`（脚本在杀 DSH 之前 abort，日志里只有一行，看起来像
+# "重启了但没生效"）。
+CHECK_ONLY=0
+if [ "${1:-}" = "--check-only" ]; then
+  CHECK_ONLY=1
+  DELAY=0
+  shift || true
+fi
+
 # ── --install：装成 launchd 任务 ───────────────────────────────
 if [ "${1:-}" = "--install" ]; then
   [ -n "${2:-}" ] && DELAY="$2"
@@ -139,12 +152,23 @@ app_pid_list() { app_pids | tr '\n' ' '; }
   #   · 下面那条挡的是"加载了但不是新代码"。
   # 只做下面那条会放过半态（version 会**正确地**报新版本、检查放行，然后崩）。
   #
-  # 语义上刻意**只警告不中止**：DHS 此刻可能正跑得好好的，磁盘半态并不影响
+  # 语义上刻意**只警告不中止**：DSH 此刻可能正跑得好好的，磁盘半态并不影响
   # 它。为了"磁盘可疑"就拒绝重启、把用户卡在旧代码上，弊大于利。但**必须**
   # 把话说清楚，否则用户会以为重启成功了。
-  LOADABLE="$REPO_ROOT/scripts/check-loadable.mjs"
+  #
+  # ⚠️ 门禁脚本从**插件自己的安装树**里取（`$INST_PLUGIN/scripts/`），不要用
+  # 仓库路径。踩过：这里原本写 `$REPO_ROOT/scripts/...`，而 REPO_ROOT 在这个
+  # 脚本里**从来没有定义过** —— 本脚本会被 `--install` 复制到 ~/.dsh/ 下运行，
+  # 那时更没有"仓库"。`set -u` 让它在**杀掉 DSH 之前**直接 abort，于是
+  # "延迟重启"变成静默不重启（日志里只有一行 unbound variable）。
+  # `bash -n` 查不出这种错（只看语法），必须真跑一次。
   INST_PLUGIN="$HOME/.dsh/profiles/${DSH_PROFILE:-desktop}/node_modules/dsh-plugin-mesh"
-  if [ -f "$LOADABLE" ] && [ -d "$INST_PLUGIN" ]; then
+  LOADABLE="$INST_PLUGIN/scripts/check-loadable.mjs"
+  if [ ! -f "$LOADABLE" ]; then
+    # **必须说出来**。以前这里是静默跳过，于是"门禁已接上"是个假象 ——
+    # 安装树里没有 scripts/（install.sh 漏拷），门禁从来没跑过。
+    echo "$(date '+%T') [WARN] 找不到半态门禁（$LOADABLE）—— 这一次**没有做**可加载性校验"
+  elif [ -d "$INST_PLUGIN" ]; then
     if node "$LOADABLE" "$INST_PLUGIN" >/tmp/mesh-loadable.$$ 2>&1; then
       echo "$(date '+%T') [OK] 安装路径可加载（半态门禁通过）"
     else
@@ -153,6 +177,15 @@ app_pid_list() { app_pids | tr '\n' ' '; }
       echo "$(date '+%T') [WARN] 先补齐文件或回滚，再重启"
     fi
     rm -f /tmp/mesh-loadable.$$
+  fi
+
+  # `--check-only`：只做上面这些重启前检查就退出，**绝不碰 DSH**。
+  # 存在的理由很直接：否则"验证这个脚本"和"真的重启一次"就没法分开，
+  # 而重启会杀掉正在验证它的那条会话 —— 于是没人会去验证它（上面那个
+  # unbound variable 就是这么漏过去的）。
+  if [ "$CHECK_ONLY" -eq 1 ]; then
+    echo "$(date '+%T') --check-only：检查完毕，不重启（当前 pid [${pid_before:-无}]）"
+    exit 0
   fi
 
   if [ -z "$pid_before" ]; then
