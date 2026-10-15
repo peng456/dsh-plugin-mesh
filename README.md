@@ -870,10 +870,11 @@ capabilities: {
 回归脚本：
 
 ```bash
-npm test                     # = check + 三个回归脚本（共 120 项，默认不碰网络）
+npm test                     # = check + 四个回归脚本（共 136 项，默认不碰网络）
 npm run selftest             # 52 项：发现/通道/会话键
+npm run selftest:prompt      # 10 项：任务提示词（回派目标必须是机器名）
 npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）
-npm run selftest:caps        # 56 项：净化/过期/重试/名片兼容/认领边界
+npm run selftest:caps        # 62 项：净化/GPU/过期/重试/名片兼容/认领边界
 npm run selftest:newsession  # 需要先跑起 dev 实例，见文件头注释
 ```
 
