@@ -191,7 +191,39 @@ app_pid_list() { app_pids | tr '\n' ' '; }
   INST="$HOME/.dsh/profiles/${DSH_PROFILE:-desktop}/node_modules/dsh-plugin-mesh/package.json"
   if [ -f "$INST" ]; then
     ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INST" | head -1)"
-    echo "$(date '+%T') 已安装插件版本 $ver"
+    echo "$(date '+%T') 磁盘上的插件版本 $ver"
+  fi
+
+  # ── 决定性自检：问**运行中的进程**自己是什么版本 ──
+  #
+  # 上面那行读的是**磁盘**上的 package.json（原来自称"已安装插件版本"，其实
+  # 跟进程无关）；"已重启"只证明**有个进程起来了**，不证明它加载的是新代码；
+  # instanceIds 是**落盘持久**字段，上一版写进去的会一直留在 state.json 里，
+  # 于是 grep 恒真。三个都不构成"新代码在跑"的证据。
+  #
+  # 踩过：升级窗口里磁盘 16:11:06 就是 0.3.28、进程到 16:14:06 才换 —— 那段
+  # 时间日志里三行全是绿的，但跑的还是旧码。VERSION 是**启动时冻结**的常量，
+  # 所以"进程自述的版本"才是唯一硬证据，而它只有 /mesh/v1/health 给得出。
+  PORT="${MESH_PORT:-45917}"
+  up=""
+  for _ in $(seq 1 30); do
+    up="$(curl -fsS --max-time 3 "http://127.0.0.1:$PORT/mesh/v1/health" 2>/dev/null)" && [ -n "$up" ] && break
+    up=""
+    sleep 1
+  done
+
+  if [ -z "$up" ]; then
+    echo "$(date '+%T') [WARN] 读不到 /mesh/v1/health，无法确认**进程**版本（磁盘=${ver:-未知}）"
+  else
+    # 不依赖 node：优先 python3 解 JSON，退回到正则抠 version 字段
+    pver="$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("version",""))' 2>/dev/null)"
+    if [ -z "$pver" ]; then
+      pver="$(printf '%s' "$up" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    fi
+    echo "$(date '+%T') [OK] 运行中进程自述版本 $pver"
+    if [ -n "$ver" ] && [ "$pver" != "$ver" ]; then
+      echo "$(date '+%T') [WARN] 进程 $pver ≠ 磁盘 $ver —— 新代码**没**被加载，检查 plugins 挂载"
+    fi
   fi
   app_running \
     && echo "$(date '+%T') [OK] DSH Desktop 在运行" \
