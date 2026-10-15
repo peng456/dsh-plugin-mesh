@@ -1000,16 +1000,38 @@ capabilities: {
 根因是 `extraPathDirs()` 当时**没有 Windows 分支**，补的全是 Unix 路径
 （`/opt/homebrew/bin`、`/usr/local/bin`…），在 Windows 上等于没补。
 
-两道防线（本次修复起，版本号未变，仍是 0.3.28）：
+三道防线（本次修复起，版本号未变，仍是 0.3.28）：
 
 1. `extraPathDirs()` 分平台。Windows 分支补 `%ProgramFiles%\nodejs`、`%APPDATA%\npm`、
    `%LOCALAPPDATA%\Programs\Python`、`%ProgramFiles%\Git\cmd`、scoop/chocolatey shims 等；
    并且 **PATH 分隔符跟平台走**（Windows 是 `;`）—— 写死 `:` 会让整个 PATH 变成
    一个"目录名"，比不补还糟。
-2. **形状守卫**：`runtimes` 为空**且**存在失败项 → 一律标 `runtimesIncomplete: true`。
-   理由是代价不对称：误报"没装"会把一台能跑的机器**无声排除**；误报"未探准"只是
-   让人多问一句。代价是真正干净的容器会被标成"未探准" —— 可接受，那种机器本就该
-   由人确认，不该由探测替人拍板。
+2. **形状守卫**：`runtimes` 为空**且**存在失败项 → 标 `runtimesIncomplete: true`
+   （"整批归零"的形状，几乎必定是 PATH 问题）。
+3. **PATH 健全判据**（最关键的一条）：主 PATH 里**没有任何本平台常见工具目录**
+   → 也算"未探准"。因为此时"找不到"可能只是"没覆盖到"，**所有 ENOENT 结论都不可信**。
+
+##### 为什么是"PATH 健全"而不是"有失败就报"
+
+对端 hos 曾提议把判据简化成"`errors.length > 0` → incomplete"（失败即不确定）。
+**这条会误报**，我拒绝了，理由是实测反例 —— 就是本机：
+
+| 机器 | runtimes | ENOENT 项 | 那些项真的没装吗 | 正确结论 |
+| --- | --- | --- | --- | --- |
+| 本机 darwin | 6 个（非空） | `rustc`、`adb` | **是**，`command -v` 也找不到 | `incomplete=false` ✅ |
+| 文超-win | **0 个** | 全部 | 否 —— 它跑在 Node 上 | `incomplete=true` ✅ |
+
+按"有失败就报"，本机会被误标成 incomplete（`rustc`/`adb` 真的没有），于是 Placement
+永远不敢断言"这台机器没装 rustc"。**判断 ENOENT 可不可信的依据是 PATH 健不健全，
+不是失败项有多少。** 三道防线合起来才能同时覆盖"整批归零"和"非空但部分失败"。
+
+##### `probeFailCount`：让失败信号**能过网线**
+
+`probeErrors`（失败明细）**不上名片**（`sanitize` 不保留，它只在本地日志/UI 用）。
+后果是对端结构性看不到"这次探测失败过"—— 只能看到 `runtimes: {}` 和
+`runtimesIncomplete`。旧投影里"3 项没探到"和"8 项全没探到"长得一模一样。
+所以新增 `probeFailCount`（数字）跟着名片走：旧对端没有该字段时按 `0` 处理。
+（明细仍然不上网线 —— 只上一个计数，够对端判断可信度，又不放大协议面。）
 
 #### `gpu === null` 有**三种**成因，投影层区分不了
 
@@ -1036,7 +1058,7 @@ capabilities: {
 回归脚本：
 
 ```bash
-npm test                     # = check + 四个回归脚本（共 142 项，默认不碰网络）
+npm test                     # = check + 四个回归脚本（共 147 项，默认不碰网络）
 npm run selftest             # 52 项：发现/通道/会话键
 npm run selftest:prompt      # 10 项：任务提示词（回派目标必须是机器名）
 npm run selftest:client      # 12 项：客户端渲染（无需浏览器，见下）
