@@ -740,8 +740,33 @@ AP isolation、Windows 防火墙默认策略、跨 VLAN，任何一个都能让�
 
 ## 配置项
 
-默认已经可用。要改就在 profile 的 `cordis.patch.yml` 里按 id 覆盖
-（注意：patch 是**整体替换** config，所以要把想保留的项一起写上）：
+默认已经可用。要改就在 profile 的 `cordis.patch.yml` 里按 id 覆盖。
+
+> ⚠️ **patch 是「整体替换 config」，不是按 key 合并。**
+> `@deepseek-ai/cordis-plugin-include` 对非 insert patch 走的是浅赋值
+> （`target[key] = value`，见该包 `src/index.ts` L121-124）。`config` 只是
+> **一个** key，所以只写 `enabled:` / `tsnetEnabled:` 这几行，会把原本写在
+> 这一块里的 `permissionPreset` / `workspaceRoot` / `port` / 限速参数
+> **全部抹掉**，回落 schema 默认值。
+>
+> 实测过的后果（对端 文超-win 2026-10-16 拦下）：Windows 上
+> `permissionPreset` 回落 `workspace-write`（L139）+ `workspaceRoot` 回落 `''`
+> → 主目录（L141），ACL 沙箱直接 fail-closed
+> （`Windows ACL temp root must be outside the workspace`），
+> **该机所有入站 mesh 任务的命令执行全挂** —— 包括刚从 tailnet 进来的，
+> 因为 tsnet 读的是同一个值（`tsnetPermissionPreset || permissionPreset`，L692/L714）。
+>
+> **所以：目标机器上已经有 `- id: mesh` 时，永远不要整块替换，只合并要改的键。**
+> 用 `scripts/mesh-tsnet-merge.py`（文本级键合并，保注释/缩进/行尾/BOM，幂等）：
+>
+> ```bash
+> python3 scripts/mesh-tsnet-merge.py --file <cordis.patch.yml> \
+>     --download-source http://192.168.1.6:8791/            # 预览，不写盘
+> python3 scripts/mesh-tsnet-merge.py --file <cordis.patch.yml> \
+>     --download-source http://192.168.1.6:8791/ --apply    # 落地，自动留 .bak
+> ```
+
+参考**全量**键列表（照抄前请先确认目标机上没有既有的 `- id: mesh` 自定义）：
 
 ```yaml
 - id: mesh
@@ -899,6 +924,22 @@ node scripts/verify-lan-mirror.mjs --url http://192.168.1.6:8791/ --platform and
 ```json
 "tsnetDownloadSources": ["http://192.168.1.6:8791/"]
 ```
+
+> 💡 **只有 `tsnetDownloadSources` 是「非写进 config 不可」的键。**
+> `tsnetEnabled` / `tsnetAuthKey` / `tsnetControlUrl` / `tsnetHostname` 都有
+> state.json 兜底（`effectiveTsnetConfig`，L328-339）：在 Mesh 页面填一次就行，
+> 存 `state.json`（0600），重启不用再填，也不碰 patch 文件 —— 自然绕开了
+> 「整块替换」这个坑。`tsnetDownloadSources` 没有兜底（`manager.js` 只读
+> `this.#config`），所以它必须合并进 config。
+>
+> 于是新机器接入 tailnet 的**最小变更**是：
+> 1. Mesh 页面开开关 + 填授权码（→ state.json，无需重启、无需改文件）
+> 2. 只有需要局域网镜子时，才用 `scripts/mesh-tsnet-merge.py` 合并
+>    `tsnetDownloadSources` 这一个键
+>
+> 历史教训：曾给对端发过一份只含 5 个 tsnet 键的「贴进去就行」片段，
+> 对端识别出它会抹掉自己 22 个键里的 `permissionPreset: danger-full-access`
+> 而改成手工合并，避免了一次入站任务全挂。**别再发片段式模板。**
 
 源按顺序试：**用户配置的源 → 内置镜像 → 直连 GitHub**；`http://` 与 `https://`
 都支持（只 import `node:https` 的话，http 源会直接 `ERR_INVALID_PROTOCOL`，
