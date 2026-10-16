@@ -2,13 +2,14 @@
   "name": "dsh-plugin-mesh",
   "version": "0.3.29",
   "type": "module",
-  "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例，并可通过内置的 Tailscale 用户态节点跨互联网自组网，双向派发任务。",
+  "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例、显示每台机器上报的能力，并双向派发任务；可用内置的用户态 Tailscale 节点跨互联网组网。Discovers other DSH instances on the LAN, shows the capabilities each one reports, and dispatches tasks between machines in both directions, with an optional userspace Tailscale node for links across networks.",
   "license": "MIT",
-  "author": "peng456",
+  "author": "peng456 (https://github.com/peng456)",
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
+    "dsh-desktop",
     "mesh",
     "lan",
     "multicast",
@@ -41,7 +42,8 @@
     "scripts",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "install.sh"
   ],
   "scripts": {
     "selftest": "node lib/_selftest-tsnet.mjs",
@@ -59,7 +61,12 @@
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
     "check:loadable": "node scripts/check-loadable.mjs --allow-missing-runtime-dep",
     "check:deploy": "node scripts/check-loadable.mjs",
-    "check:scope": "python3 tools/scopecheck.py lib/index.js"
+    "check:scope": "python3 tools/scopecheck.py lib/index.js",
+    "prepublishOnly": "npm test && node scripts/check-tarball.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "peerDependencies": {
     "@deepseek-ai/schemastery": "*",
