@@ -526,7 +526,23 @@ VPN，换网 MAC 就变；iOS / Android / macOS 现在默认按 SSID 使用随�
 
 两台机器都装。**装完必须重启 DSH Desktop 才会加载。**
 
-### 方式 A：一键脚本（推荐）
+### 方式 A：从 npm 装（推荐，一条命令）
+
+```bash
+dsh plugin add dsh-plugin-mesh                  # desktop profile ← 要应用自带的终端
+dsh plugin --profile web add dsh-plugin-mesh    # 其它 profile ← 普通终端即可
+```
+
+**为什么推荐这条**：它不碰 `git clone` —— 而 `github.com` 的 **git over https 在国内
+会被 Connection reset**（首次安装最常见的失败原因）。npm 走的是 registry，国内镜像
+（npmmirror）有同步。实测在全新 profile 上 4.8 秒装完，48 个文件。
+
+> ⚠️ 只有 `desktop` 这一个 profile 例外：`dsh plugin --profile desktop ...` 在
+> **普通终端**里会被拒绝（`bin.js:29`：profile "desktop" is managed exclusively by
+> the Electron application），必须用应用自带的那一个（托盘/菜单 → 终端）。
+> 其它 profile 用普通终端就行（上面第二条已实测）。
+
+### 方式 B：一键脚本（从源码装）
 
 ```bash
 git clone https://github.com/peng456/dsh-plugin-mesh.git
@@ -549,7 +565,7 @@ cd dsh-plugin-mesh
 ./install.sh --uninstall            # 卸载（删目录 + 从 bundles 移除）
 ```
 
-### 方式 B：手动装
+### 方式 C：手动装
 
 ```bash
 # macOS
@@ -577,7 +593,7 @@ Copy-Item -Recurse dsh-plugin-mesh "$env:USERPROFILE\.dsh\profiles\desktop\node_
 > 目的是防止陈旧的外部状态覆盖已封装安装）。把插件软链到你的工作目录会在启动时
 > 报 `ERR_MODULE_NOT_FOUND`。`install.sh` 已经处理好了这一点。
 
-### 方式 C：官方命令（用 DSH Desktop 自带的终端）
+### 方式 D：官方命令 + 本地路径
 
 托盘/菜单 → 终端：
 
