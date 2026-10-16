@@ -1,0 +1,19 @@
+# GitHub Pages 配置（站点根目录 = docs/）
+#
+# 首页是手写的 `index.html`：Jekyll 对没有 front matter 的 HTML 原样输出，
+# 所以它不会被处理，样式完全可控。
+#
+# **刻意不加 `.nojekyll`** —— 保留 Jekyll，这样以后往 `docs/` 里丢一个
+# `xxx.md` 就会自动变成 `xxx.html`，不用写 HTML。（加 `.nojekyll` 会关掉这个能力。）
+
+title: DSH Mesh
+description: 让局域网里的几台电脑自己找到彼此，然后互相派活。
+url: https://peng456.github.io
+baseurl: /dsh-plugin-mesh
+lang: zh-CN
+
+# 不设 theme：首页自带全部样式，不需要主题也不会被主题覆盖。
+# 以后若想换成 Jekyll 主题驱动，在这里加 `theme: jekyll-theme-xxx` 即可。
+
+exclude:
+  - "*.py"
