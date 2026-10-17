@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500" font-family="system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif">
+  <!--
+    Schematic of the Mesh panel (not a screenshot).
+
+    尺寸刻意按「在 760px 文字栏里显示」来设计：viewBox 宽 900、字号 14~20px，
+    缩到约 720px 显示时正文仍有 ~11px，读得清。第一版按 1120 宽 + 12px 字画，
+    实际页面上一缩就糊了 —— 所以重做了一版。
+
+    配色照抄 client/client.js 的 S 对象；徽章一律「透明底 + 描边 + 同色文字」
+    （真实 UI 的 S.tag 就是这样）。第一版写成实心填充，结果文字和底色同色，
+    GPU 那枚的字直接看不见。
+
+    本机与 hos 两行的能力数值取自真实采集输出；Windows 那行为示意值。
+  -->
+  <defs>
+    <style>
+      .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .name{font-size:20px;font-weight:600;fill:#111}
+      .meta{font-size:15px;fill:#6b7280}
+      .tagt{font-size:14px;fill:#666}
+      .cardtitle{font-size:16px;font-weight:600;fill:#6b7280}
+      .btnt{font-size:14px;fill:#374151}
+      .btn{fill:#fff;stroke:#d5d8dc}
+      .rt{fill:none;stroke:#8cd19d}
+      .rtt{font-size:14px;fill:#1a7f37}
+      .gpu{fill:none;stroke:#c9a7f5}
+      .gput{font-size:14px;fill:#8250df}
+    </style>
+  </defs>
+
+  <rect width="900" height="500" fill="#ffffff"/>
+  <rect x="16" y="16" width="868" height="460" rx="12" fill="#fff" stroke="#e3e5e8"/>
+
+  <!-- 标题行 -->
+  <text class="cardtitle" x="40" y="56">Discovered machines</text>
+  <g>
+    <rect class="btn" x="536" y="36" width="104" height="30" rx="6"/>
+    <text class="btnt" x="588" y="56" text-anchor="middle">Scan subnet</text>
+    <rect class="btn" x="650" y="36" width="92" height="30" rx="6"/>
+    <text class="btnt" x="696" y="56" text-anchor="middle">Re-announce</text>
+    <rect class="btn" x="752" y="36" width="104" height="30" rx="6"/>
+    <text class="btnt" x="804" y="56" text-anchor="middle">Task log</text>
+  </g>
+
+  <!-- ================= 本机 ================= -->
+  <rect x="40" y="76" width="820" height="112" rx="10" fill="#fafbfc" stroke="#e8eaed"/>
+  <circle cx="64" cy="104" r="6" fill="#2ea043"/>
+  <rect x="80" y="91" width="78" height="24" rx="999" fill="#fff" stroke="#d5d8dc"/>
+  <text class="tagt" x="119" y="108" text-anchor="middle">this host</text>
+  <text class="name" x="170" y="110">lipeng-mac</text>
+  <text class="mono meta" x="282" y="108">192.168.1.6:45917</text>
+  <text class="meta" x="64" y="142">darwin 21.6.0 · last seen 18:22:34 · hostname=lipeng-mac</text>
+
+  <g class="rt" stroke-width="1.2">
+    <rect x="64" y="152" width="98" height="26" rx="999"/><text class="rtt" x="113" y="170" text-anchor="middle">node 20.19</text>
+    <rect x="170" y="152" width="110" height="26" rx="999"/><text class="rtt" x="225" y="170" text-anchor="middle">python 3.12</text>
+    <rect x="288" y="152" width="118" height="26" rx="999"/><text class="rtt" x="347" y="170" text-anchor="middle">docker 28.0</text>
+  </g>
+  <rect class="gpu" x="414" y="152" width="214" height="26" rx="999" stroke-width="1.2"/>
+  <text class="gput" x="521" y="170" text-anchor="middle">GPU Intel Iris 6100</text>
+  <text class="meta" x="644" y="170">4 cores / 8 GB · x64</text>
+
+  <!-- ================= 对端：Windows ================= -->
+  <rect x="40" y="200" width="820" height="112" rx="10" fill="#fff" stroke="#e8eaed"/>
+  <circle cx="64" cy="228" r="6" fill="#2ea043"/>
+  <text class="name" x="80" y="234">文超-win</text>
+  <text class="mono meta" x="200" y="232">192.168.1.9:45917</text>
+  <rect class="btn" x="658" y="212" width="64" height="30" rx="6"/>
+  <text class="btnt" x="690" y="232" text-anchor="middle">Probe</text>
+  <rect class="btn" x="732" y="212" width="88" height="30" rx="6"/>
+  <text class="btnt" x="776" y="232" text-anchor="middle">Dispatch</text>
+
+  <rect x="64" y="250" width="104" height="26" rx="999" fill="#fff" stroke="#2ea043" stroke-width="1.6"/>
+  <text class="tagt" x="116" y="268" text-anchor="middle" fill="#2ea043" font-weight="600">LAN active</text>
+  <rect x="176" y="250" width="104" height="26" rx="999" fill="#fff" stroke="#d5d8dc"/>
+  <text class="tagt" x="228" y="268" text-anchor="middle">Internet backup</text>
+  <text class="meta" x="296" y="268">win32 10.0.22000 · user=86189</text>
+
+  <g class="rt" stroke-width="1.2">
+    <rect x="64" y="278" width="98" height="26" rx="999"/><text class="rtt" x="113" y="296" text-anchor="middle">node 22.14</text>
+    <rect x="170" y="278" width="110" height="26" rx="999"/><text class="rtt" x="225" y="296" text-anchor="middle">python 3.12</text>
+  </g>
+  <rect class="gpu" x="288" y="278" width="212" height="26" rx="999" stroke-width="1.2"/>
+  <text class="gput" x="394" y="296" text-anchor="middle">GPU RTX 3060</text>
+  <text class="meta" x="516" y="296">12 cores / 32 GB · x64</text>
+
+  <!-- ================= 对端：Android ================= -->
+  <rect x="40" y="324" width="820" height="112" rx="10" fill="#fff" stroke="#e8eaed"/>
+  <circle cx="64" cy="352" r="6" fill="#2ea043"/>
+  <text class="name" x="80" y="358">hos</text>
+  <text class="mono meta" x="140" y="356">192.168.1.3:45917</text>
+  <rect class="btn" x="658" y="336" width="64" height="30" rx="6"/>
+  <text class="btnt" x="690" y="356" text-anchor="middle">Probe</text>
+  <rect class="btn" x="732" y="336" width="88" height="30" rx="6"/>
+  <text class="btnt" x="776" y="356" text-anchor="middle">Dispatch</text>
+
+  <rect x="64" y="374" width="104" height="26" rx="999" fill="#fff" stroke="#2ea043" stroke-width="1.6"/>
+  <text class="tagt" x="116" y="392" text-anchor="middle" fill="#2ea043" font-weight="600">LAN active</text>
+  <text class="meta" x="184" y="392">android 5.10.43 · user=u0_a267</text>
+
+  <g class="rt" stroke-width="1.2">
+    <rect x="64" y="402" width="98" height="26" rx="999"/><text class="rtt" x="113" y="420" text-anchor="middle">node 24.18</text>
+    <rect x="170" y="402" width="110" height="26" rx="999"/><text class="rtt" x="225" y="420" text-anchor="middle">python 3.14</text>
+    <rect x="288" y="402" width="94" height="26" rx="999"/><text class="rtt" x="335" y="420" text-anchor="middle">git 2.56</text>
+  </g>
+  <text class="meta" x="398" y="420">8 GB · arm64</text>
+
+  <text class="meta" x="40" y="460" font-size="13.5" opacity=".85">
+    Capabilities each machine reports — see what it can do before dispatching
+  </text>
+</svg>

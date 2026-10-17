@@ -1,356 +1,270 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-lang-on="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" href="img/logo.svg">
-<title>DSH Mesh —— 让几台电脑自己找到彼此</title>
-<meta name="description" content="DSH Mesh：局域网自动发现同网段的其他 DSH 实例、显示每台机器上报的能力，并双向派发任务；可用内置的用户态 Tailscale 节点跨互联网组网。">
-<meta property="og:title" content="DSH Mesh —— 让几台电脑自己找到彼此">
-<meta property="og:description" content="装上就有，不用配对码、不用填 IP、不用装 Tailscale。">
+<title>DSH Mesh — 把几台电脑连起来，互相派活</title>
+<meta name="description" content="DSH Mesh：局域网自动发现其他 DSH 实例，双向派发任务，不在同一网络时自动走内置用户态 Tailscale。Discovers other DSH instances on the LAN and dispatches tasks between machines.">
+<meta property="og:title" content="DSH Mesh">
+<meta property="og:description" content="把几台电脑连起来，互相派活。Connect your DSH machines and let them dispatch work to each other.">
 <meta property="og:type" content="website">
-<!-- 不引任何外部字体/CDN：一是快，二是有些网络环境根本加载不到 -->
+<link rel="icon" type="image/svg+xml" href="img/logo.svg">
+<!-- 不引任何外部字体/CDN：有些网络加载不到，而且慢 -->
 <style>
   :root{
-    --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#ffffff;
+    --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#fff;
     --brand:#2563eb; --brand-soft:#eff6ff; --code-bg:#f6f8fa;
-    --ok:#15803d; --warn:#b45309;
   }
   @media (prefers-color-scheme: dark){
     :root{ --fg:#e8eaed; --muted:#9aa0a6; --line:#2f3336; --bg:#141618;
-           --brand:#7aa2f7; --brand-soft:#1b2333; --code-bg:#1c1f23;
-           --ok:#4ade80; --warn:#fbbf24; }
+           --brand:#7aa2f7; --brand-soft:#1b2333; --code-bg:#1c1f23; }
   }
   *{box-sizing:border-box}
-  body{
-    margin:0; background:var(--bg); color:var(--fg);
-    font:16px/1.7 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
-    -webkit-text-size-adjust:100%;
-  }
-  .wrap{max-width:760px;margin:0 auto;padding:0 22px}
-  header{padding:64px 0 40px;border-bottom:1px solid var(--line)}
-  h1{font-size:30px;margin:0;letter-spacing:-.01em}
-  .brand{display:flex;align-items:center;gap:14px;margin-bottom:12px}
-  .tagline{font-size:19px;color:var(--muted);margin:0 0 22px}
-  .hook{font-size:17px;margin:0 0 26px}
-  .hook b{color:var(--brand)}
-  section{padding:44px 0;border-bottom:1px solid var(--line)}
-  h2{font-size:21px;margin:0 0 18px}
-  h3{font-size:16px;margin:26px 0 8px}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-text-size-adjust:100%}
+  .wrap{max-width:720px;margin:0 auto;padding:0 22px}
+
+  /* 语言切换：默认只显示 zh，靠 html[data-lang-on] 切换。
+     没有 JS 时 <noscript> 里会强制两块都显示，保证内容永远可读。 */
+  [data-lang]{display:none}
+  html[data-lang-on="zh"] [data-lang="zh"],
+  html[data-lang-on="en"] [data-lang="en"]{display:block}
+
+  header{padding:56px 0 0;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:13px}
+  h1{font-size:29px;margin:0;letter-spacing:-.01em}
+  .langs{margin-left:auto;display:flex;gap:4px}
+  .langbtn{border:1px solid var(--line);background:none;color:var(--muted);font:13px system-ui;padding:4px 11px;border-radius:7px;cursor:pointer}
+  .langbtn.on{border-color:var(--brand);color:var(--brand);background:var(--brand-soft);font-weight:600}
+  .lead{font-size:20px;margin:20px 0 10px}
+  .dim{color:var(--muted);font-size:15px;margin:0}
+
+  section{padding:38px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:20px;margin:0 0 18px}
   p{margin:0 0 14px}
-  ul,ol{margin:0 0 14px;padding-left:1.3em}
-  li{margin:6px 0}
-  code{background:var(--code-bg);padding:2px 6px;border-radius:5px;
-       font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  pre{background:var(--code-bg);padding:14px 16px;border-radius:9px;overflow-x:auto;
-      font:13.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:0 0 14px}
+  ol.steps{counter-reset:s;list-style:none;padding:0;margin:0}
+  ol.steps li{counter-increment:s;position:relative;padding-left:38px;margin:0 0 22px}
+  ol.steps li:last-child{margin-bottom:0}
+  ol.steps li::before{content:counter(s);position:absolute;left:0;top:2px;width:25px;height:25px;border-radius:50%;background:var(--brand);color:#fff;font:600 13px/25px system-ui;text-align:center}
+  ol.steps h3{font-size:16px;margin:0 0 6px}
+  ul{margin:0;padding-left:1.2em}
+  li{margin:9px 0}
+  code{background:var(--code-bg);padding:2px 6px;border-radius:5px;font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  pre{background:var(--code-bg);padding:13px 15px;border-radius:9px;overflow-x:auto;font:13.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:0 0 10px;position:relative}
   pre code{background:none;padding:0}
-  .cmd{position:relative}
-  .cmd button{
-    position:absolute;top:8px;right:8px;font:12px system-ui;padding:4px 9px;
-    border:1px solid var(--line);border-radius:6px;background:var(--bg);
-    color:var(--muted);cursor:pointer
-  }
-  .steps{counter-reset:s;list-style:none;padding:0}
-  .steps li{counter-increment:s;position:relative;padding-left:42px;margin:18px 0}
-  .steps li::before{
-    content:counter(s);position:absolute;left:0;top:1px;width:27px;height:27px;
-    border-radius:50%;background:var(--brand);color:#fff;font:600 14px/27px system-ui;
-    text-align:center
-  }
-  .card{border:1px solid var(--line);border-radius:11px;padding:18px 20px;margin:0 0 14px}
-  .card h3{margin-top:0}
-  .muted{color:var(--muted)}
-  .small{font-size:14px}
-  .ok{color:var(--ok)}
-  .warn{color:var(--warn)}
-  .shot{margin:0 0 20px}
-  .shot img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:11px}
-  figcaption{font-size:13.5px;color:var(--muted);margin-top:10px;line-height:1.6}
-  table{border-collapse:collapse;width:100%;margin:0 0 14px;font-size:15px}
-  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
-  th{background:var(--code-bg);font-weight:600}
-  details{border:1px solid var(--line);border-radius:9px;padding:12px 16px;margin:0 0 10px}
-  summary{cursor:pointer;font-weight:600}
-  details[open] summary{margin-bottom:8px}
-  .diagram{margin:0 0 18px}
-  .diagram svg{width:100%;height:auto;display:block}
-  footer{padding:36px 0 60px;color:var(--muted);font-size:15px}
+  .copy{position:absolute;top:7px;right:7px;font:12px system-ui;padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .hint{font-size:14px;color:var(--muted);margin:0}
+  figure{margin:32px 0 0}
+  figure img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:11px}
+  figcaption{font-size:13.5px;color:var(--muted);margin-top:9px}
+  footer{padding:34px 0 64px;color:var(--muted);font-size:14.5px}
   footer a{color:var(--brand)}
   a{color:var(--brand)}
-  .pill{display:inline-block;font-size:13px;padding:2px 10px;border-radius:999px;
-        background:var(--brand-soft);color:var(--brand);margin-right:6px}
 </style>
+<noscript><style>[data-lang]{display:block !important}</style></noscript>
 </head>
 <body>
 
 <header class="wrap">
   <div class="brand">
-    <img src="img/logo.svg" alt="" width="46" height="46">
+    <img src="img/logo.svg" alt="" width="42" height="42">
     <h1>DSH Mesh</h1>
+    <div class="langs">
+      <button class="langbtn" data-set-lang="zh">中文</button>
+      <button class="langbtn" data-set-lang="en">EN</button>
+    </div>
   </div>
-  <p class="tagline">让局域网里的几台电脑自己找到彼此，然后互相派活。</p>
-  <p class="hook">
-    装上就有。不用配对码、不用填 IP、不用装 Tailscale。<br>
-    在 Mac 上说一句"这个交给 Windows 那台去跑"，就真的跑过去了。
-  </p>
-  <p>
-    <span class="pill">零配置发现</span>
-    <span class="pill">双向派发</span>
-    <span class="pill">跨网络可用</span>
-  </p>
+
+  <div data-lang="zh">
+    <p class="lead">把几台电脑连起来，互相派活。</p>
+    <p class="dim">每台都装上，它们自己就找到了彼此 —— 不用配对码、不用填 IP、不用装 Tailscale。</p>
+  </div>
+  <div data-lang="en">
+    <p class="lead">Connect your DSH machines. Let them hand work to each other.</p>
+    <p class="dim">Install on each one and they find each other — no pairing codes, no IP addresses, no Tailscale client.</p>
+  </div>
+
+  <figure>
+    <img id="panel-img" src="img/mesh-panel.svg"
+         alt="Mesh panel: one row per machine, showing online state, LAN / tailnet channel badges, and the capabilities each machine reports.">
+    <figcaption data-lang="zh">界面示意：每台机器一行，徽章是它自己报上来的能力。</figcaption>
+    <figcaption data-lang="en">The panel: one row per machine. Badges are the capabilities each machine reports.</figcaption>
+  </figure>
 </header>
 
+<!-- ═════════ 快速开始 / Quick start ═════════ -->
 <section class="wrap">
-  <h2>它解决什么问题</h2>
-  <p>
-    你手上有几台机器，每台都装了 DSH：一台 Mac 写代码，一台 Windows 要部署，
-    手机上还挂着一个。你想"在 A 上开发完，让 B 去部署"。
-  </p>
-  <p>
-    以前的做法是：查 IP、开 SSH、把上下文复制过去、再手动接上下文回来。
-    来回几次就懒得用了。
-  </p>
-  <p>
-    <b>装了这个插件之后</b>，两台机器自己就发现了对方，侧栏多出一个 Mesh 面板。
-    你只要对 agent 说"派给 Windows 那台"，剩下的它自己做 —— 包括把结果送回来。
-  </p>
-</section>
+  <div data-lang="zh">
+    <h2>快速开始</h2>
+    <ol class="steps">
+      <li>
+        <h3>每台机器装一遍</h3>
+        <pre><code>dsh plugin add dsh-plugin-mesh</code><button class="copy" data-copy="dsh plugin add dsh-plugin-mesh">复制</button></pre>
+        <p class="hint"><code>desktop</code> profile 要在 DSH 自带终端里跑；其它 profile 用普通终端即可。</p>
+      </li>
+      <li>
+        <h3>重启 DSH</h3>
+        <p class="hint">插件在启动时加载，装完必须重启一次。</p>
+      </li>
+      <li>
+        <h3>侧栏点「Mesh」</h3>
+        <p class="hint">看到别的机器就是成功了。看不到就看下面的排查。</p>
+      </li>
+    </ol>
+  </div>
 
-<section class="wrap">
-  <h2>三步开始</h2>
-  <ol class="steps">
-    <li>
-      <h3>每台机器都装一遍</h3>
-      <div class="cmd">
-        <button data-copy="dsh plugin add dsh-plugin-mesh">复制</button>
-        <pre><code>dsh plugin add dsh-plugin-mesh</code></pre>
-      </div>
-      <p class="small muted">
-        在 DSH Desktop 自带的终端里执行（托盘/菜单 → 终端）。
-        其它 profile 用普通终端就行：<code>dsh plugin --profile web add dsh-plugin-mesh</code>
-      </p>
-    </li>
-    <li>
-      <h3>重启 DSH Desktop</h3>
-      <p class="small muted">插件只在启动时加载，装完必须重启一次。</p>
-    </li>
-    <li>
-      <h3>侧栏点「Mesh」</h3>
-      <p class="small muted">
-        看到别的机器 = 成功了。看不到？看下面的
-        <a href="#faq">「看不到对方怎么办」</a>。
-      </p>
-    </li>
-  </ol>
-</section>
-
-<section class="wrap">
-  <h2>装好之后你会看到什么</h2>
-  <figure class="shot">
-    <img src="img/mesh-panel.svg"
-         alt="Mesh 面板：本机与两台对端各占一行，显示在线状态、局域网/互联网通道徽章，以及每台机器上报的能力（运行时、内存、显卡）。">
-    <figcaption>
-      界面示意：每台机器一行。彩色徽章是那台机器<b>自己报上来</b>的能力 ——
-      派活之前就能看出它会不会做。本机与 hos 两行的数值取自实际采集输出。
-    </figcaption>
-  </figure>
-  <p>侧栏的 Mesh 面板里，每台机器会显示：</p>
-  <ul>
-    <li><b>在不在线</b>，以及走的是局域网还是互联网那条路</li>
-    <li><b>它会不会做这个活</b> —— 装了哪些运行时（Python / Node / Go / Docker…）、几核、多大内存、有没有显卡</li>
-    <li>你派过去的历史任务</li>
-  </ul>
-
-  <h3>两条通道，自动切换</h3>
-  <p class="small">
-    局域网和互联网各是一条路，<b>任何一条通就算可达</b>。当前走哪条、另一条是不是备用，
-    面板上都标出来。真正断网的时候，你不需要做任何事。
-  </p>
-  <div class="diagram">
-    <svg viewBox="0 0 720 240" role="img" aria-label="两台机器通过局域网互相发现，并在局域网不通时自动改走互联网">
-      <defs>
-        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
-        </marker>
-      </defs>
-      <g fill="none" stroke="currentColor" stroke-width="1.6" opacity=".85">
-        <rect x="30" y="70" width="180" height="82" rx="10"/>
-        <rect x="510" y="70" width="180" height="82" rx="10"/>
-        <line x1="212" y1="100" x2="508" y2="100" marker-end="url(#ar)"/>
-        <line x1="508" y1="124" x2="212" y2="124" marker-end="url(#ar)"/>
-      </g>
-      <g fill="currentColor" font-family="system-ui, sans-serif" font-size="14">
-        <text x="120" y="104" text-anchor="middle" font-weight="600">Mac · DSH</text>
-        <text x="120" y="128" text-anchor="middle" opacity=".65" font-size="12">写代码</text>
-        <text x="600" y="104" text-anchor="middle" font-weight="600">Windows · DSH</text>
-        <text x="600" y="128" text-anchor="middle" opacity=".65" font-size="12">跑部署</text>
-        <text x="360" y="88" text-anchor="middle" opacity=".7" font-size="12">任务 →</text>
-        <text x="360" y="146" text-anchor="middle" opacity=".7" font-size="12">← 结果</text>
-        <text x="360" y="196" text-anchor="middle" opacity=".6" font-size="12">
-          自动发现 · 不用配对 · 不用填 IP
-        </text>
-        <text x="360" y="220" text-anchor="middle" opacity=".6" font-size="12">
-          局域网不通时，自动改走互联网（内置用户态 Tailscale，不用装客户端）
-        </text>
-      </g>
-    </svg>
+  <div data-lang="en">
+    <h2>Quick start</h2>
+    <ol class="steps">
+      <li>
+        <h3>Install on every machine</h3>
+        <pre><code>dsh plugin add dsh-plugin-mesh</code><button class="copy" data-copy="dsh plugin add dsh-plugin-mesh">Copy</button></pre>
+        <p class="hint">The <code>desktop</code> profile needs DSH's own terminal; other profiles work from a normal one.</p>
+      </li>
+      <li>
+        <h3>Restart DSH</h3>
+        <p class="hint">Plugins load at startup, so restart once.</p>
+      </li>
+      <li>
+        <h3>Click “Mesh” in the sidebar</h3>
+        <p class="hint">Seeing another machine means it worked. If not, check troubleshooting.</p>
+      </li>
+    </ol>
   </div>
 </section>
 
+<!-- ═════════ 设计原理 / How it works ═════════ -->
 <section class="wrap">
-  <h2>为什么它比"自己开 SSH"省事</h2>
-  <table>
-    <tr><th>常见做法</th><th>这里</th></tr>
-    <tr><td>手动填对方 IP 和端口</td><td>同一个局域网里自动发现</td></tr>
-    <tr><td>配配对码 / token 才能连</td><td>默认不需要（想要也能开）</td></tr>
-    <tr><td>只能单向发命令，结果自己接</td><td>双向：结果会送回原来那场对话</td></tr>
-    <tr><td>要装 Tailscale 客户端才能跨网</td><td>插件自带用户态节点，按平台自动下载</td></tr>
-    <tr><td>断网了才发现备胎没配好</td><td>局域网通着的时候也照探备选通道</td></tr>
-  </table>
-  <p class="small muted">
-    最后一条多说一句：很多方案是"局域网断了才去试备份通道"，结果第一次真断的时候才发现那条压根没通。
-    这里会在局域网正常时也周期性探测，所以备选通道是<b>验证过的</b>。
-  </p>
+  <div data-lang="zh">
+    <h2>设计原理</h2>
+    <ul>
+      <li><b>自己找</b> —— 每 5 秒向局域网发一个心跳包，同时监听同一个地址。所以不用填 IP。</li>
+      <li><b>派活</b> —— 把任务发给对方，对方<b>自动开一个 agent 会话</b>去做，做完再派回来。</li>
+      <li><b>两条路</b> —— 局域网优先；不在同一网络时，走插件自带的用户态 Tailscale（自动下载，不用装客户端）。</li>
+      <li><b>会什么</b> —— 每台机器把自己装的运行时、内存、显卡报上来，派活之前就能看出它做不做得了。</li>
+    </ul>
+  </div>
+
+  <div data-lang="en">
+    <h2>How it works</h2>
+    <ul>
+      <li><b>Discovery</b> — every 5 seconds each machine sends a heartbeat to the LAN and listens on the same address. That is why you never type an IP.</li>
+      <li><b>Dispatch</b> — a task is sent to the peer, which <b>opens an agent session automatically</b>, does the work, and dispatches the result back.</li>
+      <li><b>Two channels</b> — LAN first; across networks it falls back to a bundled userspace Tailscale node, downloaded automatically. No client to install.</li>
+      <li><b>Capabilities</b> — each machine reports its runtimes, memory and GPU, so you can tell before dispatching whether it can do the job.</li>
+    </ul>
+  </div>
 </section>
 
-<section class="wrap" id="faq">
-  <h2>常见问题</h2>
-
-  <details open>
-    <summary>看不到对方怎么办？</summary>
-    <p class="small">按顺序排查这三点：</p>
-    <ol class="small">
-      <li>两台机器在<b>同一个局域网</b>吗？（一个连 Wi-Fi、一个插网线通常也算同一个）</li>
-      <li>对端也装了插件、也<b>重启过</b> DSH 吗？</li>
-      <li>对端防火墙放行了 <code>45917</code>（TCP）吗？组播要用 <code>45892</code>（UDP）。</li>
-    </ol>
-    <p class="small muted">
-      组播常被路由器或企业网络挡住。挡了也不影响使用 —— 点 Mesh 页面上的
-      「扫描本网段」主动扫一次即可。
-    </p>
-  </details>
-
-  <details>
-    <summary>需要配对码吗？</summary>
-    <p class="small">
-      默认<b>不需要</b>。局域网里谁都能被看见，这是有意的设计 —— 先让你看见机器，
-      再决定要不要和它打交道。如果你在不可信的网络上，可以在配置里打开
-      <code>requirePairing</code>，那样通信要带一个共享密钥。
-    </p>
-  </details>
-
-  <details>
-    <summary>要另外装 Tailscale 吗？</summary>
-    <p class="small">
-      <b>不用。</b>跨互联网那条通道用的是插件自带的一个小程序（用户态 Tailscale 节点），
-      按你的系统自动下载，不需要 Go、也不需要 Tailscale 客户端。你只需要在设置里
-      粘一次授权码。
-    </p>
-  </details>
-
-  <details>
-    <summary>手机上（Android）老是掉线？</summary>
-    <p class="small">
-      多半是系统省电把后台杀了，不是插件的问题。去系统设置里把 DSH 加入
-      <b>电池优化白名单 / 允许后台运行</b>。国产 ROM 通常还有一个额外的
-      「允许自启动」开关。
-    </p>
-  </details>
-
-  <details>
-    <summary>公司网络下不了跨网那个组件？</summary>
-    <p class="small">
-      有些网络把下载源全挡了。这时可以在同网段找一台已经拿到文件的机器当镜像，
-      把地址填进配置的 <code>tsnetDownloadSources</code> 即可。
-    </p>
-  </details>
-
-  <details>
-    <summary>安全吗？同一网络里谁能给我派任务？</summary>
-    <p class="small">
-      <b>发现是公开的。</b>同一局域网里谁都能看见你这台机器 —— 这是有意的：
-      先让你看见别人，再决定要不要真的打交道。
-    </p>
-    <p class="small">
-      <b>派任务默认不校验密钥。</b>也就是说，同一网络里能连上 <code>45917</code>
-      端口的人，都能给你派一条任务，而这条任务会<b>唤醒你机器上的 agent</b>
-      去执行。家里的局域网一般可以接受；但在咖啡厅、宿舍、公司这类不可信网络，
-      <b>请打开 <code>requirePairing</code></b>，并把两台机器的配对码设成同一个
-      —— 之后没有这个码的请求会被直接拒绝。
-    </p>
-    <p class="small muted">
-      还要说清楚：配对码是放在 HTTP 头里<b>明文</b>传的。它挡的是"网络里冒出来的
-      陌生设备"，不挡"有人在抓包"。它存在本机
-      <code>~/.dsh/mesh/state.json</code>（权限 0600），<b>不会</b>出现在组播广播里。
-    </p>
-  </details>
-</section>
-
+<!-- ═════════ 排查障碍 / Troubleshooting ═════════ -->
 <section class="wrap">
-  <h2>安装方式（完整）</h2>
-  <table>
-    <tr><th>方式</th><th>命令</th></tr>
-    <tr>
-      <td>npm（推荐）</td>
-      <td><code>dsh plugin add dsh-plugin-mesh</code></td>
-    </tr>
-    <tr>
-      <td>从源码</td>
-      <td><code>git clone … &amp;&amp; ./install.sh</code></td>
-    </tr>
-    <tr>
-      <td>本地目录</td>
-      <td><code>dsh plugin add /path/to/dsh-plugin-mesh</code></td>
-    </tr>
-  </table>
-  <p class="small muted">
-    推荐第一条：它不碰 <code>git clone</code>，而 <code>github.com</code> 的 git 端点
-    在国内经常被重置，是首次安装最常见的失败原因。
-  </p>
-</section>
+  <div data-lang="zh">
+    <h2>排查障碍</h2>
+    <ul>
+      <li><b>看不到对方</b> —— 依次确认：① 两台在同一局域网？ ② 对端也装了、也重启了？ ③ 防火墙放行了 TCP <code>45917</code> 和 UDP <code>45892</code>？</li>
+      <li><b>组播被挡</b> —— 很多路由器会挡。点面板上的「扫描本网段」主动扫一次即可。</li>
+      <li><b>Android 老掉线</b> —— 是系统省电在杀后台，不是插件的问题。把 DSH 加进电池优化白名单。</li>
+      <li><b>安全</b> —— 默认<b>不</b>校验密钥：同一网络里能连上 <code>45917</code> 的人都能给你派活。在咖啡厅、宿舍这类网络，建议打开 <code>requirePairing</code>。</li>
+    </ul>
+  </div>
 
-<section class="wrap">
-  <h2>联系与反馈</h2>
-  <ul>
-    <li>邮箱：<a href="mailto:geekstartup@163.com">geekstartup@163.com</a></li>
-    <li>GitHub：<a href="https://github.com/peng456/dsh-plugin-mesh">peng456/dsh-plugin-mesh</a>
-        （问题与建议走 <a href="https://github.com/peng456/dsh-plugin-mesh/issues">Issues</a>）</li>
-    <li>npm：<a href="https://www.npmjs.com/package/dsh-plugin-mesh">dsh-plugin-mesh</a></li>
-  </ul>
-  <p class="small muted">
-    用着有问题、或者有想加的功能，直接发邮件或在 Issues 里说都行。
-  </p>
+  <div data-lang="en">
+    <h2>Troubleshooting</h2>
+    <ul>
+      <li><b>No peers</b> — check in order: same LAN? peer also installed and restarted? firewall allows TCP <code>45917</code> and UDP <code>45892</code>?</li>
+      <li><b>Multicast blocked</b> — common on many routers. Use the panel's “Scan subnet” button instead.</li>
+      <li><b>Android keeps dropping</b> — the OS is killing background apps, not a plugin bug. Add DSH to the battery whitelist.</li>
+      <li><b>Security</b> — by default the key is <b>not</b> checked: anyone on the same network who can reach <code>45917</code> can send you work. On café or dorm networks, consider enabling <code>requirePairing</code>.</li>
+    </ul>
+  </div>
 </section>
 
 <footer class="wrap">
-  <p class="small">
-    DSH Mesh · MIT License ·
-    <a href="https://github.com/peng456/dsh-plugin-mesh">源码</a> ·
-    <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/README.md">完整文档</a> ·
-    <a href="llms.txt">给 agent 的机器可读摘要（llms.txt）</a>
-  </p>
-  <p class="small muted">
-    与 DeepSeek 官方无隶属关系；这是一个第三方插件。
-  </p>
+  <div data-lang="zh">
+    <p>
+      <a href="https://github.com/peng456/dsh-plugin-mesh">源码</a> ·
+      <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/README.md">完整文档</a> ·
+      <a href="llms.txt">给 agent 的摘要</a> ·
+      <a href="https://github.com/peng456/dsh-plugin-mesh/issues">问题反馈</a>
+    </p>
+    <p>邮箱 <a href="mailto:geekstartup@163.com">geekstartup@163.com</a> · MIT · 与 DeepSeek 官方无隶属关系</p>
+  </div>
+  <div data-lang="en">
+    <p>
+      <a href="https://github.com/peng456/dsh-plugin-mesh">Source</a> ·
+      <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/README.en.md">Docs</a> ·
+      <a href="llms.txt">Summary for agents</a> ·
+      <a href="https://github.com/peng456/dsh-plugin-mesh/issues">Issues</a>
+    </p>
+    <p>Email <a href="mailto:geekstartup@163.com">geekstartup@163.com</a> · MIT · not affiliated with DeepSeek</p>
+  </div>
 </footer>
 
 <script>
-  // 复制按钮：没有 JS 也能正常看命令，这只是锦上添花
-  document.querySelectorAll('.cmd button[data-copy]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var t = b.getAttribute('data-copy');
-      var done = function () { b.textContent = '已复制'; setTimeout(function () { b.textContent = '复制'; }, 1400); };
+(function () {
+  var html = document.documentElement;
+  var btns = document.querySelectorAll('.langbtn');
+
+  function apply(lang) {
+    html.setAttribute('data-lang-on', lang);
+    // 图片里的文字也要跟着换语言，否则英文页面里出现一张中文截图
+    var img = document.getElementById('panel-img');
+    if (img) {
+      img.src = lang === 'en' ? 'img/mesh-panel.en.svg' : 'img/mesh-panel.svg';
+      img.alt = lang === 'en'
+        ? 'The Mesh panel: one row per machine, showing online state, LAN / tailnet channel badges, and the capabilities each machine reports.'
+        : 'Mesh 面板：每台机器一行，显示在线状态、局域网/互联网通道徽章，以及每台机器上报的能力。';
+    }
+    html.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('on', btns[i].getAttribute('data-set-lang') === lang);
+    }
+  }
+
+  function choose() {
+    var q = new URLSearchParams(location.search).get('lang');
+    if (q === 'en' || q === 'zh') return q;
+    try {
+      var saved = localStorage.getItem('mesh-lang');
+      if (saved === 'en' || saved === 'zh') return saved;
+    } catch (e) {}
+    var nav = (navigator.language || '').toLowerCase();
+    return nav.indexOf('zh') === 0 ? 'zh' : 'en';
+  }
+
+  apply(choose());
+
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function () {
+      var lang = this.getAttribute('data-set-lang');
+      apply(lang);
+      try { localStorage.setItem('mesh-lang', lang); } catch (e) {}
+      var u = new URL(location.href);
+      u.searchParams.set('lang', lang);      // 链接可分享：?lang=en
+      history.replaceState(null, '', u);
+    });
+  }
+
+  var copies = document.querySelectorAll('.copy[data-copy]');
+  for (var j = 0; j < copies.length; j++) {
+    copies[j].addEventListener('click', function () {
+      var el = this;
+      var text = el.getAttribute('data-copy');
+      var en = el.textContent === 'Copy';
+      var done = function () {
+        el.textContent = en ? 'Copied' : '已复制';
+        setTimeout(function () { el.textContent = en ? 'Copy' : '复制'; }, 1400);
+      };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(t).then(done, done);
+        navigator.clipboard.writeText(text).then(done, done);
       } else {
         var a = document.createElement('textarea');
-        a.value = t; document.body.appendChild(a); a.select();
+        a.value = text; document.body.appendChild(a); a.select();
         try { document.execCommand('copy'); } catch (e) {}
         document.body.removeChild(a); done();
       }
     });
-  });
+  }
+})();
 </script>
 </body>
 </html>

@@ -117,6 +117,7 @@ npm run build:sidecar    # rebuild the Go tsnet sidecar (cross-platform)
 
 - `AGENTS.md` — agent operating guide, constraints, traps (English)
 - `README.en.md` — short English quickstart (English)
+- `DESIGN.md` — design rationale, trade-offs and post-mortems (Chinese)
 - `README.md` — full documentation, Chinese, includes design rationale and post-mortems
 - `Placement设计.md` — placement design and implementation record (Chinese)
 - `设备身份与多通道设计.md` — identity and multi-channel design (Chinese)
