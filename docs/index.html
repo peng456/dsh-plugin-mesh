@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="img/logo.svg">
 <title>DSH Mesh —— 让几台电脑自己找到彼此</title>
 <meta name="description" content="DSH Mesh：局域网自动发现同网段的其他 DSH 实例、显示每台机器上报的能力，并双向派发任务；可用内置的用户态 Tailscale 节点跨互联网组网。">
 <meta property="og:title" content="DSH Mesh —— 让几台电脑自己找到彼此">
@@ -28,7 +29,8 @@
   }
   .wrap{max-width:760px;margin:0 auto;padding:0 22px}
   header{padding:64px 0 40px;border-bottom:1px solid var(--line)}
-  h1{font-size:30px;margin:0 0 10px;letter-spacing:-.01em}
+  h1{font-size:30px;margin:0;letter-spacing:-.01em}
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:12px}
   .tagline{font-size:19px;color:var(--muted);margin:0 0 22px}
   .hook{font-size:17px;margin:0 0 26px}
   .hook b{color:var(--brand)}
@@ -62,6 +64,9 @@
   .small{font-size:14px}
   .ok{color:var(--ok)}
   .warn{color:var(--warn)}
+  .shot{margin:0 0 20px}
+  .shot img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:11px}
+  figcaption{font-size:13.5px;color:var(--muted);margin-top:10px;line-height:1.6}
   table{border-collapse:collapse;width:100%;margin:0 0 14px;font-size:15px}
   th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
   th{background:var(--code-bg);font-weight:600}
@@ -80,7 +85,10 @@
 <body>
 
 <header class="wrap">
-  <h1>DSH Mesh</h1>
+  <div class="brand">
+    <img src="img/logo.svg" alt="" width="46" height="46">
+    <h1>DSH Mesh</h1>
+  </div>
   <p class="tagline">让局域网里的几台电脑自己找到彼此，然后互相派活。</p>
   <p class="hook">
     装上就有。不用配对码、不用填 IP、不用装 Tailscale。<br>
@@ -139,6 +147,26 @@
 
 <section class="wrap">
   <h2>装好之后你会看到什么</h2>
+  <figure class="shot">
+    <img src="img/mesh-panel.svg"
+         alt="Mesh 面板：本机与两台对端各占一行，显示在线状态、局域网/互联网通道徽章，以及每台机器上报的能力（运行时、内存、显卡）。">
+    <figcaption>
+      界面示意：每台机器一行。彩色徽章是那台机器<b>自己报上来</b>的能力 ——
+      派活之前就能看出它会不会做。本机与 hos 两行的数值取自实际采集输出。
+    </figcaption>
+  </figure>
+  <p>侧栏的 Mesh 面板里，每台机器会显示：</p>
+  <ul>
+    <li><b>在不在线</b>，以及走的是局域网还是互联网那条路</li>
+    <li><b>它会不会做这个活</b> —— 装了哪些运行时（Python / Node / Go / Docker…）、几核、多大内存、有没有显卡</li>
+    <li>你派过去的历史任务</li>
+  </ul>
+
+  <h3>两条通道，自动切换</h3>
+  <p class="small">
+    局域网和互联网各是一条路，<b>任何一条通就算可达</b>。当前走哪条、另一条是不是备用，
+    面板上都标出来。真正断网的时候，你不需要做任何事。
+  </p>
   <div class="diagram">
     <svg viewBox="0 0 720 240" role="img" aria-label="两台机器通过局域网互相发现，并在局域网不通时自动改走互联网">
       <defs>
@@ -168,12 +196,6 @@
       </g>
     </svg>
   </div>
-  <p>侧栏的 Mesh 面板里，每台机器会显示：</p>
-  <ul>
-    <li><b>在不在线</b>，以及走的是局域网还是互联网那条路</li>
-    <li><b>它会不会做这个活</b> —— 装了哪些运行时（Python / Node / Go / Docker…）、几核、多大内存、有没有显卡</li>
-    <li>你派过去的历史任务</li>
-  </ul>
 </section>
 
 <section class="wrap">
@@ -187,7 +209,7 @@
     <tr><td>断网了才发现备胎没配好</td><td>局域网通着的时候也照探备选通道</td></tr>
   </table>
   <p class="small muted">
-    最后一条多说一句：很多方案是"局域网断了才去试备份通道"，结果第一次真断的时候才发现那条压根没通过。
+    最后一条多说一句：很多方案是"局域网断了才去试备份通道"，结果第一次真断的时候才发现那条压根没通。
     这里会在局域网正常时也周期性探测，所以备选通道是<b>验证过的</b>。
   </p>
 </section>

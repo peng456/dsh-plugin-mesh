@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- DSH Mesh 标记：两个节点 + 一条连线（发现 + 通信） -->
+  <rect width="32" height="32" rx="7" fill="#2563eb"/>
+  <g stroke="#fff" stroke-width="2" stroke-linecap="round" fill="none">
+    <line x1="11" y1="12" x2="21" y2="12"/>
+    <line x1="21" y1="20" x2="11" y2="20"/>
+  </g>
+  <circle cx="9" cy="12" r="3.1" fill="#fff"/>
+  <circle cx="23" cy="12" r="3.1" fill="#fff"/>
+  <circle cx="23" cy="20" r="3.1" fill="#fff"/>
+  <circle cx="9" cy="20" r="3.1" fill="#fff"/>
+</svg>
