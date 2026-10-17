@@ -67,7 +67,7 @@ deciding to talk to them.
 
 On an untrusted network (café, dorm, office):
 
-1. Set `requirePairing: true` in your profile's `cordis.patch.yml`.
+1. Flip the switch in the Mesh panel's **pairing** card — it takes effect immediately, no restart. (Writing `requirePairing: true` in `cordis.patch.yml` also works and pins it on, so the UI cannot turn it off.)
 2. Make the pairing secret identical on both machines (the Mesh panel has a field for it).
 
 Note the token travels in a plain HTTP header: it guards against stray devices on

@@ -163,7 +163,7 @@
       <li><b>看不到对方</b> —— 依次确认：① 两台在同一局域网？ ② 对端也装了、也重启了？ ③ 防火墙放行了 TCP <code>45917</code> 和 UDP <code>45892</code>？</li>
       <li><b>组播被挡</b> —— 很多路由器会挡。点面板上的「扫描本网段」主动扫一次即可。</li>
       <li><b>Android 老掉线</b> —— 是系统省电在杀后台，不是插件的问题。把 DSH 加进电池优化白名单。</li>
-      <li><b>安全</b> —— 默认<b>不</b>校验密钥：同一网络里能连上 <code>45917</code> 的人都能给你派活。在咖啡厅、宿舍这类网络，建议打开 <code>requirePairing</code>。</li>
+      <li><b>安全</b> —— 默认<b>不</b>校验密钥：同一网络里能连上 <code>45917</code> 的人都能给你派活。在咖啡厅、宿舍这类网络，打开 Mesh 页面「配对码」里的开关，再把两台机器的码对成同一个就行。</li>
     </ul>
   </div>
 
@@ -173,7 +173,7 @@
       <li><b>No peers</b> — check in order: same LAN? peer also installed and restarted? firewall allows TCP <code>45917</code> and UDP <code>45892</code>?</li>
       <li><b>Multicast blocked</b> — common on many routers. Use the panel's “Scan subnet” button instead.</li>
       <li><b>Android keeps dropping</b> — the OS is killing background apps, not a plugin bug. Add DSH to the battery whitelist.</li>
-      <li><b>Security</b> — by default the key is <b>not</b> checked: anyone on the same network who can reach <code>45917</code> can send you work. On café or dorm networks, consider enabling <code>requirePairing</code>.</li>
+      <li><b>Security</b> — by default the key is <b>not</b> checked: anyone on the same network who can reach <code>45917</code> can send you work. On café or dorm networks, flip the switch in the Mesh panel's “pairing” card and make both machines share one code.</li>
     </ul>
   </div>
 </section>

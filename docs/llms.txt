@@ -71,7 +71,7 @@ Override by id in the profile's `cordis.patch.yml`:
 | `scanTimeoutMs` | natural | `800` | |
 | `pingIntervalMs` | natural | `10000` | LAN health probe period |
 | `tsnetProbeIntervalMs` | natural | `60000` | Tailnet health probe period |
-| `requirePairing` | boolean | `false` | **Default off: the peer API accepts unauthenticated task POSTs** |
+| `requirePairing` | boolean | `false` | **Default off: the peer API accepts unauthenticated task POSTs.** Setting it `true` here pins pairing on; otherwise the Mesh panel's pairing switch (persisted in `state.json`) decides |
 | `agentPreset` | string | `"standard"` | Agent preset for auto-created sessions |
 | `permissionPreset` | string | `"workspace-write"` | Permission preset for auto-created sessions |
 | `workspaceRoot` | string | `""` | |
@@ -102,7 +102,7 @@ to hunt for it.
 
 - Ports: TCP `45917` (peer HTTP), UDP `45892` (multicast group `239.255.42.99`).
 - Discovery is intentionally public: any host on the same L2 network can see the machine and its self-reported card.
-- With `requirePairing: false` (the default), **any host that can reach TCP 45917 can POST a task, which wakes an agent session** using `permissionPreset`. Enable `requirePairing` and share one secret between machines on untrusted networks. The token travels in a plain HTTP header — it guards against stray devices, not against a network sniffer.
+- With `requirePairing: false` (the default), **any host that can reach TCP 45917 can POST a task, which wakes an agent session** using `permissionPreset`. Turn on the pairing switch in the Mesh panel (immediate, no restart) or set `requirePairing: true`, and make both machines share one secret, on untrusted networks. The token travels in a plain HTTP header — it guards against stray devices, not against a network sniffer.
 - The shared secret is stored in `~/.dsh/mesh/state.json` (mode 0600) alongside `machineName`, the persisted `instanceIds`, and the tsnet auth key. It is never included in the multicast card.
 - Persistent identity is a UUID per profile; the OS machine fingerprint is used only to reclaim a reinstalled device (same name, or the old record already offline). Two live instances on one physical machine are kept separate.
 - Sidecar binaries are verified against sha256 checksums pinned in `lib/tsnet/checksums.js` — deliberately not fetched from the same release, so a hostile mirror cannot swap both.

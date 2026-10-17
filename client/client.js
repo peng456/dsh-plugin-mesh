@@ -202,6 +202,22 @@ window.__ModuleLoader__.load({
       const [msg, setMsg] = react.useState("");
       const secret = (self && self.secret) || "";
       const required = !!(config && config.requirePairing);
+      // 配置里写死了 requirePairing: true 时，界面只能显示，不能关
+      const pinned = !!(config && config.requirePairingPinned);
+      const [toggling, setToggling] = react.useState(false);
+
+      const toggle = async () => {
+        setToggling(true);
+        const r = await call("/pairing", { enabled: !required });
+        setToggling(false);
+        if (r && r.ok) {
+          setMsg(r.requirePairing ? "配对码已启用 —— 两台机器要码一致才能互相派任务" : "配对码已停用 —— 同内网发现即可派任务");
+          onSaved && onSaved();
+        } else {
+          setMsg(`切换失败：${(r && r.error) || "未知错误"}`);
+        }
+        setTimeout(() => setMsg(""), 5000);
+      };
 
       const copy = async () => {
         try {
@@ -241,8 +257,25 @@ window.__ModuleLoader__.load({
           "div",
           { style: { ...S.muted, marginTop: 8 } },
           required
-            ? "当前要求两端配对码一致才能互相派发任务。"
-            : "默认不需要配对：同一内网发现即可互相派发任务。若你的网络不完全可信（合租/公司/有访客设备），在插件配置里把 requirePairing 设为 true 再回来对码。",
+            ? "当前要求两端配对码一致才能互相派发任务。不匹配的请求会被直接拒绝。"
+            : "默认不需要配对：同一内网发现即可互相派发任务。若你的网络不完全可信（合租 / 公司 / 有访客设备），打开下面的开关，再把两台机器的配对码对成同一个。",
+        ),
+        // 开关：状态能看见就要能改。原来只能去改 cordis.patch.yml 再重启。
+        h(
+          "div",
+          { style: { ...S.row, marginTop: 10 } },
+          h(
+            "button",
+            {
+              style: required ? S.btn : S.btnPrimary,
+              onClick: toggle,
+              disabled: toggling || pinned,
+            },
+            toggling ? "切换中…" : required ? "停用配对码" : "启用配对码",
+          ),
+          pinned
+            ? h("span", { style: { ...S.muted, fontSize: 12 } }, "已由插件配置 requirePairing: true 固定开启，界面不能关闭")
+            : h("span", { style: { ...S.muted, fontSize: 12 } }, "改完立即生效，不用重启"),
         ),
         open
           ? h(
@@ -999,7 +1032,7 @@ window.__ModuleLoader__.load({
     // 也没有 react-dom，所以没有别的方式在无浏览器环境下验证渲染逻辑。
     // 组件都是纯函数（CapabilityLine 不用 hook），拿 createElement 的返回树
     // 直接走一遍就能断言文案与标记 —— 比"看代码觉得对"强得多。
-    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard };
+    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard, SecretBox };
     return module.exports;
   },
 });

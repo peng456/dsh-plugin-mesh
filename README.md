@@ -650,7 +650,7 @@ agent 多出四个工具：
     pingIntervalMs: 10000      # ping 保活；0 = 关闭
     announceIntervalMs: 5000
     peerTtlMs: 20000           # 多久没消息算离线
-    requirePairing: false      # 见下
+    requirePairing: false      # 见下（也可以用页面上的开关，不必写配置）
     agentPreset: standard
     permissionPreset: workspace-write
     workspaceRoot: ''
