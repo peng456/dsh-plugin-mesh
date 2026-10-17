@@ -50,7 +50,9 @@ is often blocked by routers — the panel's **Scan subnet** button works around 
   a machine can do the job.
 - **Bidirectional dispatch** — the peer's agent can dispatch results back; both sides
   compute the same conversation key independently, without negotiation.
-- **Two channels with automatic failover** — LAN first, tsnet as backup. The backup
+- **Two channels with automatic failover** — LAN first, tsnet as backup (a free
+  Tailscale account and an auth key are required; create one at
+  <https://console.tailscale.com/admin/settings/keys>, and tick **Reusable**). The backup
   channel is actively probed even while the LAN is healthy, so it is known-good
   rather than assumed-good.
 - **Traceable routing** — every task records why it went where it went, and why it

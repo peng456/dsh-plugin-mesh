@@ -139,7 +139,7 @@
     <ul>
       <li><b>自己找</b> —— 每 5 秒向局域网发一个心跳包，同时监听同一个地址。所以不用填 IP。</li>
       <li><b>派活</b> —— 把任务发给对方，对方<b>自动开一个 agent 会话</b>去做，做完再派回来。</li>
-      <li><b>两条路</b> —— 局域网优先；不在同一网络时，走插件自带的用户态 Tailscale（自动下载，不用装客户端）。</li>
+      <li><b>两条路</b> —— 局域网优先；不在同一网络时，走插件自带的用户态 Tailscale（自动下载，不用装客户端）。<b>需要免费注册 Tailscale 并生成一个授权码</b>，插件里直接给了地址，不用自己找。</li>
       <li><b>会什么</b> —— 每台机器把自己装的运行时、内存、显卡报上来，派活之前就能看出它做不做得了。</li>
     </ul>
   </div>
@@ -149,7 +149,7 @@
     <ul>
       <li><b>Discovery</b> — every 5 seconds each machine sends a heartbeat to the LAN and listens on the same address. That is why you never type an IP.</li>
       <li><b>Dispatch</b> — a task is sent to the peer, which <b>opens an agent session automatically</b>, does the work, and dispatches the result back.</li>
-      <li><b>Two channels</b> — LAN first; across networks it falls back to a bundled userspace Tailscale node, downloaded automatically. No client to install.</li>
+      <li><b>Two channels</b> — LAN first; across networks it falls back to a bundled userspace Tailscale node, downloaded automatically. No client to install. <b>Needs a free Tailscale account and an auth key</b> — the plugin links to the page that issues it.</li>
       <li><b>Capabilities</b> — each machine reports its runtimes, memory and GPU, so you can tell before dispatching whether it can do the job.</li>
     </ul>
   </div>

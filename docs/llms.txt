@@ -85,6 +85,19 @@ Override by id in the profile's `cordis.patch.yml`:
 | `threadCooldownMs` | natural | `5000` | Cooldown between session-creating wakes |
 | `minTaskChars` | natural | `24` | Bodies shorter than this are not woken (inbox only) |
 
+## Tailnet setup (the only step that needs an external account)
+
+Cross-network links require a free Tailscale account and an auth key. Create one at
+<https://console.tailscale.com/admin/settings/keys> — that URL redirects to sign-up
+if you are not signed in yet. The key **must be Reusable**; single-use keys fail
+with `invalid key` on the next start. If device approval is enabled in the tailnet,
+tick Pre-approved as well.
+
+Set `tsnetEnabled: true` plus `tsnetAuthKey` in config, or paste the key once into the
+Mesh panel's tailnet card — it is stored in `~/.dsh/mesh/state.json` (mode 0600) and
+never needs re-entry. The plugin's UI links to the key page directly; do not tell users
+to hunt for it.
+
 ## Network and security facts
 
 - Ports: TCP `45917` (peer HTTP), UDP `45892` (multicast group `239.255.42.99`).

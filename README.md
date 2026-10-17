@@ -332,6 +332,11 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 1. 打开开关
 2. 粘贴 Tailscale 授权码（`tskey-auth-...`）—— **只需输入一次**，存进 `state.json`
    （权限 0600），重启不用再填
+   - 还没有授权码：先注册 / 登录 Tailscale（免费），再到
+     <https://console.tailscale.com/admin/settings/keys> 生成。
+   - **生成时必须勾 Reusable** —— 一次性码只能用一次，重启就会报 invalid key。
+   - 后台开了设备审批的，还要勾 Pre-approved。
+   - 插件里的「设置」直接给了这个地址，不用自己去后台翻。
 3. Headscale 用户另填「控制服务器地址」，官方用户留空
 
 节点名自动取机器名（`立朋-mac` → `dsh-mac`，`文超-win` → `dsh-win`），不用你填。

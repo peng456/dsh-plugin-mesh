@@ -25,6 +25,15 @@ window.__ModuleLoader__.load({
     const API = "/mesh/api";
     const inject = ["slots"];
 
+    /**
+     * 拿 Tailscale 授权码的地方。
+     *
+     * 为什么要在插件里直接给地址：跨互联网组网必须先有 Tailscale 账号 + 授权码，
+     * 而"Settings → Keys"这种描述等于让用户自己去后台翻。少一步算一步。
+     * 未登录时这个地址会自动跳到登录/注册页，所以一个链接同时覆盖"注册"和"取码"。
+     */
+    const TS_KEYS_URL = "https://console.tailscale.com/admin/settings/keys";
+
     // ─────────────────────── 数据 ───────────────────────
 
     function useMeshState(intervalMs) {
@@ -354,6 +363,7 @@ window.__ModuleLoader__.load({
           { style: { ...S.muted, marginTop: 8 } },
           "跨互联网也能互相发现和派任务，和局域网是同一套用法。",
           "不需要安装 Tailscale 客户端，也不需要装 Go —— sidecar 会按平台自动下载。",
+          tsnet.authKeySaved ? "" : "开启需要一个 Tailscale 授权码（免费注册），见下方「设置」。",
         ),
 
         // 需要登录时把授权链接摆在最显眼的位置，不用点开设置
@@ -389,11 +399,48 @@ window.__ModuleLoader__.load({
                 }),
                 h("button", { style: S.btnPrimary, onClick: saveAndStart, disabled: busy === "save" }, busy === "save" ? "处理中…" : tsnet.enabled ? "保存并重启" : "保存并启动"),
               ),
-              h(
-                "div",
-                { style: { ...S.muted, marginTop: 6 } },
-                tsnet.authKeySaved ? "✓ 授权码已保存在本机（state.json，权限 0600），只会在这里输入一次。" : "在 Tailscale 后台 Settings → Keys 生成，勾选 Reusable 与 Pre-approved。",
-              ),
+              tsnet.authKeySaved
+                ? h(
+                    "div",
+                    { style: { ...S.muted, marginTop: 6 } },
+                    "✓ 授权码已保存在本机（state.json，权限 0600），只会在这里输入一次。",
+                  )
+                : h(
+                    "div",
+                    { style: { marginTop: 8, padding: "10px 12px", border: "1px solid var(--dsw-alias-border-secondary, #d5d8dc)", borderRadius: 8, fontSize: 13 } },
+                    h("div", { style: { fontWeight: 600, marginBottom: 4 } }, "还没有授权码？两步："),
+                    h(
+                      "div",
+                      { style: { ...S.muted, marginBottom: 4 } },
+                      "① 注册 / 登录 Tailscale 账号（免费）—— 打开下面的地址会让你先登录。",
+                    ),
+                    h(
+                      "div",
+                      { style: { ...S.muted, marginBottom: 6 } },
+                      "② 在同一页面点 Generate auth key，把生成的 tskey-auth-… 粘到上面的输入框。",
+                    ),
+                    h(
+                      "a",
+                      {
+                        href: TS_KEYS_URL,
+                        target: "_blank",
+                        rel: "noreferrer",
+                        style: { color: "inherit", wordBreak: "break-all", textDecoration: "underline" },
+                      },
+                      TS_KEYS_URL,
+                    ),
+                    h(
+                      "div",
+                      { style: { ...S.muted, marginTop: 8 } },
+                      "⚠️ 生成时必须勾选 Reusable（一次性授权码只能用一次，重启就会报 invalid key）。",
+                      "如果你在 Tailscale 后台开启了设备审批，还要勾 Pre-approved。",
+                    ),
+                    h(
+                      "div",
+                      { style: { ...S.muted, marginTop: 6 } },
+                      "授权码只在这里输入一次；之后放进本机 state.json（权限 0600），随时可以在这里替换。",
+                    ),
+                  ),
 
               h(
                 "div",
@@ -952,7 +999,7 @@ window.__ModuleLoader__.load({
     // 也没有 react-dom，所以没有别的方式在无浏览器环境下验证渲染逻辑。
     // 组件都是纯函数（CapabilityLine 不用 hook），拿 createElement 的返回树
     // 直接走一遍就能断言文案与标记 —— 比"看代码觉得对"强得多。
-    exports.__test = { CapabilityLine, PeerRow, MeshPage };
+    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard };
     return module.exports;
   },
 });
