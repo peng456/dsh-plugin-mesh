@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: check
+        run: npm run check
+      - name: test
+        run: npm test
+
+  windows:
+    name: windows-latest / node ${{ matrix.node }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: check
+        run: npm run check
+      # `selftest` (core) and `selftest:caps` are known red on Windows until
+      # #3 (sidecar asset name) and #4 (GPU virtual adapter + platform-neutral
+      # tests) land. Run every suite that is green today; switch this job to
+      # `npm test` once those PRs are merged.
+      - name: prompt
+        run: npm run selftest:prompt
+      - name: pairing
+        run: npm run selftest:pairing
+      - name: client
+        run: npm run selftest:client
