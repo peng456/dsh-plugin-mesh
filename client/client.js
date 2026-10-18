@@ -872,6 +872,22 @@ window.__ModuleLoader__.load({
 
         h(NameCard, { self, onSaved: refresh }),
 
+        cfg.stateHealth && cfg.stateHealth.ok === false
+          ? h(
+              "div",
+              { style: { ...S.card, borderColor: "#c0392b" } },
+              `state.json 损坏（${cfg.stateHealth.error || "无法解析"}），配对已强制开启。` +
+                "旧文件已另存为 state.json.corrupt-*；修复或删除后重启 DSH。",
+            )
+          : null,
+        cfg.stateHealth && cfg.stateHealth.ok && cfg.stateHealth.recovered
+          ? h(
+              "div",
+              { style: { ...S.card, borderColor: "#bf8700" } },
+              `state.json 曾损坏，已从 .bak 恢复：${cfg.stateHealth.error || ""}`,
+            )
+          : null,
+
         (state.duplicateNames || []).length > 0
           ? h(
               "div",
