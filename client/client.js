@@ -613,54 +613,94 @@ window.__ModuleLoader__.load({
     }
 
 
-    // ── 系统身份（osInfo）与系统 logo ──
+
+    // ── 系统身份（osInfo / systems）与系统 logo ──
     //
-    // 新对端报结构化 osInfo；老对端只有 `os: "win32 10.0.26200"`，这里统一
-    // 走回退：能读出平台就画 logo，读不出就用字母徽章，绝不白屏。
+    // 新对端报结构化 osInfo + systems[]（宿主机 + WSL 等环境）；老对端只有
+    // `os: "win32 10.0.26200"`，这里统一走回退：能读出平台就画 logo，读不出
+    // 就用字母徽章，绝不白屏。
 
     const OS_FAMILY_LABEL = { win32: "Windows", darwin: "macOS", linux: "Linux", android: "Android" };
 
-    function osFamily(peer) {
-      const info = peer && peer.osInfo;
-      const raw = String((info && info.platform) || (peer && peer.os) || "").trim().toLowerCase();
+    /** 一台设备的系统列表：优先 systems[]，否则把 osInfo 当成唯一宿主机。 */
+    function systemsOf(peer) {
+      if (peer && Array.isArray(peer.systems) && peer.systems.length) return peer.systems;
+      if (peer && peer.osInfo) return [{ kind: "host", ...peer.osInfo }];
+      return [];
+    }
+
+    function hostSystem(peer) {
+      const list = systemsOf(peer);
+      return list.find((s) => s.kind === "host") || list[0] || null;
+    }
+
+    function systemFamily(sys) {
+      const raw = String((sys && sys.platform) || "").trim().toLowerCase();
       const token = raw.split(/\s+/)[0];
       return OS_FAMILY_LABEL[token] ? token : "";
     }
 
+    /** 老字段 `os: "win32 10.0"` 的平台推断。 */
+    function legacyFamily(peer) {
+      const raw = String((peer && peer.os) || "").trim().toLowerCase();
+      const token = raw.split(/\s+/)[0];
+      return OS_FAMILY_LABEL[token] ? token : "";
+    }
+
+    function systemLabel(sys) {
+      if (!sys) return "";
+      return [sys.name, sys.version].filter(Boolean).join(" ") || sys.platform || "?";
+    }
+
+    function systemExtra(sys) {
+      if (!sys) return "";
+      return [sys.kind === "wsl" ? "WSL" : "", sys.distro, sys.desktop, sys.arch].filter(Boolean).join(" · ");
+    }
+
+    function systemTitle(sys) {
+      if (!sys) return "";
+      return [
+        sys.kind === "wsl" ? "WSL 发行版" : "",
+        sys.kernel ? `kernel=${sys.kernel}` : "",
+        sys.distro ? `distro=${sys.distro}` : "",
+        sys.desktop ? `desktop=${sys.desktop}` : "",
+      ].filter(Boolean).join(" · ");
+    }
+
+    function osFamily(peer) {
+      return systemFamily(hostSystem(peer)) || legacyFamily(peer);
+    }
+
     function osText(peer) {
-      const info = peer && peer.osInfo;
-      if (info && (info.name || info.version)) {
-        return [info.name, info.version].filter(Boolean).join(" ");
-      }
+      const host = hostSystem(peer);
+      if (host) return systemLabel(host);
       return (peer && peer.os) || "";
     }
 
     function osExtra(peer) {
-      const info = peer && peer.osInfo;
-      if (!info) return "";
-      return [info.arch, info.distro, info.desktop].filter(Boolean).join(" · ");
+      return systemExtra(hostSystem(peer));
     }
 
     function osTitle(peer) {
-      const info = peer && peer.osInfo;
-      const parts = info
-        ? [
-            info.kernel ? `kernel=${info.kernel}` : "",
-            info.distro ? `distro=${info.distro}` : "",
-            info.desktop ? `desktop=${info.desktop}` : "",
-            peer.version ? `plugin=${peer.version}` : "",
-          ]
-        : [peer && peer.version ? `plugin=${peer.version}` : ""];
+      const host = hostSystem(peer);
+      const parts = [
+        host && host.kind === "wsl" ? "WSL" : "",
+        host && host.kernel ? `kernel=${host.kernel}` : "",
+        host && host.distro ? `distro=${host.distro}` : "",
+        host && host.desktop ? `desktop=${host.desktop}` : "",
+        peer && peer.version ? `plugin=${peer.version}` : "",
+      ];
       return parts.filter(Boolean).join(" · ");
     }
 
     /** 四个系统家族的内联单色 SVG；未知平台回退成字母徽章。 */
-    function OsLogo({ peer, size = 16 }) {
-      const family = osFamily(peer);
+    function OsLogo({ peer, system, size = 16 }) {
+      const sys = system || hostSystem(peer);
+      const family = systemFamily(sys) || (peer ? legacyFamily(peer) : "");
       const label = OS_FAMILY_LABEL[family] || "Unknown OS";
       const box = { display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" };
       if (!family) {
-        const badge = String((peer && peer.os) || "?").trim().slice(0, 3).toUpperCase() || "?";
+        const badge = String((sys && (sys.name || sys.platform)) || (peer && peer.os) || "?").trim().slice(0, 3).toUpperCase() || "?";
         return h(
           "span",
           {
@@ -716,6 +756,9 @@ window.__ModuleLoader__.load({
 
     function PeerRow({ peer, onSend, onProbe, probe }) {
       const target = peer.machine;
+      const systems = systemsOf(peer);
+      const hostSys = hostSystem(peer);
+      const extraSystems = systems.filter((s) => s !== hostSys).slice(0, 3);
       return h(
         "div",
         { style: S.peer },
@@ -777,6 +820,16 @@ window.__ModuleLoader__.load({
             h(OsLogo, { peer }),
             h("span", null, osText(peer) || "?"),
             osExtra(peer) ? h("span", { style: S.tag }, osExtra(peer)) : null,
+            extraSystems.map((sys, i) =>
+              h(
+                "span",
+                { key: `sys-${i}`, style: { ...S.tag, display: "inline-flex", alignItems: "center", gap: 4 }, title: systemTitle(sys) || undefined },
+                h(OsLogo, { system: sys, size: 12 }),
+                " ",
+                systemLabel(sys),
+                sys.kind === "wsl" ? " · WSL" : "",
+              ),
+            ),
             h("span", null, `· user=${peer.user || "?"}`),
             peer.profile ? h("span", null, `· profile=${peer.profile}`) : null,
             h("span", null, `· 最后心跳 ${new Date(peer.lastSeen).toLocaleTimeString()}`),
@@ -970,6 +1023,19 @@ window.__ModuleLoader__.load({
             h(OsLogo, { peer: self, size: 14 }),
             osText(self) || self.os || "?",
             osExtra(self) ? ` · ${osExtra(self)}` : "",
+            systemsOf(self)
+              .filter((s) => s !== hostSystem(self))
+              .slice(0, 3)
+              .map((sys, i) =>
+                h(
+                  "span",
+                  { key: `self-sys-${i}`, style: { ...S.tag, display: "inline-flex", alignItems: "center", gap: 4 }, title: systemTitle(sys) || undefined },
+                  h(OsLogo, { system: sys, size: 12 }),
+                  " ",
+                  systemLabel(sys),
+                  sys.kind === "wsl" ? " · WSL" : "",
+                ),
+              ),
           ),
           h("br"),
           h(
