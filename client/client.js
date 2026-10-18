@@ -64,12 +64,18 @@ window.__ModuleLoader__.load({
     }
 
     async function call(path, body) {
-      const r = await fetch(API + path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body || {}),
-      });
-      return r.json().catch(() => ({}));
+      try {
+        const r = await fetch(API + path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body || {}),
+        });
+        return r.json().catch(() => ({}));
+      } catch (err) {
+        // fetch 本身 reject（后端重启 / 断网）时也要返回一个对象，否则所有
+        // `await call()` 的调用方都不会清 busy，按钮会永久卡在 loading。
+        return { ok: false, error: String((err && err.message) || err) };
+      }
     }
 
     // ─────────────────────── 样式 ───────────────────────
@@ -506,11 +512,11 @@ window.__ModuleLoader__.load({
                 node && node.binary && node.binary.installed ? ` · sidecar ${(node.binary.size / 1048576).toFixed(1)}MB` : "",
               ),
 
-              (node && node.diagnostics && node.diagnostics.length) || (node && node.recentEvents && node.recentEvents.length)
+              tsnet.recentEvents && tsnet.recentEvents.length
                 ? h(
                     "div",
                     { style: { ...S.log, marginTop: 10 } },
-                    (node.recentEvents || []).slice(-8).map((ev, i) =>
+                    tsnet.recentEvents.slice(-8).map((ev, i) =>
                       h("div", { key: i, style: S.logRow }, `${new Date(ev.at).toLocaleTimeString()} ${ev.event}${ev.message ? " " + ev.message : ""}${ev.url ? " " + ev.url : ""}`),
                     ),
                   )
@@ -849,6 +855,13 @@ window.__ModuleLoader__.load({
           "div",
           { style: S.pageInner },
         h("h1", { style: S.h1 }, "局域网 Mesh"),
+        error
+          ? h(
+              "div",
+              { style: { ...S.card, borderColor: "#bf8700", marginBottom: 12 } },
+              `状态轮询失败，下面是最后一次成功的数据：${error}`,
+            )
+          : null,
         h(
           "div",
           { style: S.sub },
