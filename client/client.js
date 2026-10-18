@@ -556,6 +556,29 @@ window.__ModuleLoader__.load({
           `${name} ${ver}`,
         ),
       );
+      // WSL 是另一套环境：宿主机没装的工具可能在 WSL 里。分开渲染，别混成一排。
+      const wslList = Array.isArray(caps.wsl)
+        ? caps.wsl.filter((w) => w && typeof w === "object" && w.name).slice(0, 2)
+        : [];
+      const wslTags = [];
+      for (const w of wslList) {
+        wslTags.push(
+          h(
+            "span",
+            {
+              key: `wsl-${w.name}`,
+              style: { ...S.tag, color: "#0969da", borderColor: "#9ecbff" },
+              title: `WSL 发行版 ${w.name} 里的运行时（与宿主机分开）`,
+            },
+            `WSL ${w.name}`,
+          ),
+        );
+        for (const [name, ver] of Object.entries(w.runtimes ?? {})) {
+          wslTags.push(
+            h("span", { key: `wsl-${w.name}-${name}`, style: S.tag }, `${name} ${ver}`),
+          );
+        }
+      }
 
       const specs = [];
       if (caps.cpuCores) specs.push(`${caps.cpuCores} 核`);
@@ -571,6 +594,11 @@ window.__ModuleLoader__.load({
           ? `显卡：${caps.gpu.name}${caps.gpu.vramMb ? ` ${caps.gpu.vramMb}MB` : ""}`
           : "显卡：未探到或没有独立显卡",
         hints.length ? `常用目录：${hints.join("  ")}` : "",
+        wslList.length
+          ? `WSL 运行时：${wslList
+              .map((w) => `${w.name}（${Object.entries(w.runtimes ?? {}).map(([k, v]) => `${k} ${v}`).join("、") || "未探到"}）`)
+              .join("；")}`
+          : "",
         caps.capabilitiesAt ? `采集于 ${new Date(caps.capabilitiesAt).toLocaleString()}` : "采集时间未知",
       ]
         .filter(Boolean)
@@ -583,6 +611,7 @@ window.__ModuleLoader__.load({
           title: tip,
         },
         badges.length ? badges : h("span", { style: S.muted }, "未探到运行时"),
+        ...wslTags,
         caps.gpu && caps.gpu.name
           ? h("span", { style: { ...S.tag, color: "#8250df", borderColor: "#c9a7f5" } }, `GPU ${caps.gpu.name}`)
           : null,

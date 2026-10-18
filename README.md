@@ -587,6 +587,8 @@ New-NetFirewallRule -DisplayName "DSH Mesh (multicast)" -Direction Inbound -Prot
 - **扫描本网段** / **重新广播** 按钮
 - **派发任务**：选目标机器 → 填任务 → 派发
 - **任务记录**：收到 / 派出的任务
+- **WSL 运行时**：Windows 上会额外探测**运行中**的 WSL 发行版里的 node/python/…，
+  与宿主机运行时分开显示（`capabilities.wsl`；停着的发行版不会被启动）
 - **配对码**（折叠，默认不需要）
 
 agent 多出四个工具：
