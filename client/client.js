@@ -765,6 +765,62 @@ window.__ModuleLoader__.load({
       );
     }
 
+
+    /** 诊断卡片：进程版本 vs 磁盘版本、入口路径、启动时间、能力采集时间。 */
+    function DiagnosticsPanel() {
+      const [data, setData] = react.useState(null);
+      const [busy, setBusy] = react.useState(false);
+      const [msg, setMsg] = react.useState("");
+
+      const load = async () => {
+        setBusy(true);
+        try {
+          const r = await fetch(`${API}/diagnostics`, { headers: { accept: "application/json" } });
+          const j = await r.json();
+          setData(j);
+          setMsg("");
+        } catch (err) {
+          setMsg(`读取失败：${String((err && err.message) || err)}`);
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const copy = async () => {
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+          setMsg("已复制");
+        } catch {
+          setMsg("复制失败，请手动选择文本");
+        }
+        setTimeout(() => setMsg(""), 3000);
+      };
+
+      return h(
+        "div",
+        { style: S.card },
+        h("div", { style: S.cardTitle }, "诊断"),
+        h(
+          "div",
+          { style: S.row },
+          h("button", { style: S.btnSm, onClick: load, disabled: busy }, busy ? "读取中…" : "读取诊断信息"),
+          data ? h("button", { style: S.btnSm, onClick: copy }, "复制 JSON") : null,
+          msg ? h("span", { style: S.muted }, msg) : null,
+        ),
+        data
+          ? h(
+              "pre",
+              { style: { ...S.mono, marginTop: 10, maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap" } },
+              JSON.stringify(data, null, 2),
+            )
+          : h(
+              "div",
+              { style: { ...S.muted, marginTop: 8 } },
+              "版本是否与磁盘一致、入口路径、进程启动时间、能力采集时间。排障时直接复制这段 JSON。",
+            ),
+      );
+    }
+
     function MeshPage() {
       const { state, error } = useMeshState(3000);
       const [target, setTarget] = react.useState("");
@@ -872,6 +928,8 @@ window.__ModuleLoader__.load({
 
         h(NameCard, { self, onSaved: refresh }),
 
+        h(DiagnosticsPanel),
+
         (state.duplicateNames || []).length > 0
           ? h(
               "div",
@@ -976,7 +1034,36 @@ window.__ModuleLoader__.load({
                 { style: S.log },
                 (state.inbound || []).length === 0
                   ? h("div", { style: S.muted }, "（无）")
-                  : state.inbound.map((t) => h("div", { key: t.id, style: S.logRow }, h("code", { style: S.mono }, `[${t.id}]`), ` ${t.status}  `, h("strong", null, t.from), " — ", String(t.task).slice(0, 120))),
+                  : state.inbound.map((t) =>
+                      h(
+                        "details",
+                        { key: t.id, style: S.logRow },
+                        h(
+                          "summary",
+                          { style: { cursor: "pointer" } },
+                          h("code", { style: S.mono }, `[${t.id}]`),
+                          ` ${t.status}  `,
+                          h("strong", null, t.from),
+                          " — ",
+                          String(t.task).slice(0, 120),
+                        ),
+                        h(
+                          "div",
+                          { style: { ...S.mono, marginTop: 6, whiteSpace: "pre-wrap", color: "var(--dsw-alias-label-secondary, #666)" } },
+                          [
+                            `from: ${t.from || "?"}`,
+                            `thread: ${t.thread || "—"}`,
+                            `transport: ${t.transport || "—"}`,
+                            `source: ${t.sourceAddress || "—"}`,
+                            `received: ${t.receivedAt || "—"}`,
+                            `route: ${t.routeDecision || "—"}`,
+                            `dispatchError: ${t.dispatchError || "—"}`,
+                            `replyTo: ${t.replyTo ? JSON.stringify(t.replyTo) : "—"}`,
+                            `task: ${String(t.task)}`,
+                          ].join("\n"),
+                        ),
+                      ),
+                    ),
               ),
               h("div", { style: { ...S.cardTitle, marginTop: 18 } }, "派出的任务"),
               h(
@@ -984,7 +1071,32 @@ window.__ModuleLoader__.load({
                 { style: S.log },
                 (state.outbound || []).length === 0
                   ? h("div", { style: S.muted }, "（无）")
-                  : state.outbound.map((t, i) => h("div", { key: `${t.id}-${i}`, style: S.logRow }, h("code", { style: S.mono }, `[${t.id}]`), ` → ${t.toMachine} ${t.ok ? "已送达" : "失败"}  `, String(t.task).slice(0, 100))),
+                  : state.outbound.map((t, i) =>
+                      h(
+                        "details",
+                        { key: `${t.id}-${i}`, style: S.logRow },
+                        h(
+                          "summary",
+                          { style: { cursor: "pointer" } },
+                          h("code", { style: S.mono }, `[${t.id}]`),
+                          ` → ${t.toMachine} ${t.ok ? "已送达" : "失败"}  `,
+                          String(t.task).slice(0, 100),
+                        ),
+                        h(
+                          "div",
+                          { style: { ...S.mono, marginTop: 6, whiteSpace: "pre-wrap", color: "var(--dsw-alias-label-secondary, #666)" } },
+                          [
+                            `to: ${t.toMachine || "?"}`,
+                            `ok: ${t.ok === true}`,
+                            `status: ${t.status ?? "—"}`,
+                            `thread: ${t.thread || "—"}`,
+                            `error: ${t.error || "—"}`,
+                            `at: ${t.at || "—"}`,
+                            `task: ${String(t.task)}`,
+                          ].join("\n"),
+                        ),
+                      ),
+                    ),
               ),
             )
           : null,
@@ -1032,7 +1144,7 @@ window.__ModuleLoader__.load({
     // 也没有 react-dom，所以没有别的方式在无浏览器环境下验证渲染逻辑。
     // 组件都是纯函数（CapabilityLine 不用 hook），拿 createElement 的返回树
     // 直接走一遍就能断言文案与标记 —— 比"看代码觉得对"强得多。
-    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard, SecretBox };
+    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard, SecretBox, DiagnosticsPanel };
     return module.exports;
   },
 });

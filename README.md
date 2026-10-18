@@ -586,7 +586,8 @@ New-NetFirewallRule -DisplayName "DSH Mesh (multicast)" -Direction Inbound -Prot
   每行「探测」和「派发任务」
 - **扫描本网段** / **重新广播** 按钮
 - **派发任务**：选目标机器 → 填任务 → 派发
-- **任务记录**：收到 / 派出的任务
+- **任务记录**：收到 / 派出的任务；点开每条可看 `routeDecision` / `dispatchError` / `replyTo` / 时间
+- **诊断**：一键读取「进程自述版本 vs 磁盘 package.json、入口真实路径、启动时间、能力采集时间」
 - **配对码**（折叠，默认不需要）
 
 agent 多出四个工具：
