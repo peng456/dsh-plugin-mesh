@@ -612,6 +612,108 @@ window.__ModuleLoader__.load({
       );
     }
 
+
+    // ── 系统身份（osInfo）与系统 logo ──
+    //
+    // 新对端报结构化 osInfo；老对端只有 `os: "win32 10.0.26200"`，这里统一
+    // 走回退：能读出平台就画 logo，读不出就用字母徽章，绝不白屏。
+
+    const OS_FAMILY_LABEL = { win32: "Windows", darwin: "macOS", linux: "Linux", android: "Android" };
+
+    function osFamily(peer) {
+      const info = peer && peer.osInfo;
+      const raw = String((info && info.platform) || (peer && peer.os) || "").trim().toLowerCase();
+      const token = raw.split(/\s+/)[0];
+      return OS_FAMILY_LABEL[token] ? token : "";
+    }
+
+    function osText(peer) {
+      const info = peer && peer.osInfo;
+      if (info && (info.name || info.version)) {
+        return [info.name, info.version].filter(Boolean).join(" ");
+      }
+      return (peer && peer.os) || "";
+    }
+
+    function osExtra(peer) {
+      const info = peer && peer.osInfo;
+      if (!info) return "";
+      return [info.arch, info.distro, info.desktop].filter(Boolean).join(" · ");
+    }
+
+    function osTitle(peer) {
+      const info = peer && peer.osInfo;
+      const parts = info
+        ? [
+            info.kernel ? `kernel=${info.kernel}` : "",
+            info.distro ? `distro=${info.distro}` : "",
+            info.desktop ? `desktop=${info.desktop}` : "",
+            peer.version ? `plugin=${peer.version}` : "",
+          ]
+        : [peer && peer.version ? `plugin=${peer.version}` : ""];
+      return parts.filter(Boolean).join(" · ");
+    }
+
+    /** 四个系统家族的内联单色 SVG；未知平台回退成字母徽章。 */
+    function OsLogo({ peer, size = 16 }) {
+      const family = osFamily(peer);
+      const label = OS_FAMILY_LABEL[family] || "Unknown OS";
+      const box = { display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" };
+      if (!family) {
+        const badge = String((peer && peer.os) || "?").trim().slice(0, 3).toUpperCase() || "?";
+        return h(
+          "span",
+          {
+            style: { ...S.tag, ...box, minWidth: size, height: size, padding: "0 3px", fontSize: 9 },
+            title: label,
+            "aria-label": label,
+          },
+          badge,
+        );
+      }
+      const svgProps = { width: size, height: size, viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" };
+      let icon;
+      if (family === "win32") {
+        icon = h("path", { fill: "currentColor", d: "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" });
+      } else if (family === "darwin") {
+        icon = h("path", {
+          fill: "currentColor",
+          d: "M16.37 1.43c0 1.14-.45 2.2-1.18 2.96-.8.83-2.1 1.48-3.2 1.39-.13-1.1.42-2.27 1.16-3.02.8-.86 2.15-1.5 3.22-1.33zM20.9 17.1c-.55 1.27-.82 1.84-1.53 2.96-.99 1.57-2.38 3.52-4.11 3.53-1.53.01-1.93-.99-4.01-.98-2.08.01-2.52 1-4.05.98-1.73-.02-3.05-1.78-4.04-3.35C-.5 15.4-1.35 9.9 1.43 7.06c1.13-1.15 2.64-1.82 4.06-1.82 1.55 0 2.52 1.02 3.8 1.02 1.24 0 2-1.02 3.8-1.02 1.27 0 2.62.69 3.58 1.88-3.15 1.73-2.64 6.24.23 7.98z",
+        });
+      } else if (family === "linux") {
+        icon = h(
+          "g",
+          { fill: "currentColor" },
+          h("ellipse", { cx: 12, cy: 15, rx: 5.6, ry: 6.8 }),
+          h("circle", { cx: 12, cy: 7, r: 4.3 }),
+          h("path", { d: "M9.7 8.3 12 9.7l2.3-1.4-.7 2.4H10.4z" }),
+          h("ellipse", { cx: 8.8, cy: 21, rx: 2.4, ry: 1.4 }),
+          h("ellipse", { cx: 15.2, cy: 21, rx: 2.4, ry: 1.4 }),
+        );
+      } else {
+        icon = h(
+          "g",
+          { fill: "currentColor" },
+          h("path", {
+            fillRule: "evenodd",
+            d: "M5 10a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2zm3 2h2v2H8zm6 0h2v2h-2z",
+          }),
+          h("path", {
+            d: "M8 8 6.2 4.8M16 8l1.8-3.2",
+            stroke: "currentColor",
+            strokeWidth: 1.6,
+            strokeLinecap: "round",
+            fill: "none",
+          }),
+        );
+      }
+      return h(
+        "span",
+        { style: { ...box, color: "inherit" }, title: label, role: "img", "aria-label": label },
+        h("svg", svgProps, icon),
+      );
+    }
+
     function PeerRow({ peer, onSend, onProbe, probe }) {
       const target = peer.machine;
       return h(
@@ -668,10 +770,16 @@ window.__ModuleLoader__.load({
             : null,
           h(
             "div",
-            { style: S.muted },
-            `${peer.os || "?"} · user=${peer.user || "?"}`,
-            peer.profile ? ` · profile=${peer.profile}` : "",
-            ` · 最后心跳 ${new Date(peer.lastSeen).toLocaleTimeString()}`,
+            {
+              style: { ...S.muted, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+              title: osTitle(peer) || undefined,
+            },
+            h(OsLogo, { peer }),
+            h("span", null, osText(peer) || "?"),
+            osExtra(peer) ? h("span", { style: S.tag }, osExtra(peer)) : null,
+            h("span", null, `· user=${peer.user || "?"}`),
+            peer.profile ? h("span", null, `· profile=${peer.profile}`) : null,
+            h("span", null, `· 最后心跳 ${new Date(peer.lastSeen).toLocaleTimeString()}`),
           ),
           // 这台机器能干什么 —— 决定任务该派给谁的依据
           h(CapabilityLine, { peer }),
@@ -858,6 +966,14 @@ window.__ModuleLoader__.load({
           h("br"),
           h(
             "span",
+            { style: { fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 } },
+            h(OsLogo, { peer: self, size: 14 }),
+            osText(self) || self.os || "?",
+            osExtra(self) ? ` · ${osExtra(self)}` : "",
+          ),
+          h("br"),
+          h(
+            "span",
             { style: { fontSize: 12 } },
             `发现方式：${cfg.useMulticast === false ? "主动扫描" : "组播 + 扫描"}`,
             cfg.scanIntervalMs ? `（每 ${Math.round(cfg.scanIntervalMs / 1000)}s 重扫）` : "",
@@ -1032,7 +1148,7 @@ window.__ModuleLoader__.load({
     // 也没有 react-dom，所以没有别的方式在无浏览器环境下验证渲染逻辑。
     // 组件都是纯函数（CapabilityLine 不用 hook），拿 createElement 的返回树
     // 直接走一遍就能断言文案与标记 —— 比"看代码觉得对"强得多。
-    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard, SecretBox };
+    exports.__test = { CapabilityLine, PeerRow, MeshPage, TsnetCard, SecretBox, OsLogo, osText, osFamily, osExtra };
     return module.exports;
   },
 });
