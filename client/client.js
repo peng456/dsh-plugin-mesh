@@ -205,6 +205,8 @@ window.__ModuleLoader__.load({
       // 配置里写死了 requirePairing: true 时，界面只能显示，不能关
       const pinned = !!(config && config.requirePairingPinned);
       const [toggling, setToggling] = react.useState(false);
+      const [qr, setQr] = react.useState("");
+      const [qrBusy, setQrBusy] = react.useState(false);
 
       const toggle = async () => {
         setToggling(true);
@@ -217,6 +219,24 @@ window.__ModuleLoader__.load({
           setMsg(`切换失败：${(r && r.error) || "未知错误"}`);
         }
         setTimeout(() => setMsg(""), 5000);
+      };
+
+      const toggleQr = async () => {
+        if (qr) {
+          setQr("");
+          return;
+        }
+        setQrBusy(true);
+        try {
+          const r = await fetch(`${API}/pairing/qr`, { headers: { accept: "application/json" } });
+          const j = await r.json();
+          if (j && j.ok && j.dataUrl) setQr(j.dataUrl);
+          else setMsg(`二维码生成失败：${(j && j.error) || "未知错误"}`);
+        } catch (err) {
+          setMsg(`二维码读取失败：${String((err && err.message) || err)}`);
+        } finally {
+          setQrBusy(false);
+        }
       };
 
       const copy = async () => {
@@ -288,7 +308,31 @@ window.__ModuleLoader__.load({
                 h("code", { style: { ...S.mono, flex: 1, wordBreak: "break-all" } }, reveal ? secret || "(未生成)" : "•".repeat(Math.min(28, (secret || "").length || 28))),
                 h("button", { style: S.btnSm, onClick: () => setReveal(!reveal) }, reveal ? "隐藏" : "显示"),
                 h("button", { style: S.btnSm, onClick: copy }, "复制"),
+                h(
+                  "button",
+                  { style: S.btnSm, onClick: toggleQr, disabled: qrBusy },
+                  qrBusy ? "生成中…" : qr ? "收起二维码" : "显示二维码",
+                ),
               ),
+              qr
+                ? h(
+                    "div",
+                    { style: { marginTop: 10, display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" } },
+                    h("img", {
+                      src: qr,
+                      alt: "配对码二维码",
+                      width: 180,
+                      height: 180,
+                      style: { background: "#fff", padding: 8, borderRadius: 8, border: "1px solid #e8eaed" },
+                    }),
+                    h(
+                      "div",
+                      { style: { ...S.muted, maxWidth: 260 } },
+                      "扫码内容是 dsh-mesh://pair?code=…；在另一台设备上取出 code 参数粘贴到下面即可。" +
+                        "配对码等同于密码，不要发到公开群。",
+                    ),
+                  )
+                : null,
               h(
                 "div",
                 { style: { ...S.row, marginTop: 12 } },
