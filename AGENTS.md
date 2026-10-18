@@ -132,7 +132,7 @@ private multicast group so it cannot pollute a real LAN.
 
 ```bash
 npm run check && npm test
-npm run release-plugin -- --publish   # tarball -> GitHub release -> LAN mirror
+./scripts/release-plugin.sh --publish   # tarball -> GitHub release -> LAN mirror
 npm publish                           # npm; publishConfig pins the public registry
 ```
 
