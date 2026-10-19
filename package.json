@@ -72,8 +72,7 @@
     "check:scope": "python3 tools/scopecheck.py lib/index.js",
     "prepublishOnly": "npm test && node scripts/check-tarball.mjs",
     "check:docs": "node scripts/sync-llms.mjs",
-    "selftest:pairing": "node lib/_selftest-pairing.mjs",
-    "selftest:reply": "node --experimental-vm-modules lib/_selftest-reply-route.mjs"
+    "selftest:pairing": "node lib/_selftest-pairing.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
