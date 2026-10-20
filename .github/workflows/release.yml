@@ -100,13 +100,20 @@ jobs:
             echo "::notice title=dry run::演练模式，不发布"
           fi
 
+      # 测试与发布件都 tee 进同一份日志：失败时下面那条 annotation 步骤才有东西可报。
+      # 不加 tee 的话，"发布为什么红"只能靠下载日志才知道 —— 而这台机器连
+      # api.github.com 都连不上（首次上线就是这么卡住的）。
       - name: 全量测试（发布前的唯一门禁）
         if: ${{ steps.plan.outputs.release == 'true' }}
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/publish.log
 
       - name: 发布件门禁（校验真正要发出去的 tar）
         if: ${{ steps.plan.outputs.release == 'true' }}
-        run: node scripts/check-tarball.mjs
+        run: |
+          set -o pipefail
+          node scripts/check-tarball.mjs 2>&1 | tee -a /tmp/publish.log
 
       # 版本号提交放在测试**之后**：测试红了就不该在 main 上留下版本号脚印，
       # 否则下一次运行会把该版本当成"已经准备好、只差发"，绕过 bump 逻辑。
@@ -209,6 +216,9 @@ jobs:
         if: failure()
         run: |
           esc() { printf '%s' "$1" | sed 's/%/%25/g'; }
+          grep -n "✗" /tmp/publish.log 2>/dev/null | head -12 | while IFS= read -r line; do
+            echo "::error title=失败的断言::$(esc "$line")"
+          done
           tail -15 /tmp/publish.log 2>/dev/null | while IFS= read -r line; do
             [ -n "$line" ] && echo "::error title=发布日志::$(esc "$line")"
           done
