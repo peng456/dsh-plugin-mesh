@@ -49,14 +49,14 @@ jobs:
     # 免得有人对着那条提交手动点 workflow_dispatch 时又发一版。
     if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # 要 tag 列表和完整历史来算"上一版是哪一版"
           # 用内置 token：推送版本号提交需要写权限；若 main 开了「required status
           # checks」，这次推送会被拒（见 docs/RELEASE.md 的说明与绕法）
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24 # 自带 npm 11.x，可信发布要求 npm >= 11.5.1
       # ⚠ 刻意**不**用 setup-node 的 registry-url：它会往 .npmrc 里写一行
