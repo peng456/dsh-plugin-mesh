@@ -897,6 +897,7 @@ dsh-plugin-mesh/
 │   ├── index.js           # 主机侧：发现编排 + 对端 HTTP + agent 工具 + UI 接口 + 入站唤醒
 │   ├── discovery.js       # UDP 组播被动发现 + 对端注册表 + 过期清理 + 指纹认领
 │   ├── identity.js        # 持久 UUID 身份 + OS 机器指纹（只用于认领）
+│   ├── layout.js          # 每 profile 的 mesh/ 根、会话工作区路径、旧状态迁移
 │   ├── conversation.js    # 会话键 + 回信地址（两端各自算，不协商）
 │   ├── capabilities.js    # 能力采集/净化/摘要（Placement 第 1 步）
 │   ├── scan.js            # 主动扫描（固定端口 + CIDR 展开）
