@@ -44,13 +44,32 @@ jobs:
           node-version: ${{ matrix.node }}
 
       # npm test = check（版本号一致性 / TDZ / 语法 / 可加载 / 文档同步）
-      #          + 四套 selftest（发现、能力、客户端、提示词、配对、版本计划）
+      #          + 六套 selftest（发现、能力、客户端、提示词、配对、发版计划）
       - name: 全量测试
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/ci.log
 
       # 只有它校验的是**真要发出去的那个 tar**，源码树干净不代表包干净
       - name: 发布件门禁（npm pack 后解开再验）
-        run: node scripts/check-tarball.mjs
+        run: |
+          set -o pipefail
+          node scripts/check-tarball.mjs 2>&1 | tee -a /tmp/ci.log
+
+      # 把失败的关键行提升成 annotation。
+      # 为什么值得单独一步：annotation 直接显示在运行页面上，不用下载日志、
+      # 不用登录 API —— 在手机上看一眼就知道红在哪。这个项目历史上最常见的
+      # 排障成本就是"知道红了，但不知道红在哪一行"。
+      - name: 失败要点（annotation）
+        if: failure()
+        run: |
+          esc() { printf '%s' "$1" | sed 's/%/%25/g'; }
+          grep -n "✗" /tmp/ci.log 2>/dev/null | head -12 | while IFS= read -r line; do
+            echo "::error title=失败的断言::$(esc "$line")"
+          done
+          tail -20 /tmp/ci.log 2>/dev/null | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=日志尾部::$(esc "$line")"
+          done
 
   # ── 顺带看一眼别的平台，不阻断合并 ──────────────────────────────────────
   # 插件装在别人的 Linux/Windows 上，但自测里有一批断言是按"开发机是 Mac"
@@ -68,4 +87,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm test
+      - run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/ci.log
+      - name: 失败要点（annotation）
+        if: failure()
+        run: |
+          esc() { printf '%s' "$1" | sed 's/%/%25/g'; }
+          grep -n "✗" /tmp/ci.log 2>/dev/null | head -12 | while IFS= read -r line; do
+            echo "::error title=失败的断言::$(esc "$line")"
+          done
+          tail -20 /tmp/ci.log 2>/dev/null | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=日志尾部::$(esc "$line")"
+          done
+
