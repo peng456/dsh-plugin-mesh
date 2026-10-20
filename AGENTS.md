@@ -97,6 +97,7 @@ lib/index.js          host half: config schema, discovery orchestration, peer HT
 lib/discovery.js      UDP multicast registry, endpoint-level liveness, fingerprint claim
 lib/scan.js           active subnet scan
 lib/identity.js       persistent UUID + OS machine fingerprint (claim only)
+lib/layout.js         per-profile mesh/ root, session workspace paths, legacy migration
 lib/conversation.js   conversation key + reply target (both sides compute independently)
 lib/capabilities.js   runtime/GPU/capability collection, sanitising, staleness
 lib/prompt.js         task prompt text generation (pure, unit-tested)
@@ -109,8 +110,9 @@ docs/                 GitHub Pages showcase site
 
 Key data flow for an inbound task: `POST /mesh/v1/task` → `handleInboundTask` →
 `classifyInbound` (gates: noWake, min length, greeting, per-thread cap, cooldown) →
-reuse the session bound to the conversation key, or create one via `wakeAgent` →
-inject the prompt → the peer's agent replies by calling `mesh_run`.
+reuse the session bound to the conversation key, or create one via `wakeAgent`
+(workspace: `<profile>/mesh/sessions/<sessionId>`) → inject the prompt → the peer's
+agent replies by calling `mesh_run`.
 
 ## 5. Test map
 
@@ -120,6 +122,7 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 | Capabilities | `npm run selftest:caps` | sanitising, GPU parsing, retry-on-timeout, claim rules (64) |
 | Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output (12) |
 | Prompt | `npm run selftest:prompt` | reply target must be a machine name, not `machine/user` (10) |
+| Layout | `npm run selftest:layout` | profile detection, mesh root fallback, session dir, path escape, migration (9) |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host
 running; it is deliberately not part of `npm test` because it creates real agent

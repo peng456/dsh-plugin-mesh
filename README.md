@@ -383,8 +383,27 @@ VPN，换网 MAC 就变；iOS / Android / macOS 现在默认按 SSID 使用随�
 **名字解析优先级**：插件配置 `machineName` > 用户首次启动时填的 > 系统主机名。
 
 首次启动时（还没命名过、落在主机名上）Mesh 页面会主动问你一次：输入框预填主机名，
-点「就这个」直接用，或改成你想要的名字。名字存在 `$DSH_HOME/mesh/state.json`
-（和配对码同一个文件，权限 0600），**改完立刻重新广播**，对端不用重启就能看到。
+点「就这个」直接用，或改成你想要的名字。名字存在 profile 根目录下的
+`mesh/state.json`（和配对码同一个文件，权限 0600），**改完立刻重新广播**，
+对端不用重启就能看到。
+
+### 目录布局：每个 DSH profile 一个 mesh/
+
+```
+<profile 根>/mesh/
+  state.json        # 本 profile 的身份、配对码、tsnet 设置
+  threads.json      # conversationId ↔ 本地 session 绑定
+  sessions/
+    <sessionId>/    # 该会话的工作目录（cwd）
+```
+
+- 同一 `DSH_HOME` 下的不同 profile（不同账号 / desktop + meshtest）各有自己的
+  `mesh/`，**配对码不再跨 profile 共享**。
+- 入站任务新建的会话默认在 `mesh/sessions/<sessionId>/` 里工作，不再落到用户主目录；
+  显式配置 `workspaceRoot`（绝对路径）时以配置为准。
+- 旧版共享的 `<DSH_HOME>/mesh/state.json`、`threads.json` 会在首次启动时复制到
+  新目录，配对码和 instanceId 不丢。
+- tsnet 是例外：sidecar 仍是整机一个 tailnet 节点，继续用共享目录，不按 profile 拆。
 
 ### 指纹认领的边界（同一台机器上跑多个 profile）
 
@@ -619,11 +638,14 @@ agent 多出四个工具：
 > **全部抹掉**，回落 schema 默认值。
 >
 > 实测过的后果（对端 文超-win 2026-10-16 拦下）：Windows 上
-> `permissionPreset` 回落 `workspace-write`（L139）+ `workspaceRoot` 回落 `''`
-> → 主目录（L141），ACL 沙箱直接 fail-closed
+> `permissionPreset` 回落 `workspace-write` + `workspaceRoot` 回落 `''`。
+> 当时 `''` 会落到主目录，ACL 沙箱直接 fail-closed
 > （`Windows ACL temp root must be outside the workspace`），
 > **该机所有入站 mesh 任务的命令执行全挂** —— 包括刚从 tailnet 进来的，
-> 因为 tsnet 读的是同一个值（`tsnetPermissionPreset || permissionPreset`，L692/L714）。
+> 因为 tsnet 读的是同一个值（`tsnetPermissionPreset || permissionPreset`）。
+>
+> 现在 `workspaceRoot: ''` 已改为 `<profile>/mesh/sessions/<sessionId>`，
+> 不再落到主目录；但整块替换仍会抹掉端口、配对、限速等键，**别用整块替换**。
 >
 > **所以：目标机器上已经有 `- id: mesh` 时，永远不要整块替换，只合并要改的键。**
 > 用 `scripts/mesh-tsnet-merge.py`（文本级键合并，保注释/缩进/行尾/BOM，幂等）：
@@ -655,7 +677,7 @@ agent 多出四个工具：
     requirePairing: false      # 见下（也可以用页面上的开关，不必写配置）
     agentPreset: standard
     permissionPreset: workspace-write
-    workspaceRoot: ''
+    workspaceRoot: ''            # 留空 = <profile>/mesh/sessions/<sessionId>；绝对路径覆盖
     # ── 互联网自组网（Tailscale / tsnet）──
     tsnetEnabled: false        # 也可以在 Mesh 页面上的开关里改（存 state.json）
     tsnetAuthKey: ''           # 建议只在页面填；配置里填则优先且钉死
@@ -666,7 +688,7 @@ agent 多出四个工具：
     # ── 循环限速 ──
     maxWakesPerThread: 30      # 每窗口内最多自动唤醒几次；0 = 不限制
     threadWindowMs: 3600000    # 窗口长度（毫秒），默认 1 小时
-    threadCooldownMs: 20000    # 两次自动唤醒的最小间隔；0 = 不限制
+    threadCooldownMs: 5000     # 两次自动唤醒的最小间隔；0 = 不限制
     minTaskChars: 24           # 正文短于此长度只入箱不唤醒（挡 ping/ack）
 ```
 
@@ -683,7 +705,7 @@ Mesh 页面看到，不会被丢弃）：
 |---|---|---|
 | `minTaskChars` | 24 | 太短的内容不开会话 |
 | 寒暄识别 | 内置 | `ping` / `ack` / `收到` / `好的` 等整条即寒暄的，不开会话 |
-| `threadCooldownMs` | 20s | 同一 thread 不会连续秒回，管**突发** |
+| `threadCooldownMs` | 5s | 同一 thread 不会连续秒回，管**突发** |
 | `maxWakesPerThread` | 30 | 同一 thread 在 `threadWindowMs` 内的唤醒上限，管**持续速率** |
 
 `maxWakesPerThread` 是**滑动窗口限速，不是终身配额**：只统计最近
