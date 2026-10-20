@@ -142,7 +142,7 @@ jobs:
           # --provenance 生成供应链签名（包页面上会显示"Built and signed on
           # GitHub Actions"）。prepublishOnly 会再跑一遍 npm test + check-tarball，
           # 这是最后一道闸，留着它——手工在本机 publish 时也靠它兜底。
-          npm publish --provenance --access public
+          npm publish --provenance --access public 2>&1 | tee /tmp/publish.log
 
       # ⚠ 元数据先出现、tarball 后出现（npm 的 staged publishing）。此时
       #   `npm view` 已经能查到版本号，但装的人会 404 —— 所以必须等到真能下。
@@ -200,6 +200,20 @@ jobs:
             gh release create "$TAG" "$ASSET" \
               --title "dsh-plugin-mesh v$V" \
               --generate-notes --target "$TARGET"
+          fi
+
+      # 发布失败时的 annotation：不下载日志也能看到原因。
+      # 这条是被现实逼出来的 —— 首次上线时 release 红在 publish，而 api.github.com
+      # 在这台机器上被拦，只能靠网页上的 annotation 看错误，于是它就成了标配。
+      - name: 失败要点（annotation）
+        if: failure()
+        run: |
+          esc() { printf '%s' "$1" | sed 's/%/%25/g'; }
+          tail -15 /tmp/publish.log 2>/dev/null | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=发布日志::$(esc "$line")"
+          done
+          if grep -qiE 'ENEEDAUTH|EOTP|E403|two-factor|provenance' /tmp/publish.log 2>/dev/null; then
+            echo "::error title=大概率是 npm 认证没配::在 npm 包设置里加 Trusted Publisher（owner=peng456，repo=dsh-plugin-mesh，workflow=release.yml），步骤见 docs/RELEASE.md 第一节。"
           fi
 
       - name: 汇总
