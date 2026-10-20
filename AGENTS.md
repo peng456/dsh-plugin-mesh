@@ -130,6 +130,20 @@ private multicast group so it cannot pollute a real LAN.
 
 ## 6. Releasing
 
+**Normal path: merge to `main` and stop touching it.** `.github/workflows/release.yml`
+tests, decides the version from the commit message, bumps `package.json` +
+`lib/index.js`, publishes to npm with provenance, tags `plugin-v<version>`, and
+creates the GitHub release with the source tarball. Docs-only commits
+(`docs:`/`chore:`/`ci:`/`test:`/`style:`/`build:`) deliberately do **not** release.
+
+```bash
+npm run release:plan            # what would the pipeline do? (no network, no writes)
+npm run release:plan -- --since HEAD~5 --npm-latest 0.3.33
+npm run release:plan -- --bump patch --apply   # bump locally instead of by hand
+```
+
+If you must release from this machine (offline, or the pipeline is broken):
+
 ```bash
 npm run check && npm test
 npm run release-plugin -- --publish   # tarball -> GitHub release -> LAN mirror
@@ -141,11 +155,19 @@ If the dsh host is on this machine, `scripts/restart-dsh.sh --install [delay]`
 restarts it from launchd so the restart survives killing the app.
 
 Notes:
+- **Never hand-edit the version.** Two places must agree (`package.json` and the
+  `VERSION` constant in `lib/index.js`); `scripts/release-plan.mjs --apply` writes
+  both, and `check-version.mjs` rejects a mismatch.
+- The bump rule lives in `scripts/release-plan.mjs` and is unit-tested
+  (`scripts/_selftest-release-plan.mjs`). Change the rule *and* the test together.
 - `scripts/check-tarball.mjs` validates the **published artifact**, not the source
   tree, because `files` in `package.json` decides what users actually get.
 - npm's "staged publishing" makes a new version appear in metadata before its
-  tarball is downloadable. Do not declare success until the tarball returns 200.
+  tarball is downloadable. Do not declare success until the tarball returns 200 —
+  the workflow already polls for this; if you publish by hand, poll manually.
 - Keep `llms.txt` and `docs/llms.txt` identical: `npm run check` verifies it.
+- Anything non-obvious about the pipeline (state machine, retries, rollback,
+  branch-protection caveat) belongs in `docs/RELEASE.md`, not in this file.
 
 ## 7. Things that will waste your time if you do not know them
 

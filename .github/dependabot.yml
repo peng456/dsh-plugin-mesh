@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # 依赖：这个插件刻意零运行依赖，所以这里几乎只会被动到 devDependencies
+  # （目前也没有）。留着是因为哪天加了工具链，不希望它悄悄烂掉。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    commit-message:
+      # 这些提交走 chore: 前缀 —— 不会触发发版，但照样会跑 CI
+      prefix: "chore(deps)"
+    groups:
+      all:
+        patterns: ["*"]
+
+  # Actions 本身也要跟：一个过期的 action 就是一个不可审计的依赖。
+  # 每周一次，合并后走 chore: → 不发版；需要发版时手动 bump=patch。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]

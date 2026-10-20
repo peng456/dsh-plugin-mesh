@@ -6,6 +6,8 @@
 > 🤖 **给 agent / 英文读者**：[`llms.txt`](llms.txt)（机器可读的事实：工具、配置项与默认值、端口）
 > · [`AGENTS.md`](AGENTS.md)（改这个仓库前的硬约束与坑）· [`README.en.md`](README.en.md)（英文快速上手）· [`DESIGN.md`](DESIGN.md)（设计原理与复盘）
 >
+> 🛠 **想参与开发**：[`CONTRIBUTING.md`](CONTRIBUTING.md)（提交规范、会被挡下的写法）—— 合并进 `main` 就会自动测试、发 npm 包和 GitHub Release，你不需要碰版本号。
+>
 > 本 README 是完整中文文档，含设计取舍与踩坑记录，比较长。
 
 DSH 的 Mesh 插件：**启动后自动发现同一网段的其他 DSH 实例**，在侧栏提供一个
@@ -839,6 +841,27 @@ DSH_HOME=/tmp/mesh-dsh ELECTRON_RUN_AS_NODE=1 \
 
 ```bash
 node lib/_selftest-discovery.mjs alpha 45900 9000   # 两个进程同时跑可验证互相发现
+```
+
+
+## 参与开发与发版
+
+**合并进 `main` 就是发版**：CI 会跑全量测试、按提交信息决定版本号（`feat:` → minor，
+`fix:` → patch，`docs:`/`chore:` 不发版）、发 npm 包（带 provenance 签名）、打
+`plugin-v<版本>` tag，并建带源码包的 GitHub Release。贡献者不需要手改版本号、打 tag
+或跑 `npm publish` —— 手改反而会和流水线打架（`npm run check` 会在两处版本号不一致时
+直接拦下）。
+
+| 想知道 | 看 |
+|---|---|
+| 提交信息怎么写、PR 会被哪些门禁检查 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 流水线怎么运作、失败了怎么重跑、怎么撤回 | [`docs/RELEASE.md`](docs/RELEASE.md) |
+| 改代码前必须知道的硬约束与坑 | [`AGENTS.md`](AGENTS.md) |
+
+本地预演"如果现在合并会发生什么"（不联网、不改文件）：
+
+```bash
+npm run release:plan
 ```
 
 

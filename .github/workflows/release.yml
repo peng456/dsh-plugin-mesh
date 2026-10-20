@@ -1,0 +1,225 @@
+name: release
+
+# 合并进 main = 发版。没有第二步人工确认，这是刻意的：
+#
+#   提交 → 推 main → 跑全量测试 → 按提交信息定版本号 → 写回并提交版本号
+#        → npm 发布（带 provenance）→ 打 tag → 建 GitHub Release + 源码包
+#
+# 为什么把"该发几号"交给机器：以前是人自己判断 patch/minor，然后手改两处版本号、
+# 手打 tag、手跑 publish。五个动作漏一个就是半态，而半态只有装上去的人才会发现。
+# 现在版本号只由**提交信息**决定（Conventional Commits），规则写在
+# scripts/release-plan.mjs 里，规则本身有 selftest（scripts/_selftest-release-plan.mjs）。
+#
+# 只有文档/杂务提交（docs/chore/ci/test/style/build）**不会**触发发版 —— 改一句
+# README 就往 npm 上推一个版本，是最贵的注意力税。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "强制 bump 类型（auto = 按提交信息判断）"
+        type: choice
+        options: [auto, patch, minor, major, none]
+        default: auto
+      commit_version:
+        description: "把版本号提交回 main（关掉后仓库里的版本号会与 npm 漂移）"
+        type: boolean
+        default: true
+      dry_run:
+        description: "只演练：跑完测试就停，不发布、不打 tag"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # 推版本号提交、推 tag、建 release
+  id-token: write # npm 可信发布（OIDC）：没有它，publish 会 ENEEDAUTH
+
+# 发布**不可中断** —— 半路取消会留下"包发了、release 没建"这种更难查的状态。
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: publish
+    runs-on: macos-latest
+    timeout-minutes: 40
+    # 版本号回写提交带 [skip ci]，GitHub 本身就会跳过它；这里再兜一层，
+    # 免得有人对着那条提交手动点 workflow_dispatch 时又发一版。
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 要 tag 列表和完整历史来算"上一版是哪一版"
+          # 用内置 token：推送版本号提交需要写权限；若 main 开了「required status
+          # checks」，这次推送会被拒（见 docs/RELEASE.md 的说明与绕法）
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # 自带 npm 11.x，可信发布要求 npm >= 11.5.1
+      # ⚠ 刻意**不**用 setup-node 的 registry-url：它会往 .npmrc 里写一行
+      #   `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`。可信发布必须走
+      #   OIDC，而那行占位符会让 npm 以为"你要用 token 认证"，于是拿着空 token
+      #   去请求，报 ENEEDAUTH —— 这个坑排查起来极费时间，所以只设 registry。
+      - name: 固定 registry（不写 authToken 占位符）
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm config delete //registry.npmjs.org/:_authToken || true
+          npm install -g npm@latest
+          node -v && npm -v
+
+      - name: 计算发布计划
+        id: plan
+        env:
+          FORCE_BUMP: ${{ inputs.bump }}
+          DRY: ${{ inputs.dry_run == true && '1' || '' }}
+        run: |
+          set -euo pipefail
+          PKG="$(node -p "require('./package.json').name")"
+          NPM_LATEST="$(npm view "$PKG" version 2>/dev/null | tail -1 || true)"
+          echo "npm latest: ${NPM_LATEST:-<取不到>}"
+
+          # 不使用 bash 数组：macOS runner 的 /bin/bash 是 3.2，
+          # 空数组配 `set -u` 展开会直接 "unbound variable"。
+          EXTRA=""
+          if [ -n "${FORCE_BUMP:-}" ] && [ "${FORCE_BUMP}" != "auto" ]; then
+            EXTRA="--bump ${FORCE_BUMP}"
+          fi
+          APPLY="--apply"
+          if [ -n "${DRY:-}" ]; then APPLY=""; fi
+
+          # shellcheck disable=SC2086  # EXTRA/APPLY 是我们自己拼的两个词，不含空格
+          node scripts/release-plan.mjs \
+            --npm-latest "${NPM_LATEST}" \
+            ${EXTRA} ${APPLY} \
+            --github-output "$GITHUB_OUTPUT"
+
+          if [ -n "${DRY:-}" ]; then
+            echo "::notice title=dry run::演练模式，不发布"
+          fi
+
+      - name: 全量测试（发布前的唯一门禁）
+        if: ${{ steps.plan.outputs.release == 'true' }}
+        run: npm test
+
+      - name: 发布件门禁（校验真正要发出去的 tar）
+        if: ${{ steps.plan.outputs.release == 'true' }}
+        run: node scripts/check-tarball.mjs
+
+      # 版本号提交放在测试**之后**：测试红了就不该在 main 上留下版本号脚印，
+      # 否则下一次运行会把该版本当成"已经准备好、只差发"，绕过 bump 逻辑。
+      - name: 提交版本号回 main
+        if: ${{ steps.plan.outputs.mode == 'bump' && inputs.dry_run != true && inputs.commit_version != false }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json lib/index.js
+          if git diff --cached --quiet; then
+            echo "版本号没有变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "chore(release): v${{ steps.plan.outputs.version }} [skip ci]"
+          # 推不上去不算失败：main 若开了 required status checks，机器人这次推送会被拒。
+          # 发布本身已经准备好（版本号在本地文件里），硬失败只会让"包该发"变成"包没发"。
+          # 漂移由 release-plan 的"基准取 npm 与仓库的较大值"兜住：下一次发版自动追平。
+          if ! git push origin HEAD:main; then
+            echo "::warning title=版本号没推上去::main 可能开了分支保护；详见 docs/RELEASE.md 的「分支保护」一节。发布继续，仓库版本号会落后一格。"
+          fi
+
+      - name: npm publish
+        if: ${{ steps.plan.outputs.release == 'true' && inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          PKG="$(node -p "require('./package.json').name")"
+          V="${{ steps.plan.outputs.version }}"
+          if npm view "$PKG@$V" version >/dev/null 2>&1; then
+            echo "::notice title=已存在::$PKG@$V 已在 npm 上，跳过 publish"
+            exit 0
+          fi
+          # --provenance 生成供应链签名（包页面上会显示"Built and signed on
+          # GitHub Actions"）。prepublishOnly 会再跑一遍 npm test + check-tarball，
+          # 这是最后一道闸，留着它——手工在本机 publish 时也靠它兜底。
+          npm publish --provenance --access public
+
+      # ⚠ 元数据先出现、tarball 后出现（npm 的 staged publishing）。此时
+      #   `npm view` 已经能查到版本号，但装的人会 404 —— 所以必须等到真能下。
+      - name: 确认 tarball 真的可下载
+        if: ${{ steps.plan.outputs.release == 'true' && inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          PKG="$(node -p "require('./package.json').name")"
+          V="${{ steps.plan.outputs.version }}"
+          URL="https://registry.npmjs.org/$PKG/-/$PKG-$V.tgz"
+          for i in $(seq 1 30); do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)"
+            if [ "$CODE" = "200" ]; then
+              echo "✓ tarball 可下载：$URL"
+              exit 0
+            fi
+            echo "  第 $i 次：$CODE，3 秒后重试"
+            sleep 3
+          done
+          echo "✗ 版本号能查到但 tarball 拿不到（90 秒）—— 不要对外宣布，先查 npm 状态" >&2
+          exit 1
+
+      - name: 打插件源码包
+        if: ${{ steps.plan.outputs.release == 'true' && inputs.dry_run != true }}
+        run: bash scripts/pack-release-tarball.sh dist
+
+      # 用 gh 而不是手写 curl：release 的正文交给 GitHub 自动生成的分组笔记
+      # （按 PR/提交分类），这样"这一版到底改了什么"不需要人再写一遍。
+      - name: 建 GitHub Release 并附源码包
+        if: ${{ steps.plan.outputs.release == 'true' && inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.plan.outputs.version }}"
+          TAG="plugin-v$V"
+          ASSET="dist/dsh-plugin-mesh-$V.tar.gz"
+          SINCE="${{ steps.plan.outputs.since }}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG 已存在，只补/换资产"
+            gh release upload "$TAG" "$ASSET" --clobber
+            exit 0
+          fi
+
+          # tag 必须打在这台机器上的那个提交（= 已经写进新版本号的那个）。
+          # 不用 --target main：万一版本号提交没推上去（分支保护），远端 main 还是
+          # 旧版本号，tag 就会指着一棵树与包的版本对不上的提交。
+          TARGET="$(git rev-parse HEAD)"
+          if [ -n "$SINCE" ] && git rev-parse -q --verify "refs/tags/$SINCE" >/dev/null; then
+            gh release create "$TAG" "$ASSET" \
+              --title "dsh-plugin-mesh v$V" \
+              --generate-notes --notes-start-tag "$SINCE" --target "$TARGET"
+          else
+            gh release create "$TAG" "$ASSET" \
+              --title "dsh-plugin-mesh v$V" \
+              --generate-notes --target "$TARGET"
+          fi
+
+      - name: 汇总
+        if: ${{ always() && steps.plan.outcome == 'success' }}
+        run: |
+          PKG="$(node -p "require('./package.json').name")"
+          V="${{ steps.plan.outputs.version }}"
+          {
+            echo "## 发布计划"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 结论 | \`${{ steps.plan.outputs.mode }}\`（release=${{ steps.plan.outputs.release }}） |"
+            echo "| 版本 | \`${{ steps.plan.outputs.base }}\` → \`$V\`（${{ steps.plan.outputs.bump }} bump） |"
+            echo "| 提交数 | ${{ steps.plan.outputs.commits }} |"
+            echo ""
+            if [ "${{ steps.plan.outputs.release }}" = "true" ]; then
+              echo "- npm: https://www.npmjs.com/package/$PKG/v/$V"
+              echo "- release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.plan.outputs.tag }}"
+              echo ""
+              echo "升级其他机器：\`npm i -g $PKG@$V\`，或按 \`docs/RELEASE.md\` 的镜像步骤分发。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -25,20 +25,14 @@ DIST="$REPO_ROOT/dist"
 PUBLISH=0
 [ "${1:-}" = "--publish" ] && PUBLISH=1
 
-echo "==> 打包插件 v$VERSION"
-mkdir -p "$DIST"
-rm -f "$DIST/$ASSET"
-# sidecar 的 Go 源码要带上：用户可据此审计下载回来的二进制是用什么编出来的。
-tar --exclude='.git' \
-    --exclude='dist' \
-    --exclude='node_modules' \
-    --exclude='.DS_Store' \
-    -czf "$DIST/$ASSET" \
-    -C "$REPO_ROOT" \
-    lib client sidecar scripts cordis.patch.yml package.json README.md LICENSE install.sh
-
-echo "  产物: $DIST/$ASSET  ($(du -h "$DIST/$ASSET" | cut -f1), $(tar -tzf "$DIST/$ASSET" | wc -l | tr -d ' ') 个条目)"
-sha256sum "$DIST/$ASSET" 2>/dev/null || shasum -a 256 "$DIST/$ASSET"
+# 打包逻辑与 CI 共用同一份（scripts/pack-release-tarball.sh）：
+# 手发和自动发必须打出**逐条相同**的文件清单，否则"本机发得出去、CI 发不出去"
+# 这种不对称会一直藏着，直到某台对端的升级命令 404。
+PACK_OUT="$(bash "$REPO_ROOT/scripts/pack-release-tarball.sh" "$DIST")"
+ASSET_PATH="$(printf '%s\n' "$PACK_OUT" | sed -n 's/^asset=//p')"
+[ -f "$ASSET_PATH" ] || { echo "打包失败：没有产物" >&2; exit 1; }
+ASSET="$(basename "$ASSET_PATH")"
+echo "  sha256: $(printf '%s\n' "$PACK_OUT" | sed -n 's/^sha256=//p')"
 
 if [ "$PUBLISH" -eq 0 ]; then
   echo

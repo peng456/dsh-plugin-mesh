@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安装 / 升级出问题
+    url: https://github.com/peng456/dsh-plugin-mesh#%E5%AE%89%E8%A3%85
+    about: 先看安装章节的四种方式和「升级已安装的插件」，大多数失败都在那里
+  - name: 想参与开发
+    url: https://github.com/peng456/dsh-plugin-mesh/blob/main/CONTRIBUTING.md
+    about: 提交规范、会被挡下的写法、以及"合并即自动发版"是怎么运作的
+  - name: 发版流水线本身的问题
+    url: https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/RELEASE.md
+    about: 状态机、重跑、撤回、局域网镜像

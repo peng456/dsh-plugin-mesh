@@ -1,0 +1,71 @@
+name: ci
+
+# 只在"要合并"和"已合并"两条路上跑：
+#   · pull_request —— 让贡献者在合并**前**看到红绿，维护者不需要在本地跑一遍
+#   · push main    —— 挡住"直接推 main 推坏了"（本项目历史上大多数提交是直推）
+#   · workflow_dispatch —— 手动重跑
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一个 PR 连推几次，只留最后一轮 —— 省时间也省 runner 额度。
+# main 上不取消：那上面的结果是发版判据，取消会让状态变成"没结论"。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 门禁：与发布任务完全相同的平台和 Node 版本 ──────────────────────────
+  # 为什么是 macOS 而不是 Linux：插件的参考平台是 DSH Desktop（macOS），
+  # release.yml 也在 macOS 上发布。两边用同一个平台，"CI 绿了但发布炸了"
+  # 这种最气人的失败模式就少一半。
+  gate:
+    name: gate / node ${{ matrix.node }}
+    runs-on: macos-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 = package.json engines 声明的下限；24 = 发布任务实际用的版本
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 发布计划要读 tag 和历史，浅克隆会让它以为"从来没有发过版"
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # npm test = check（版本号一致性 / TDZ / 语法 / 可加载 / 文档同步）
+      #          + 四套 selftest（发现、能力、客户端、提示词、配对、版本计划）
+      - name: 全量测试
+        run: npm test
+
+      # 只有它校验的是**真要发出去的那个 tar**，源码树干净不代表包干净
+      - name: 发布件门禁（npm pack 后解开再验）
+        run: node scripts/check-tarball.mjs
+
+  # ── 顺带看一眼别的平台，不阻断合并 ──────────────────────────────────────
+  # 插件装在别人的 Linux/Windows 上，但自测里有一批断言是按"开发机是 Mac"
+  # 写的（见 lib/_selftest-capabilities.mjs 里的注释）。这类失败是**信号**，
+  # 不该卡住 macOS 上的发布 —— 但如果天天红，就说明真的坏了，所以仍然留在这里。
+  portability:
+    name: portability / linux（非阻断）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test

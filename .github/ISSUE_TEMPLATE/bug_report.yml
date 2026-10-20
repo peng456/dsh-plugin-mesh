@@ -1,0 +1,74 @@
+name: Bug 报告
+description: 装了插件但行为不对 / 发现对端、派单、升级哪里坏了
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这个项目最怕的是"看着接上了、其实没接"，所以下面的信息比你想象的更有用：
+        **现象 + 复现步骤 + 版本号**，比"不好使"能省掉三轮来回。
+
+        安全相关的问题请不要开公开 issue，见 [SECURITY.md](../blob/main/SECURITY.md)。
+  - type: textarea
+    id: what
+    attributes:
+      label: 你看到的现象
+      description: 界面上/日志里到底发生了什么？贴原文，不要转述。
+      placeholder: 侧栏 Mesh 面板显示"未发现其他机器"，但这台和另一台确实在同一个 Wi-Fi。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 两台机器装 0.3.33
+        2. 都打开 Mesh 面板
+        3. 等 30 秒 —— 仍然互相看不见
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 插件版本
+      description: "`grep '\"version\"' <插件目录>/package.json` 或界面上显示的自报版本"
+      placeholder: 0.3.33
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      multiple: true
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Android
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: DSH 版本 / profile
+      placeholder: DSH Desktop 1.x, profile=desktop
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 插件同时在**进程侧**和**磁盘侧**报版本号；两边不一致说明新代码没被加载。
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 先确认这些
+      options:
+        - label: 我重启过 DSH（装完插件必须重启才会加载）
+        - label: 我确认两台机器在同一个网段，且端口没被防火墙拦
+        - label: 我已经搜过 issue，没有重复
+          required: true
