@@ -612,6 +612,28 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 端点标签的显示顺序（只影响展示，不影响发送时的通道选择）：
+     *   1. 局域网「在用」
+     *   2. 互联网「在用」
+     *   3. 其余按上次可见时间倒序（最近见过的在前）
+     * 恢复自重启前快照的机器没有「在用」，全部按第 3 条排。
+     */
+    function orderEndpointsForDisplay(peer) {
+      const restored = peer.restored === true;
+      const rank = (ep) => {
+        const active = !restored && ep.transport === peer.transport;
+        if (active && ep.transport === "lan") return 0;
+        if (active) return 1;
+        return 2;
+      };
+      return (peer.endpoints || []).slice().sort((a, b) => {
+        const d = rank(a) - rank(b);
+        if (d !== 0) return d;
+        return (Number(b.lastSeen) || 0) - (Number(a.lastSeen) || 0);
+      });
+    }
+
     function PeerRow({ peer, onSend, onProbe, probe }) {
       const target = peer.machine;
       return h(
@@ -647,7 +669,7 @@ window.__ModuleLoader__.load({
             ? h(
                 "div",
                 { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 } },
-                (peer.endpoints || []).map((ep) => {
+                orderEndpointsForDisplay(peer).map((ep) => {
                   const cooling = !!(ep.downUntil && Date.now() < ep.downUntil);
                   const unverified = ep.verified === false;
                   // 从重启前快照恢复的机器：一条通道都没验过，也没有"在用"这回事。
