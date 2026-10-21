@@ -626,6 +626,9 @@ window.__ModuleLoader__.load({
             { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
             h("strong", null, peer.machine),
             peer.online ? null : h("span", { style: S.tag }, "离线"),
+            // 「离线」和「这次启动还没见过」是两件事：后者来自重启前的快照，
+            // 地址是上次的，可能只是还没来得及重新发现。分开标注，避免误判成对端挂了。
+            peer.online || !peer.restored ? null : h("span", { style: S.tag }, "上次见到"),
             // 一台设备可能同时有局域网与互联网两条通道，任意一条通就算可达。
             peer.endpoints
               ? h(
