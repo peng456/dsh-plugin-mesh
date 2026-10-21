@@ -5929,8 +5929,11 @@ window.__ModuleLoader__.load({
               originSession: sessionId || "",
             });
             record.taskId = r && r.id ? r.id : "";
+            // 宿主会同回一个它**预建**的会话 id；回执会注入那里。
+            record.sessionId = r && r.sessionId ? r.sessionId : "";
             if (!r || !r.ok) throw new Error(apiErr(r));
             record.status = "sent";
+            if (record.sessionId) push("ok", "已预建会话，回执会进入其中", null);
           } else if (route === "agent") {
             record.status = await sendToAgent(transferPrompt(record), sessionId);
           } else {
