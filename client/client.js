@@ -612,6 +612,33 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 端点标签的显示顺序（只影响展示，不影响发送时的通道选择）：
+     *   1. 局域网「在用」
+     *   2. 互联网「在用」
+     *   3. 其余按上次可见时间倒序（最近见过的在前）
+     * 恢复自重启前快照的机器没有「在用」，全部按第 3 条排。
+     */
+    function orderEndpointsForDisplay(peer) {
+      const restored = peer.restored === true;
+      const rank = (ep) => {
+        const active = !restored && ep.transport === peer.transport;
+        if (active && ep.transport === "lan") return 0;
+        if (active) return 1;
+        return 2;
+      };
+      const transportRank = (ep) => (ep.transport === "tsnet" ? 1 : 0);
+      return (peer.endpoints || []).slice().sort((a, b) => {
+        const d = rank(a) - rank(b);
+        if (d !== 0) return d;
+        const byTime = (Number(b.lastSeen) || 0) - (Number(a.lastSeen) || 0);
+        if (byTime !== 0) return byTime;
+        // 时间完全相同时（同一轮心跳写下的两条）按通道偏好定序，
+        // 否则顺序取决于数组原始顺序，看起来就是随机的 —— 真机上就被这么质疑过。
+        return transportRank(a) - transportRank(b);
+      });
+    }
+
     function PeerRow({ peer, onSend, onProbe, probe }) {
       const target = peer.machine;
       return h(
@@ -626,6 +653,9 @@ window.__ModuleLoader__.load({
             { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
             h("strong", null, peer.machine),
             peer.online ? null : h("span", { style: S.tag }, "离线"),
+            // 「离线」和「这次启动还没见过」是两件事：后者来自重启前的快照，
+            // 地址是上次的，可能只是还没来得及重新发现。分开标注，避免误判成对端挂了。
+            peer.online || !peer.restored ? null : h("span", { style: S.tag }, "上次见到"),
             // 一台设备可能同时有局域网与互联网两条通道，任意一条通就算可达。
             peer.endpoints
               ? h(
@@ -644,13 +674,17 @@ window.__ModuleLoader__.load({
             ? h(
                 "div",
                 { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 } },
-                (peer.endpoints || []).map((ep) => {
+                orderEndpointsForDisplay(peer).map((ep) => {
                   const cooling = !!(ep.downUntil && Date.now() < ep.downUntil);
                   const unverified = ep.verified === false;
-                  const active = ep.transport === peer.transport;
-                  const color = active ? "#2ea043" : cooling ? "#c0392b" : unverified ? "#9aa0a6" : "#666";
+                  // 从重启前快照恢复的机器：一条通道都没验过，也没有"在用"这回事。
+                  // 以前这里会按 peer.transport 选一条标成「在用」，实测对方明明离线，
+                  // 界面上却写着「互联网 在用」——与事实相反。
+                  const restored = peer.restored === true;
+                  const active = !restored && ep.transport === peer.transport;
+                  const color = restored ? "#9aa0a6" : active ? "#2ea043" : cooling ? "#c0392b" : unverified ? "#9aa0a6" : "#666";
                   const cname = ep.transport === "tsnet" ? "互联网" : "局域网";
-                  const cstate = active ? "在用" : cooling ? "冷却中" : unverified ? "未探测" : "备用";
+                  const cstate = restored ? "上次见到" : active ? "在用" : cooling ? "冷却中" : unverified ? "未探测" : "备用";
                   return h(
                     "span",
                     {
@@ -658,6 +692,7 @@ window.__ModuleLoader__.load({
                       style: { ...S.tag, color, borderColor: color, ...(active ? { fontWeight: 600 } : null) },
                       title:
                         `${cname} ${ep.host}:${ep.port} · ${cstate}` +
+                        (restored && ep.lastSeen ? ` · 上次心跳 ${new Date(ep.lastSeen).toLocaleString()}` : "") +
                         (ep.rttMs ? ` · ${ep.rttMs}ms` : "") +
                         ` · 成功 ${ep.okCount} 次 / 失败 ${ep.failCount} 次`,
                     },
