@@ -37,7 +37,6 @@ DSH 的 Mesh 插件：**启动后自动发现同一网段的其他 DSH 实例**�
 
 
 # 进程版本 ≠ 磁盘版本 → [WARN] 新代码**没**被加载，检查 plugins 挂载
-```
 
 （不依赖 `node`：优先 `python3` 解 JSON，退回到正则抠 `version` 字段。）
 
@@ -402,7 +401,7 @@ VPN，换网 MAC 就变；iOS / Android / macOS 现在默认按 SSID 使用随�
 
 名字是人手填的，可能撞。页面会检测并告警，派发时也不会随便挑一台：
 
-- **从 A 看**：`--peer winbox` 只要在 A 的上游对端里唯一就能用（自己不算）
+- **从 A 看**：`mesh_run` 的 `peer` 填 `winbox`，只要在 A 的上游对端里唯一就能用（自己不算）
 - **从第三台机器看**：如果它发现有两台都叫 winbox，`mesh_run` 会**拒绝**并列出候选，
   让你改用 `<ip>:<port>` 精确定位
 
@@ -496,7 +495,7 @@ dsh plugin add /path/to/dsh-plugin-mesh
 
 ### 升级已安装的插件
 
-`release-plugin.sh --publish` 发完版会**自动同步到局域网镜像**并打印一段可直接
+`scripts/release-plugin.sh --publish` 发完版会**自动同步到局域网镜像**并打印一段可直接
 粘贴到对端的命令。对端（尤其是 Android，见下面的 `/tmp` 坑）执行后**必须重启 DSH**
 才会加载新版本。
 
@@ -666,7 +665,7 @@ agent 多出四个工具：
     # ── 循环限速 ──
     maxWakesPerThread: 30      # 每窗口内最多自动唤醒几次；0 = 不限制
     threadWindowMs: 3600000    # 窗口长度（毫秒），默认 1 小时
-    threadCooldownMs: 20000    # 两次自动唤醒的最小间隔；0 = 不限制
+    threadCooldownMs: 5000     # 两次自动唤醒的最小间隔；0 = 不限制
     minTaskChars: 24           # 正文短于此长度只入箱不唤醒（挡 ping/ack）
 ```
 
@@ -683,7 +682,7 @@ Mesh 页面看到，不会被丢弃）：
 |---|---|---|
 | `minTaskChars` | 24 | 太短的内容不开会话 |
 | 寒暄识别 | 内置 | `ping` / `ack` / `收到` / `好的` 等整条即寒暄的，不开会话 |
-| `threadCooldownMs` | 20s | 同一 thread 不会连续秒回，管**突发** |
+| `threadCooldownMs` | 5s | 同一 thread 不会连续秒回，管**突发** |
 | `maxWakesPerThread` | 30 | 同一 thread 在 `threadWindowMs` 内的唤醒上限，管**持续速率** |
 
 `maxWakesPerThread` 是**滑动窗口限速，不是终身配额**：只统计最近

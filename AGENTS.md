@@ -146,7 +146,7 @@ If you must release from this machine (offline, or the pipeline is broken):
 
 ```bash
 npm run check && npm test
-npm run release-plugin -- --publish   # tarball -> GitHub release -> LAN mirror
+./scripts/release-plugin.sh --publish   # tarball -> GitHub release -> LAN mirror
 npm publish                           # npm; publishConfig pins the public registry
 ```
 
