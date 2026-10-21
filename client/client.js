@@ -5093,6 +5093,23 @@ window.__ModuleLoader__.load({
       firstRun,
     }) {
       const [editing, setEditing] = react.useState(false);
+      // Star 提示：默认显示；用户点「不再提示」后记进 localStorage，别再烦他。
+      const STAR_KEY = "mesh.starBanner.dismissed";
+      const [starHidden, setStarHidden] = react.useState(() => {
+        try {
+          return typeof localStorage !== "undefined" && localStorage.getItem(STAR_KEY) === "1";
+        } catch {
+          return false;
+        }
+      });
+      const dismissStar = () => {
+        setStarHidden(true);
+        try {
+          if (typeof localStorage !== "undefined") localStorage.setItem(STAR_KEY, "1");
+        } catch {
+          /* 存不了就只在本次会话隐藏 */
+        }
+      };
       const [drag, setDrag] = react.useState({ draggingId: null, dropId: null, resizingId: null });
       const dragRef = react.useRef({ draggingId: null, dropId: null, resizingId: null });
       const [resizing, setResizing] = react.useState(null);
@@ -5485,6 +5502,50 @@ window.__ModuleLoader__.load({
                 editing ? h(Button, { variant: "ghost", size: "sm", onClick: onReset }, "恢复默认") : null,
               ),
             ),
+            starHidden
+              ? null
+              : h(
+                  "div",
+                  {
+                    className: "mesh-star-banner",
+                    style: {
+                      margin: "10px 0 14px",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                      background: "var(--dsw-alias-bg-secondary, #f6f7f9)",
+                      border: "1px solid var(--dsw-alias-border-secondary, #e6e8eb)",
+                      fontSize: 13,
+                    },
+                  },
+                  h("span", { style: { fontSize: 16, lineHeight: 1 } }, "⭐"),
+                  h("span", { style: { fontWeight: 600 } }, "喜欢 Mesh 的话，去 GitHub 点个 Star 吧"),
+                  h("span", { style: { opacity: 0.7, fontSize: 12 } }, "这是对作者最直接的反馈"),
+                  h(
+                    "a",
+                    {
+                      href: "https://github.com/peng456/dsh-plugin-mesh",
+                      target: "_blank",
+                      rel: "noreferrer",
+                      className: "mesh-text-btn",
+                      style: { marginLeft: "auto", fontSize: 13, fontWeight: 600 },
+                    },
+                    "前往 GitHub →",
+                  ),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "mesh-text-btn",
+                      style: { fontSize: 12, opacity: 0.6 },
+                      onClick: () => dismissStar(),
+                    },
+                    "不再提示",
+                  ),
+                ),
             editing
               ? h(
                   "div",
@@ -5536,34 +5597,6 @@ window.__ModuleLoader__.load({
                   h("p", null, "主页上的卡片都收起来了。"),
                   h(Button, { variant: "secondary", size: "sm", onClick: onReset }, "恢复默认"),
                 ),
-            h(
-              "div",
-              {
-                className: "mesh-home-foot",
-                style: {
-                  marginTop: 14,
-                  paddingTop: 12,
-                  borderTop: "1px solid var(--dsw-alias-border-secondary, #eee)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  fontSize: 12,
-                  opacity: 0.75,
-                },
-              },
-              h("span", null, "Mesh 帮到你的话，去 GitHub 点个 Star 支持一下："),
-              h(
-                "a",
-                {
-                  href: "https://github.com/peng456/dsh-plugin-mesh",
-                  target: "_blank",
-                  rel: "noreferrer",
-                  style: { fontSize: 12, fontWeight: 600 },
-                },
-                "⭐ peng456/dsh-plugin-mesh",
-              ),
-            ),
             editing && hidden.length
               ? h(
                   "div",
