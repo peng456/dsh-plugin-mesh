@@ -122,8 +122,15 @@ jobs:
 
       # 版本号提交放在测试**之后**：测试红了就不该在 main 上留下版本号脚印，
       # 否则下一次运行会把该版本当成"已经准备好、只差发"，绕过 bump 逻辑。
+      #
+      # ⚠ 必须按事件类型区分：`inputs.commit_version` 在 push 事件下是 null，
+      #   而 GitHub 表达式会把 null 与 false 都强制成 0，于是
+      #   `inputs.commit_version != false` 恒为假 —— 这一步对**所有 push 触发的
+      #   发版永久跳过**，仓库版本号再也不回写，tag 就会指向一棵版本号落后的树。
+      #   2026-10-21 的 0.3.36 正是如此：npm 有 0.3.36、main 还停在 0.3.35。
+      #   所以只有在手动 dispatch 时才看那个复选框，push 一律回写。
       - name: 提交版本号回 main
-        if: ${{ steps.plan.outputs.mode == 'bump' && inputs.dry_run != true && inputs.commit_version != false }}
+        if: ${{ steps.plan.outputs.mode == 'bump' && inputs.dry_run != true && (github.event_name != 'workflow_dispatch' || inputs.commit_version != false) }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -187,7 +194,9 @@ jobs:
           PKG="$(node -p "require('./package.json').name")"
           V="${{ steps.plan.outputs.version }}"
           URL="https://registry.npmjs.org/$PKG/-/$PKG-$V.tgz"
-          for i in $(seq 1 30); do
+          # 等 10 分钟，不是 90 秒：实测 0.3.36 的 tarball 在 publish 之后
+          # 4 分半才真正可下载（metadata 早就 200 了），90 秒必定误判。
+          for i in $(seq 1 40); do
             CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)"
             if [ "$CODE" = "200" ]; then
               echo "✓ tarball 可下载：$URL"
@@ -195,10 +204,10 @@ jobs:
             fi
             # 变量名后紧跟全角标点时必须用 ${} 包起来：bash 会把全角逗号当成
             # 变量名的一部分，去找叫 "CODE，" 的变量，配 set -u 直接 unbound。
-            echo "  第 $i 次：${CODE}，3 秒后重试"
-            sleep 3
+            echo "  第 $i 次：${CODE}，15 秒后重试"
+            sleep 15
           done
-          echo "✗ 版本号能查到但 tarball 拿不到（90 秒）—— 不要对外宣布，先查 npm 状态" >&2
+          echo "✗ 版本号能查到但 tarball 拿不到（10 分钟）—— 不要对外宣布，先查 npm 状态" >&2
           exit 1
 
       - name: 打插件源码包
