@@ -156,6 +156,28 @@ jobs:
           # 这是最后一道闸，留着它——手工在本机 publish 时也靠它兜底。
           npm publish --provenance --access public 2>&1 | tee /tmp/publish.log
 
+      # ⚠ tag 必须在 publish 之后**立刻**打，不能拖到最末尾建 Release 时才打。
+      #   release-plan.mjs 用 tag 认「上一版是哪一版」：tag 一旦不推进，上次那条
+      #   `fix:` 提交就会被重新算成"新功能"，重跑一次就多发一个版本。
+      #   2026-10-21 正是因此连着发掉了 0.3.34 和 0.3.35（两个包内容完全一样），
+      #   当时 publish 成功、后面某步失败，tag 一直停在 0.3.33。
+      - name: 发布成功后立刻打 tag（幂等）
+        if: ${{ steps.plan.outputs.release == 'true' && inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.plan.outputs.version }}"
+          TAG="plugin-v$V"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG 已存在，跳过"
+            exit 0
+          fi
+          git tag -a "$TAG" -m "dsh-plugin-mesh v$V" HEAD
+          # 推不上去不算失败：包已经发出去了，让后面的 Release 步骤再试一次，
+          # 别把"包发了"变成"pipeline 红了"。
+          if ! git push origin "refs/tags/$TAG"; then
+            echo "::warning title=tag 没推上去::$TAG 推送失败，建 Release 那步会重试"
+          fi
+
       # ⚠ 元数据先出现、tarball 后出现（npm 的 staged publishing）。此时
       #   `npm view` 已经能查到版本号，但装的人会 404 —— 所以必须等到真能下。
       - name: 确认 tarball 真的可下载
