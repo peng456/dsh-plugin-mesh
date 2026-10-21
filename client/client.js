@@ -43,10 +43,9 @@ window.__ModuleLoader__.load({
       { id: "pairing", title: "配对码", icon: "key" },
       { id: "tsnet", title: "互联网组网", icon: "tailscale" },
       { id: "diagnostics", title: "诊断", icon: "terminal" },
-      { id: "about", title: "关于", icon: "mesh" },
     ];
     // 诊断默认收起：主页先给“现在要做什么”，排障信息按需加回。
-    const DEFAULT_HOME = ["overview", "devices", "tasks", "pairing", "tsnet", "about"];
+    const DEFAULT_HOME = ["overview", "devices", "tasks", "pairing", "tsnet"];
     const HOME_IDS = new Set(HOME_CARDS.map((c) => c.id));
     const CUSTOM_TYPES = [
       { value: "note", label: "便签", icon: "note" },
@@ -4620,39 +4619,6 @@ window.__ModuleLoader__.load({
           });
         }
 
-        if (card.id === "about") {
-          const REPO = "https://github.com/peng456/dsh-plugin-mesh";
-          return h(BoardCard, {
-            ...common,
-            subtitle: "版本与反馈",
-            status: h(Badge, { kind: "accent" }, self.version ? `v${self.version}` : "版本未知"),
-            children: h(
-              react.Fragment,
-              null,
-              h("div", { className: "mesh-mini-row" }, h("span", { className: "mesh-mini-name" }, "插件版本"), h("span", { className: "mesh-mini-meta" }, self.version || "—")),
-              h(
-                "p",
-                { className: "mesh-card-text" },
-                "如果 Mesh 帮到了你，去 GitHub 上点个 Star 支持一下——这是这个插件最直接的反馈。",
-              ),
-              h(
-                "div",
-                { style: { marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap" } },
-                h(
-                  "a",
-                  { href: REPO, target: "_blank", rel: "noreferrer", className: "mesh-text-btn", style: { fontSize: 13 } },
-                  "⭐ 在 GitHub 上点 Star",
-                ),
-                h(
-                  "a",
-                  { href: `${REPO}/issues`, target: "_blank", rel: "noreferrer", className: "mesh-text-btn", style: { fontSize: 13 } },
-                  "报告问题",
-                ),
-              ),
-            ),
-          });
-        }
-
         if (card.id === "tsnet") {
           return h(HomeCard, {
             ...common,
@@ -5493,8 +5459,14 @@ window.__ModuleLoader__.load({
                 h(
                   "p",
                   { className: "mesh-home-sub" },
-                  `${self.machine || "本机"} · 在线 ${online} / ${peers.length}` +
-                    (self.version ? ` · v${self.version}` : ""),
+                  h(
+                    react.Fragment,
+                    null,
+                    h("span", null, `${self.machine || "本机"} · 在线 ${online} / ${peers.length}`),
+                    self.version
+                      ? h("span", { style: { marginLeft: 18, opacity: 0.75 } }, `v${self.version}`)
+                      : null,
+                  ),
                   focus ? " · 专注模式 · 每 15 秒刷新" : ` · 更新于 ${ago(lastOk, now)}`,
                 ),
               ),
@@ -5564,6 +5536,34 @@ window.__ModuleLoader__.load({
                   h("p", null, "主页上的卡片都收起来了。"),
                   h(Button, { variant: "secondary", size: "sm", onClick: onReset }, "恢复默认"),
                 ),
+            h(
+              "div",
+              {
+                className: "mesh-home-foot",
+                style: {
+                  marginTop: 14,
+                  paddingTop: 12,
+                  borderTop: "1px solid var(--dsw-alias-border-secondary, #eee)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  fontSize: 12,
+                  opacity: 0.75,
+                },
+              },
+              h("span", null, "Mesh 帮到你的话，去 GitHub 点个 Star 支持一下："),
+              h(
+                "a",
+                {
+                  href: "https://github.com/peng456/dsh-plugin-mesh",
+                  target: "_blank",
+                  rel: "noreferrer",
+                  style: { fontSize: 12, fontWeight: 600 },
+                },
+                "⭐ peng456/dsh-plugin-mesh",
+              ),
+            ),
             editing && hidden.length
               ? h(
                   "div",
