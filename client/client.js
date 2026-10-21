@@ -2155,12 +2155,22 @@ window.__ModuleLoader__.load({
             h("path", { key: "b", d: "M13.5 10.5a4.5 4.5 0 0 0-6.4 0l-2.2 2.2a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1" }),
           ];
         case "scan":
+          // 局域网探测：中心一个点、两侧扩散的弧线（像雷达/无线电波）。
+          // 原来那个「四角 + 一条横线」的取景框在 13px 下几乎就是个二维码，
+          // 真机上第一眼容易误读，所以换成这个。
           return [
-            h("path", { key: "a", d: "M4 9V5a1 1 0 0 1 1-1h4" }),
-            h("path", { key: "b", d: "M20 9V5a1 1 0 0 0-1-1h-4" }),
-            h("path", { key: "c", d: "M4 15v4a1 1 0 0 0 1 1h4" }),
-            h("path", { key: "d", d: "M20 15v4a1 1 0 0 1-1 1h-4" }),
-            h("path", { key: "e", d: "M4 12h16" }),
+            h("path", { key: "a", d: "M4.9 19.1C1 15.2 1 8.8 4.9 4.9" }),
+            h("path", { key: "b", d: "M7.8 16.2C5.5 13.9 5.5 10.1 7.8 7.8" }),
+            h("path", { key: "c", d: "M16.2 7.8c2.3 2.3 2.3 6.1 0 8.4" }),
+            h("path", { key: "d", d: "M19.1 4.9C23 8.8 23 15.1 19.1 19" }),
+            h("circle", { key: "e", cx: 12, cy: 12, r: 2 }),
+          ];
+        case "probe":
+          // 单台设备的能力探测：准星。与网段级别的「局域网探测」区分开。
+          return [
+            h("circle", { key: "a", cx: 12, cy: 12, r: 7.5 }),
+            h("path", { key: "b", d: "M12 2v3.2M12 18.8V22M2 12h3.2M18.8 12H22" }),
+            h("circle", { key: "c", cx: 12, cy: 12, r: 2.2 }),
           ];
         case "refresh":
           return [
@@ -2823,12 +2833,12 @@ window.__ModuleLoader__.load({
           h("div", { className: "mesh-list-heading" }, "其他设备"),
           peers.length
             ? peers.map((p, i) => h(DeviceRow, { key: p.id, peer: p, active: selectedId === p.id, onSelect, now, index: i + 1 }))
-            : h("div", { className: "mesh-list-empty" }, "还没有发现其他设备。点下面扫一次本网段。"),
+            : h("div", { className: "mesh-list-empty" }, "还没有发现其他设备。点下面探测一次本网段。"),
           h(
             "div",
             { className: "mesh-list-actions" },
             peers.length === 0
-              ? h(Button, { variant: "ghost", size: "sm", icon: "scan", loading: scanning, onClick: onScan }, "扫描本机网段")
+              ? h(Button, { variant: "ghost", size: "sm", icon: "scan", loading: scanning, onClick: onScan }, "局域网探测")
               : null,
           ),
         ),
@@ -2852,7 +2862,7 @@ window.__ModuleLoader__.load({
             {
               icon: "device",
               title: "选择一台设备",
-              action: onScan ? h(Button, { variant: "secondary", icon: "scan", onClick: onScan }, "扫描本机网段") : null,
+              action: onScan ? h(Button, { variant: "secondary", icon: "scan", onClick: onScan }, "局域网探测") : null,
             },
             "在左侧选一台设备，查看它的能力、连接方式，或直接派一个任务。",
           ),
@@ -2909,7 +2919,7 @@ window.__ModuleLoader__.load({
                     null,
                     h(
                       Button,
-                      { variant: "ghost", icon: "scan", onClick: () => onProbe(peer), loading: probeFor && probeFor.pending, disabled: hostDown },
+                      { variant: "ghost", icon: "probe", onClick: () => onProbe(peer), loading: probeFor && probeFor.pending, disabled: hostDown },
                       "探测",
                     ),
                     h(
@@ -4602,7 +4612,7 @@ window.__ModuleLoader__.load({
             footer: h(
               react.Fragment,
               null,
-              h(Button, { variant: "secondary", icon: "scan", loading: scanning, onClick: onScan }, "扫描"),
+              h(Button, { variant: "secondary", icon: "scan", loading: scanning, onClick: onScan }, "局域网探测"),
               h(Button, { variant: "primary", icon: "device", onClick: onDevices }, "查看设备"),
             ),
           });
@@ -5189,7 +5199,7 @@ window.__ModuleLoader__.load({
                 { className: "mesh-dispatch-status" },
                 h(Badge, { kind: chosen && chosen.online ? "ok" : "muted" }, chosen && chosen.online ? "在线" : "离线"),
               )
-            : h(Button, { variant: "secondary", size: "sm", icon: "scan", onClick: onScan, loading: !!scanning }, "扫描"),
+            : h(Button, { variant: "secondary", size: "sm", icon: "scan", onClick: onScan, loading: !!scanning }, "局域网探测"),
         ),
         h(
           "div",
@@ -5574,7 +5584,7 @@ window.__ModuleLoader__.load({
             footer: h(
               react.Fragment,
               null,
-              h(Button, { variant: "secondary", icon: "scan", loading: scanning, onClick: onScan }, "扫描"),
+              h(Button, { variant: "secondary", icon: "scan", loading: scanning, onClick: onScan }, "局域网探测"),
               h(Button, { variant: "primary", icon: "device", onClick: onDevices }, "查看设备"),
             ),
           });
@@ -5891,7 +5901,7 @@ window.__ModuleLoader__.load({
             onClick: onToggleFocus,
           }),
           h(IconButton, { icon: "refresh", label: "刷新状态", onClick: onRefresh, loading: refreshing, disabled }),
-          h(IconButton, { icon: "scan", label: scanning ? "正在扫描" : "扫描本机网段", onClick: onScan, loading: scanning, disabled }),
+          h(IconButton, { icon: "scan", label: scanning ? "正在探测局域网" : "局域网探测", onClick: onScan, loading: scanning, disabled }),
         ),
         busy
           ? h(
@@ -6079,13 +6089,13 @@ window.__ModuleLoader__.load({
         try {
           const r = await api("/scan", {});
           if (r && r.ok) {
-            push("success", `扫描完成：发现 ${r.found ?? 0} 台（探测了 ${r.scanned ?? "?"} 个地址）`);
+            push("success", `局域网探测完成：发现 ${r.found ?? 0} 台（探测了 ${r.scanned ?? "?"} 个地址）`);
             await reload();
           } else {
-            push("error", `扫描失败：${apiErr(r)}`);
+            push("error", `局域网探测失败：${apiErr(r)}`);
           }
         } catch (e) {
-          push("error", `扫描失败：${String((e && e.message) || e)}`);
+          push("error", `局域网探测失败：${String((e && e.message) || e)}`);
         } finally {
           setScanning(false);
         }
