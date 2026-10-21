@@ -3539,7 +3539,10 @@ window.__ModuleLoader__.load({
         key: `in-${t.id}-${i}`,
         dir: "in",
         id: t.id,
-        peer: t.from || t.fromMachine || "未知设备",
+        // 入站记录的 from 形如「机器名/用户」，而设备行的 machine 只有机器名 ——
+        // 之前直接拿 from 当 peer 去和 machine 比较，永远不相等，于是「最近任务」
+        // 永远是空的（真机反馈 #1）。优先用 fromMachine，回退时再去掉 /user 后缀。
+        peer: t.fromMachine || String(t.from || "").split("/")[0] || "未知设备",
         at: tsOf(t.receivedAt),
         text: String(t.task || ""),
         thread: t.thread || "",
@@ -5709,9 +5712,11 @@ window.__ModuleLoader__.load({
       const tasks = react.useMemo(() => taskList(state), [state]);
       const sortedPeers = react.useMemo(
         () =>
+          // 只按「在线 → 机器名」排：lastSeen 每 3 秒轮询都会变，
+          // 用它当主键会让两台设备在列表里反复互换位置，看起来就是「频繁闪烁」。
           [...peers].sort((a, b) => {
             if (!!a.online !== !!b.online) return a.online ? -1 : 1;
-            return tsOf(b.lastSeen) - tsOf(a.lastSeen);
+            return String(a.machine || "").localeCompare(String(b.machine || ""));
           }),
         [peers],
       );
@@ -5761,7 +5766,7 @@ window.__ModuleLoader__.load({
       const selectedPeer = selectedId === "self" ? selfPeer : sortedPeers.find((p) => p.id === selectedId) || null;
       const selectedTask = tasks.find((t) => t.key === selectedTaskKey) || null;
       const recentTasks = selectedPeer && !selectedPeer.self
-        ? tasks.filter((t) => t.peer === selectedPeer.machine).slice(0, 3)
+        ? tasks.filter((t) => String(t.peer).split("/")[0] === selectedPeer.machine).slice(0, 3)
         : [];
       const composerTarget = composer
         ? composer.id === "self"
@@ -5919,6 +5924,9 @@ window.__ModuleLoader__.load({
               peer: draft.anchor.machine,
               task: transferPrompt(record),
               thread: record.thread,
+              // 回执要落回**当前这个会话**。不带的话宿主无法登记绑定，
+              // 对端回传时只能新开一个 mesh-* 会话（真机反馈 #4）。
+              originSession: sessionId || "",
             });
             record.taskId = r && r.id ? r.id : "";
             if (!r || !r.ok) throw new Error(apiErr(r));
