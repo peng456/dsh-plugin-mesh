@@ -5521,8 +5521,7 @@ window.__ModuleLoader__.load({
                       fontSize: 13,
                     },
                   },
-                  h("span", { style: { fontSize: 16, lineHeight: 1 } }, "⭐"),
-                  h("span", { style: { fontWeight: 600 } }, "喜欢 Mesh 的话，去 GitHub 点个 Star 吧"),
+                  h("span", { style: { fontWeight: 600 } }, "Mesh 帮到你的话，去 GitHub 点个 Star 支持一下"),
                   h("span", { style: { opacity: 0.7, fontSize: 12 } }, "这是对作者最直接的反馈"),
                   h(
                     "a",
@@ -5533,7 +5532,7 @@ window.__ModuleLoader__.load({
                       className: "mesh-text-btn",
                       style: { marginLeft: "auto", fontSize: 13, fontWeight: 600 },
                     },
-                    "前往 GitHub →",
+                    "⭐ peng456/dsh-plugin-mesh",
                   ),
                   h(
                     "button",
