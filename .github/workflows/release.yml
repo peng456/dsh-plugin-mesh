@@ -171,7 +171,9 @@ jobs:
               echo "✓ tarball 可下载：$URL"
               exit 0
             fi
-            echo "  第 $i 次：$CODE，3 秒后重试"
+            # 变量名后紧跟全角标点时必须用 ${} 包起来：bash 会把全角逗号当成
+            # 变量名的一部分，去找叫 "CODE，" 的变量，配 set -u 直接 unbound。
+            echo "  第 $i 次：${CODE}，3 秒后重试"
             sleep 3
           done
           echo "✗ 版本号能查到但 tarball 拿不到（90 秒）—— 不要对外宣布，先查 npm 状态" >&2
