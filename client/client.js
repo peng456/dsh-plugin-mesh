@@ -627,10 +627,15 @@ window.__ModuleLoader__.load({
         if (active) return 1;
         return 2;
       };
+      const transportRank = (ep) => (ep.transport === "tsnet" ? 1 : 0);
       return (peer.endpoints || []).slice().sort((a, b) => {
         const d = rank(a) - rank(b);
         if (d !== 0) return d;
-        return (Number(b.lastSeen) || 0) - (Number(a.lastSeen) || 0);
+        const byTime = (Number(b.lastSeen) || 0) - (Number(a.lastSeen) || 0);
+        if (byTime !== 0) return byTime;
+        // 时间完全相同时（同一轮心跳写下的两条）按通道偏好定序，
+        // 否则顺序取决于数组原始顺序，看起来就是随机的 —— 真机上就被这么质疑过。
+        return transportRank(a) - transportRank(b);
       });
     }
 
