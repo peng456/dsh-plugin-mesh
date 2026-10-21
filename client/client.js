@@ -5093,23 +5093,6 @@ window.__ModuleLoader__.load({
       firstRun,
     }) {
       const [editing, setEditing] = react.useState(false);
-      // Star 提示：默认显示；用户点「不再提示」后记进 localStorage，别再烦他。
-      const STAR_KEY = "mesh.starBanner.dismissed";
-      const [starHidden, setStarHidden] = react.useState(() => {
-        try {
-          return typeof localStorage !== "undefined" && localStorage.getItem(STAR_KEY) === "1";
-        } catch {
-          return false;
-        }
-      });
-      const dismissStar = () => {
-        setStarHidden(true);
-        try {
-          if (typeof localStorage !== "undefined") localStorage.setItem(STAR_KEY, "1");
-        } catch {
-          /* 存不了就只在本次会话隐藏 */
-        }
-      };
       const [drag, setDrag] = react.useState({ draggingId: null, dropId: null, resizingId: null });
       const dragRef = react.useRef({ draggingId: null, dropId: null, resizingId: null });
       const [resizing, setResizing] = react.useState(null);
@@ -5502,12 +5485,10 @@ window.__ModuleLoader__.load({
                 editing ? h(Button, { variant: "ghost", size: "sm", onClick: onReset }, "恢复默认") : null,
               ),
             ),
-            starHidden
-              ? null
-              : h(
-                  "div",
-                  {
-                    className: "mesh-star-banner",
+            h(
+              "div",
+              {
+                className: "mesh-star-banner",
                     title: "这是对作者最直接的反馈",
                     style: {
                       margin: "8px 0 10px",
@@ -5544,29 +5525,6 @@ window.__ModuleLoader__.load({
                       },
                     },
                     "peng456/dsh-plugin-mesh",
-                  ),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      title: "不再显示这条提示",
-                      style: {
-                        marginLeft: "auto",
-                        border: "none",
-                        background: "transparent",
-                        color: "inherit",
-                        opacity: 0.55,
-                        cursor: "pointer",
-                        fontSize: 12,
-                        lineHeight: "18px",
-                        padding: "0 2px",
-                        whiteSpace: "nowrap",
-                        textDecoration: "underline",
-                        textUnderlineOffset: 2,
-                      },
-                      onClick: () => dismissStar(),
-                    },
-                    "不再提示",
                   ),
                 ),
             editing
