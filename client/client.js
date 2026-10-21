@@ -1277,6 +1277,39 @@ window.__ModuleLoader__.load({
 .mesh-home-empty { margin-top: 16px; border: 1px dashed var(--mesh-line-2); border-radius: 14px; padding: 28px; text-align: center; }
 .mesh-home-empty p { margin: 0 0 12px; font-size: 12px; color: var(--mesh-muted); }
 .mesh-home .mesh-firstrun { margin: 0 0 16px; }
+
+/* 主页底部的派发面板：视觉上跟卡片同级，但不参与拖动/隐藏。 */
+.mesh-dispatch {
+  margin-top: 16px;
+  padding: 15px 16px 13px;
+  border: 1px solid var(--mesh-line);
+  border-radius: 14px;
+  background: var(--mesh-surface);
+  display: flex; flex-direction: column; gap: 11px;
+  min-width: 0;
+}
+.mesh-dispatch-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mesh-dispatch-icon {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
+  display: grid; place-items: center;
+  color: var(--mesh-accent);
+  background: color-mix(in srgb, var(--mesh-accent) 9%, transparent);
+}
+.mesh-dispatch-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mesh-dispatch-name { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.mesh-dispatch-sub { font-size: 10.5px; color: var(--mesh-muted); line-height: 1.5; }
+.mesh-dispatch-status { flex: 0 0 auto; margin-left: auto; }
+.mesh-dispatch-form { display: grid; grid-template-columns: minmax(150px, 210px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.mesh-dispatch-form .mesh-field { min-width: 0; }
+.mesh-dispatch-text { min-height: 92px; }
+.mesh-dispatch-msg { font-size: 11.5px; line-height: 1.6; }
+.mesh-dispatch-msg.is-ok { color: var(--mesh-ok); }
+.mesh-dispatch-msg.is-err { color: var(--mesh-err); }
+.mesh-dispatch-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mesh-dispatch-hint { font-size: 10.5px; color: var(--mesh-muted); line-height: 1.6; min-width: 0; }
+.mesh-dispatch-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.mesh-home.is-dense .mesh-dispatch { padding: 11px 12px 10px; gap: 8px; border-radius: 12px; }
+.mesh-home.is-dense .mesh-dispatch-text { min-height: 76px; }
 .mesh-home.is-dense .mesh-home-grid { gap: 10px; }
 .mesh-home.is-dense .mesh-card { padding: 11px 12px; gap: 7px; min-height: 0; border-radius: 12px; }
 .mesh-home.is-dense .mesh-card-title { font-size: 12px; }
@@ -1635,6 +1668,12 @@ window.__ModuleLoader__.load({
   .mesh-health { font-size: 11px; }
   .mesh-editor-layer { padding: 0; align-items: flex-end; }
   .mesh-editor { width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; }
+}
+
+@media (max-width: 720px) {
+  /* 窄屏上「发给」和「内容」上下排，否则两个输入框都挤得没法用。 */
+  .mesh-dispatch-form { grid-template-columns: 1fr; }
+  .mesh-dispatch-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
 }
 
 /* ── 手机端：安全区 / 触控 / 键盘 ──
@@ -5067,6 +5106,165 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ─────────────────────── 主页 · 派发任务 ───────────────────────
+
+    /**
+     * 主页底部的常驻派发入口。
+     *
+     * 设备页的派发是「先选设备再写指令」的弹层；主页这里反过来——目标默认取
+     * 第一台设备，写完成文直接 ⌘/Ctrl+Enter 发出去。所以目标选择器必须显示
+     * 在线状态，离线时按钮禁用并说明原因，不能静默失败。
+     */
+    function DispatchPanel({ peers, hostDown, disabled, onScan, scanning, onDispatched, density }) {
+      const targets = (peers || []).filter((p) => p && !p.self);
+      const onlineCount = targets.filter((p) => p.online).length;
+      const [peerId, setPeerId] = react.useState("");
+      const [task, setTask] = react.useState("");
+      const [thread, setThread] = react.useState("");
+      const [busy, setBusy] = react.useState(false);
+      const [note, setNote] = react.useState(null);
+      const taRef = react.useRef(null);
+
+      const chosen = targets.find((p) => p.id === peerId) || targets[0] || null;
+      const canSend = !!chosen && !!chosen.online && !!String(task).trim() && !busy && !hostDown && !disabled;
+
+      const send = async () => {
+        if (!canSend) return;
+        setBusy(true);
+        setNote(null);
+        try {
+          const r = await api("/send", { peer: chosen.machine, task, thread: String(thread).trim() });
+          if (r && r.ok) {
+            setNote({ ok: true, text: `已派发给 ${chosen.machine}${r.id ? `（${r.id}）` : ""}，回执会进入新会话` });
+            setTask("");
+            if (onDispatched) onDispatched(chosen, r);
+          } else {
+            setNote({ ok: false, text: `派发失败：${apiErr(r)}` });
+          }
+        } catch (e) {
+          setNote({ ok: false, text: `派发失败：${String((e && e.message) || e)}` });
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const reason = hostDown
+        ? "与主机失去联系，暂时发不出去"
+        : disabled
+          ? "当前不可用"
+          : !targets.length
+            ? "还没有发现其他设备，先让对端也打开 Mesh"
+            : !chosen || !chosen.online
+              ? `${(chosen && chosen.machine) || "这台设备"}当前离线，换一台在线设备`
+              : "";
+
+      return h(
+        "section",
+        { className: cls("mesh-dispatch", density === "compact" && "is-dense"), "aria-label": "派发任务" },
+        h(
+          "div",
+          { className: "mesh-dispatch-head" },
+          h("span", { className: "mesh-dispatch-icon" }, h(Icon, { name: "send", size: 15 })),
+          h(
+            "div",
+            { className: "mesh-dispatch-title" },
+            h("div", { className: "mesh-dispatch-name" }, "派发任务"),
+            h(
+              "div",
+              { className: "mesh-dispatch-sub" },
+              targets.length
+                ? `${onlineCount} / ${targets.length} 台在线 · 指令交给对端执行，结果由对端回派`
+                : "还没有发现其他设备，先让对端也打开 Mesh",
+            ),
+          ),
+          targets.length
+            ? h(
+                "div",
+                { className: "mesh-dispatch-status" },
+                h(Badge, { kind: chosen && chosen.online ? "ok" : "muted" }, chosen && chosen.online ? "在线" : "离线"),
+              )
+            : h(Button, { variant: "secondary", size: "sm", icon: "scan", onClick: onScan, loading: !!scanning }, "扫描"),
+        ),
+        h(
+          "div",
+          { className: "mesh-dispatch-form" },
+          h(
+            Field,
+            { label: "发给" },
+            h(
+              "select",
+              {
+                className: "mesh-input",
+                value: chosen ? chosen.id : "",
+                disabled: !targets.length,
+                onChange: (e) => setPeerId(e.target.value),
+                "aria-label": "目标设备",
+              },
+              targets.length
+                ? targets.map((p) =>
+                    h("option", { key: p.id, value: p.id }, `${p.machine || "未命名设备"}${p.online ? "" : "（离线）"}`),
+                  )
+                : h("option", { value: "" }, "暂无设备"),
+            ),
+          ),
+          h(
+            Field,
+            { label: "要对方做什么？" },
+            h("textarea", {
+              ref: taRef,
+              className: "mesh-textarea mesh-dispatch-text",
+              value: task,
+              placeholder: "例如：拉取最新代码，重新构建并重启 web 服务，然后把结果回报给我。",
+              onChange: (e) => setTask(e.target.value),
+              onKeyDown: (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  send();
+                }
+              },
+              "aria-label": "任务内容",
+            }),
+          ),
+        ),
+        h(
+          Fold,
+          { title: "高级", right: String(thread).trim() ? String(thread).trim() : "线程标识" },
+          h(
+            Field,
+            { hint: "同一个线程标识会把多次派发串成一段对话。留空也可以。" },
+            h("input", {
+              className: "mesh-input",
+              value: thread,
+              placeholder: "例如 build-web",
+              onChange: (e) => setThread(e.target.value),
+            }),
+          ),
+        ),
+        note
+          ? h("div", { className: cls("mesh-dispatch-msg", note.ok ? "is-ok" : "is-err"), role: "status" }, note.text)
+          : null,
+        h(
+          "div",
+          { className: "mesh-dispatch-foot" },
+          h(
+            "span",
+            { className: "mesh-dispatch-hint" },
+            reason || "派发是异步的：这里成功只代表对端已接收。⌘/Ctrl + Enter 发送。",
+          ),
+          h(
+            "div",
+            { className: "mesh-dispatch-actions" },
+            h(Button, { variant: "ghost", size: "sm", disabled: !String(task) || busy, onClick: () => setTask("") }, "清空"),
+            h(
+              Button,
+              { variant: "primary", size: "sm", icon: "send", loading: busy, disabled: !canSend, onClick: send },
+              busy ? "派发中…" : "发送",
+            ),
+          ),
+        ),
+      );
+    }
+
     function HomeBoard({
       state,
       self,
@@ -5091,6 +5289,8 @@ window.__ModuleLoader__.load({
       onScan,
       scanning,
       firstRun,
+      hostDown,
+      onDispatched,
     }) {
       const [editing, setEditing] = react.useState(false);
       const [drag, setDrag] = react.useState({ draggingId: null, dropId: null, resizingId: null });
@@ -5588,6 +5788,16 @@ window.__ModuleLoader__.load({
                   ),
                 )
               : null,
+            // 派发放最底下：先看设备状态，再写指令，最后才是这个动作面板。
+            h(DispatchPanel, {
+              peers,
+              hostDown: !!hostDown,
+              disabled: !!hostDown,
+              onScan,
+              scanning,
+              onDispatched,
+              density,
+            }),
           ),
         ),
         editor
@@ -5935,10 +6145,12 @@ window.__ModuleLoader__.load({
         setComposer({ id: peer.id });
       };
 
-      const onSent = (r) => {
-        const name = composerTarget && composerTarget.machine ? composerTarget.machine : "对端";
-        setComposer(null);
-        push("success", `已派发给 ${name}${r && r.id ? `（${r.id}）` : ""}`, {
+      /**
+       * 派发成功的统一收尾：toast + 让轮询立刻刷新。
+       * 设备页弹层和主页的派发面板共用它，免得两处提示文案慢慢走散。
+       */
+      const notifyDispatched = (name, r) => {
+        push("success", `已派发给 ${name || "对端"}${r && r.id ? `（${r.id}）` : ""}`, {
           label: "查看任务",
           onClick: () => {
             setView("tasks");
@@ -5946,6 +6158,12 @@ window.__ModuleLoader__.load({
           },
         });
         reload();
+      };
+
+      const onSent = (r) => {
+        const name = composerTarget && composerTarget.machine ? composerTarget.machine : "对端";
+        setComposer(null);
+        notifyDispatched(name, r);
       };
 
       const sendTransfer = async (route, intent) => {
@@ -6190,6 +6408,8 @@ window.__ModuleLoader__.load({
                 onScan: doScan,
                 scanning,
                 firstRun: firstRunNode,
+                hostDown,
+                onDispatched: (peer, r) => notifyDispatched((peer && peer.machine) || "", r),
               })
             : view === "devices"
             ? h(DeviceView, {
@@ -6322,6 +6542,7 @@ window.__ModuleLoader__.load({
       MeshApp,
       HomeView,
       HomeBoard,
+      DispatchPanel,
       DeviceDetail,
       DeviceRow,
       CapabilityChips,
