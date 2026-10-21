@@ -650,10 +650,14 @@ window.__ModuleLoader__.load({
                 (peer.endpoints || []).map((ep) => {
                   const cooling = !!(ep.downUntil && Date.now() < ep.downUntil);
                   const unverified = ep.verified === false;
-                  const active = ep.transport === peer.transport;
-                  const color = active ? "#2ea043" : cooling ? "#c0392b" : unverified ? "#9aa0a6" : "#666";
+                  // 从重启前快照恢复的机器：一条通道都没验过，也没有"在用"这回事。
+                  // 以前这里会按 peer.transport 选一条标成「在用」，实测对方明明离线，
+                  // 界面上却写着「互联网 在用」——与事实相反。
+                  const restored = peer.restored === true;
+                  const active = !restored && ep.transport === peer.transport;
+                  const color = restored ? "#9aa0a6" : active ? "#2ea043" : cooling ? "#c0392b" : unverified ? "#9aa0a6" : "#666";
                   const cname = ep.transport === "tsnet" ? "互联网" : "局域网";
-                  const cstate = active ? "在用" : cooling ? "冷却中" : unverified ? "未探测" : "备用";
+                  const cstate = restored ? "上次见到" : active ? "在用" : cooling ? "冷却中" : unverified ? "未探测" : "备用";
                   return h(
                     "span",
                     {
@@ -661,6 +665,7 @@ window.__ModuleLoader__.load({
                       style: { ...S.tag, color, borderColor: color, ...(active ? { fontWeight: 600 } : null) },
                       title:
                         `${cname} ${ep.host}:${ep.port} · ${cstate}` +
+                        (restored && ep.lastSeen ? ` · 上次心跳 ${new Date(ep.lastSeen).toLocaleString()}` : "") +
                         (ep.rttMs ? ` · ${ep.rttMs}ms` : "") +
                         ` · 成功 ${ep.okCount} 次 / 失败 ${ep.failCount} 次`,
                     },
