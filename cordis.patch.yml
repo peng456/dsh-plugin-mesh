@@ -76,5 +76,6 @@
         threadWindowMs: 3600000
         # 两次自动唤醒之间的最小间隔（毫秒），管突发；0 = 不限制
         threadCooldownMs: 5000
-        # 单条任务正文短于此长度就只入箱不唤醒（挡 ping/ack 这类寒暄）
-        minTaskChars: 24
+        # 单条任务正文短于此长度就只入箱不唤醒（挡 ping/ack 这类寒暄）。
+        # 8 = 只当地板值；中文 24 字太苛刻，真实短任务会被吞（真机反馈）。
+        minTaskChars: 8
