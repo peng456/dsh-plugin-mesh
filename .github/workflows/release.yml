@@ -194,9 +194,14 @@ jobs:
           PKG="$(node -p "require('./package.json').name")"
           V="${{ steps.plan.outputs.version }}"
           URL="https://registry.npmjs.org/$PKG/-/$PKG-$V.tgz"
-          # 等 10 分钟，不是 90 秒：实测 0.3.36 的 tarball 在 publish 之后
+          # 等 25 分钟，不是 90 秒：实测 0.3.36 的 tarball 在 publish 之后
           # 4 分半才真正可下载（metadata 早就 200 了），90 秒必定误判。
-          for i in $(seq 1 40); do
+          #
+          # 而 0.5.1 更慢：tag 和 dist-tag 都 200 了，tarball 仍然 404 了 12 分钟，
+          # 把当时 10 分钟的上限打穿 —— 包其实是好的，却被判"拿不到"，
+          # 于是源码包和 GitHub Release 两步被跳过，只能手动补。上限放到 25 分钟。
+          MAX=100
+          for i in $(seq 1 $MAX); do
             CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)"
             if [ "$CODE" = "200" ]; then
               echo "✓ tarball 可下载：$URL"
@@ -207,7 +212,9 @@ jobs:
             echo "  第 $i 次：${CODE}，15 秒后重试"
             sleep 15
           done
-          echo "✗ 版本号能查到但 tarball 拿不到（10 分钟）—— 不要对外宣布，先查 npm 状态" >&2
+          echo "✗ 版本号能查到但 tarball 拿不到（25 分钟）—— 不要对外宣布，先查 npm 状态" >&2
+          echo "  包已经 publish 成功、tag 也打了，只差源码包和 Release：" >&2
+          echo "  等 tarball 能下载后按 docs/RELEASE.md「补建 Release」一节手动补齐。" >&2
           exit 1
 
       - name: 打插件源码包

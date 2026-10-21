@@ -156,9 +156,40 @@ npm run release:plan -- --bump patch --apply  # 真的写回版本号
 | `ENEEDAUTH` / 401 | 可信发布没配对，或 `.npmrc` 里留了空的 authToken 占位符 | 核对 A 的三格；确认 workflow 名就是 `release.yml`；`id-token: write` 权限在 |
 | `E403 ... two-factor` | 用了 token 方式但没勾 Bypass 2FA | 重新生成 B 的 token |
 | `cannot publish over previously published version` | 版本号重复 | 正常不该发生（`publish` 前会查）；手动 `--bump patch` 触发一次 |
-| 日志：`tarball 拿不到（90 秒）` | npm staged publishing：元数据先出现，包体后到 | 等 1–2 分钟重跑该 job；不要改版本号 |
+| 日志：`tarball 拿不到（25 分钟）` | npm staged publishing：元数据先出现，包体后到（0.5.1 实测慢了 12 分钟） | 等 tarball 200 后按下面「补建 Release」补齐，**不要改版本号、也不要重跑整个 job**（重跑会算成 `skip`） |
 | 测试红在 `gate` | 真的坏了 | 修；`main` 上已经红的那次不会产生任何发布 |
 | 测试红在 `portability / linux` | 见 `lib/_selftest-capabilities.mjs` 里的注释 | 不阻断，但连续红要当回事 |
+
+### 补建 Release（publish 成功、但源码包/Release 没建出来）
+
+这种半态的特征很明确：npm 上有版本、tag 也推上去了，Release 页却没有对应条目。
+此时 **重跑 job 没用** —— `release-plan.mjs` 按 tag 算「上一版」，重跑时提交数为 0，
+结论是 `skip`，后面所有发版步骤都会被跳过。手动补齐即可：
+
+```bash
+V=0.5.1                 # 换成实际版本
+TAG=plugin-v$V
+ASSET=dist/dsh-plugin-mesh-$V.tar.gz
+
+# 1) 源码包（workflow 里也是这一步）
+bash scripts/pack-release-tarball.sh dist
+
+# 2) 建 Release（正文用 GitHub 自动生成的分组笔记）
+PREV=$(git describe --tags --abbrev=0 --exclude="$TAG")   # 上一版的 tag
+if [ -n "$PREV" ]; then
+  gh release create "$TAG" "$ASSET" --title "dsh-plugin-mesh v$V" \
+    --generate-notes --notes-start-tag "$PREV" --target "$(git rev-parse HEAD)"
+else
+  gh release create "$TAG" "$ASSET" --title "dsh-plugin-mesh v$V" \
+    --generate-notes --target "$(git rev-parse HEAD)"
+fi
+```
+
+没有 `gh`（比如这台 Mac 上被网络挡住）时用 REST API：`POST /releases` 带
+`generate_release_notes: true` + `previous_tag_name`，再 `POST` 到
+`https://uploads.github.com/repos/<owner>/<repo>/releases/<id>/assets?name=<文件名>`
+上传 `$ASSET`。补完别忘了在 Release 正文里补一段中文的「本版主要变化」——
+自动生成的笔记只按 PR 分组，直接推到 main 的提交不会出现。
 | 合并了但**没发版** | 提交里只有 `docs`/`chore`/`ci`/`test` | 要发就手动 `bump=patch` |
 | `gh release create` 403 | workflow 缺 `contents: write` | 别改，它在文件顶部；改了要还原 |
 
