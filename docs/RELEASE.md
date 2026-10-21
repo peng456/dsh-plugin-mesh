@@ -29,7 +29,15 @@
    | Organization or user | `peng456` |
    | Repository | `dsh-plugin-mesh` |
    | Workflow filename | `release.yml` |
-   | Environment | 留空 |
+   | Environment | `npm-publish` |
+
+   > ⚠️ **Environment 必须与 `release.yml` 里 release job 的 `environment: npm-publish`
+   > 逐字一致。** 两边对不上时，npm 不会说"environment 不匹配"，而是直接回
+   > `ENEEDAUTH / need auth`——和"压根没配 trusted publisher"的报错一模一样。
+   > 曾因此在 environment 这一格上白排查两轮 release。
+   >
+   > 只用默认 environment（即 job 上没有 `environment:` 这一行）时，两边的
+   > Environment 都必须留空。**要么都填同一个名字，要么都留空，不能一边有一边没有。**
 
 4. 保存。账号需要已经开启 2FA（npm 的硬要求）。
 

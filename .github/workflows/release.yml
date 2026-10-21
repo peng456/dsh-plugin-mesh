@@ -45,6 +45,11 @@ jobs:
     name: publish
     runs-on: macos-latest
     timeout-minutes: 40
+    # 必须与 npm Trusted Publisher 里的 "Environment name" 逐字一致。
+    # 两边对不上时，OIDC token 里的 environment 与 npm 记录的配置不同，
+    # npm 会直接回 ENEEDAUTH（而不是"找不到 trusted publisher"），
+    # 从报错上完全看不出是 environment 的问题。改这个值要同时改 npm 那边。
+    environment: npm-publish
     # 版本号回写提交带 [skip ci]，GitHub 本身就会跳过它；这里再兜一层，
     # 免得有人对着那条提交手动点 workflow_dispatch 时又发一版。
     if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
