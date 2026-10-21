@@ -846,8 +846,9 @@ node lib/_selftest-discovery.mjs alpha 45900 9000   # 两个进程同时跑可�
 
 ## 参与开发与发版
 
-**合并进 `main` 就是发版**：CI 会跑全量测试、按提交信息决定版本号（`feat:` → minor，
-`fix:` → patch，`docs:`/`chore:` 不发版）、发 npm 包（带 provenance 签名）、打
+**合并进 `main` 就是发版**：CI 会跑全量测试、按提交信息决定版本号（**0.x 阶段
+`feat:` / `fix:` 都只升 patch，只有 breaking 才升 minor**；1.0 之后恢复标准 semver；
+`docs:`/`chore:`/`ci:` 不发版）、发 npm 包（带 provenance 签名）、打
 `plugin-v<版本>` tag，并建带源码包的 GitHub Release。贡献者不需要手改版本号、打 tag
 或跑 `npm publish` —— 手改反而会和流水线打架（`npm run check` 会在两处版本号不一致时
 直接拦下）。

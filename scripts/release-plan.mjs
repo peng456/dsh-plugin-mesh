@@ -56,6 +56,13 @@ export function compareSemver(a, b) {
   return 0;
 }
 
+/** 0.x 阶段把 minor 收敛成 patch（breaking 走的 major 不受影响）。 */
+function zeroFeatAsPatch(base, bump) {
+  if (!ZERO_FEAT_AS_PATCH || bump !== "minor") return bump;
+  const v = parseSemver(base);
+  return v && v.major === 0 ? "patch" : bump;
+}
+
 export function applyBump(version, bump) {
   const v = parseSemver(version);
   if (!v) throw new Error(`当前版本号不合法：${version}`);
@@ -77,6 +84,16 @@ export function applyBump(version, bump) {
 
 /** 一行是不是 Conventional Commit；允许前面带列表符号（合并提交的正文会长这样）。 */
 const HEADER = /^\s*(?:[-*+]\s*)?(feat|fix|perf|refactor|revert|docs|chore|ci|test|style|build)(?:\([^)]*\))?(!)?\s*:\s*/;
+
+/**
+ * 0.x 阶段把 `feat` 当 patch 处理。
+ *
+ * semver 允许 0.x 任意变动，而"加了个功能就 0.4.0、再修一个就 0.5.0"在真实使用里
+ * 涨得太快 —— 0.3.36 一天之内变成 0.5.0，维护者直接反馈"版本增长不要这么大"。
+ * 所以 0.x 期间：feat / fix / perf 都只升 patch，**只有 breaking 才升 minor**
+ * （见 applyBump 里的 ZERO_MAJOR_AS_MINOR）。1.0 之后恢复标准 semver。
+ */
+const ZERO_FEAT_AS_PATCH = true;
 
 const RANK = { none: 0, patch: 1, minor: 2, major: 3 };
 /** 只有这三种会让人真的想装新版本；其余（docs/chore/ci/test/style/build）不触发发版。 */
@@ -235,7 +252,8 @@ export function planRelease({ pkgVersion, tag = "", npmLatest = "", since = "", 
   const analyzed = forcedBump
     ? { bump: forcedBump, hits: [] }
     : analyzeCommits(commits);
-  const bump = analyzed.bump;
+  // 手动 --bump 是显式意图，不收敛；只有自动分析出来的才套 0.x 规则
+  const bump = forcedBump ? analyzed.bump : zeroFeatAsPatch(base, analyzed.bump);
 
   if (bump === "none") {
     return {

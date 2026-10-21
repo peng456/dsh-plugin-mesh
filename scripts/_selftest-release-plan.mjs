@@ -122,7 +122,7 @@ test("只认 plugin-v 前缀，别把 sidecar 的 tag 当插件版本", () => {
 
 console.log("\n── 状态机：真实半态 ──");
 
-test("正常推进：tag=npm=仓库=0.3.33，有 feat → 0.4.0", () => {
+test("0.x 阶段 feat 只升 patch：0.3.33 + feat → 0.3.34", () => {
   const p = planRelease({
     pkgVersion: "0.3.33",
     tag: "plugin-v0.3.33",
@@ -130,8 +130,39 @@ test("正常推进：tag=npm=仓库=0.3.33，有 feat → 0.4.0", () => {
     commits: [{ subject: "feat: 新面板" }],
   });
   assert.equal(p.mode, "bump");
+  assert.equal(p.version, "0.3.34", "0.x 阶段加功能不应把 minor 推上去（真机反馈：一天从 0.3.36 涨到 0.5.0 太快）");
+  assert.equal(p.tag, "plugin-v0.3.34");
+});
+
+test("1.0 之后 feat 恢复标准 semver：1.2.3 + feat → 1.3.0", () => {
+  const p = planRelease({
+    pkgVersion: "1.2.3",
+    tag: "plugin-v1.2.3",
+    npmLatest: "1.2.3",
+    commits: [{ subject: "feat: 新面板" }],
+  });
+  assert.equal(p.version, "1.3.0");
+});
+
+test("0.x 阶段 breaking 仍然升 minor：0.3.33 + feat! → 0.4.0", () => {
+  const p = planRelease({
+    pkgVersion: "0.3.33",
+    tag: "plugin-v0.3.33",
+    npmLatest: "0.3.33",
+    commits: [{ subject: "feat!: 换协议" }],
+  });
   assert.equal(p.version, "0.4.0");
-  assert.equal(p.tag, "plugin-v0.4.0");
+});
+
+test("手动 --bump minor 不被 0.x 规则收敛（显式意图优先）", () => {
+  const p = planRelease({
+    pkgVersion: "0.3.33",
+    tag: "plugin-v0.3.33",
+    npmLatest: "0.3.33",
+    forcedBump: "minor",
+    commits: [{ subject: "chore: 手动发一版" }],
+  });
+  assert.equal(p.version, "0.4.0");
 });
 
 test("只有文档改动 → 不发版（每改一句话就发一版是最贵的注意力税）", () => {
