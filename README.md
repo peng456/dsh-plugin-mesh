@@ -857,6 +857,8 @@ node lib/_selftest-discovery.mjs alpha 45900 9000   # 两个进程同时跑可�
 | 提交信息怎么写、PR 会被哪些门禁检查 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | 流水线怎么运作、失败了怎么重跑、怎么撤回 | [`docs/RELEASE.md`](docs/RELEASE.md) |
 | 改代码前必须知道的硬约束与坑 | [`AGENTS.md`](AGENTS.md) |
+| 版本升级 / 新功能后的回归测试怎么跑 | [`docs/TEST-CASES.md`](docs/TEST-CASES.md) |
+| 功能需求、架构逻辑、多版本通信协议、跨 IDE 实现契约 | [`docs/PLUGIN-SPEC.md`](docs/PLUGIN-SPEC.md) |
 
 本地预演"如果现在合并会发生什么"（不联网、不改文件）：
 
