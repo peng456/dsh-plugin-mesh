@@ -113,6 +113,59 @@ window.__ModuleLoader__.load({
       logRow: { padding: "5px 0", borderBottom: "1px solid var(--dsw-alias-border-secondary, #f0f1f3)" },
     };
 
+    /**
+     * 手机端覆盖层。
+     *
+     * 0.5 的页面是内联样式，窄屏下有些固定宽（220/180）和 28px 边距会溢出。
+     * 这里只用一条 <style> 做覆盖，桌面不生效；不让内联样式和媒体查询互相打架。
+     * 覆盖范围：dsh-mobile-apk / dsh-client-ui-responsive 的 <768px AppFrame。
+     */
+    const MOBILE_CSS = `
+@media (max-width: 767px) {
+  [data-mesh-page] {
+    padding:
+      calc(16px + env(safe-area-inset-top, 0px))
+      calc(14px + env(safe-area-inset-right, 0px))
+      calc(32px + env(safe-area-inset-bottom, 0px))
+      calc(14px + env(safe-area-inset-left, 0px)) !important;
+    overscroll-behavior: contain;
+    -webkit-text-size-adjust: 100%;
+  }
+  [data-mesh-page] h1 { font-size: 19px !important; }
+  [data-mesh-page] button { min-height: 44px; touch-action: manipulation; }
+  [data-mesh-page] input,
+  [data-mesh-page] select,
+  [data-mesh-page] textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+  [data-mesh-page] select,
+  [data-mesh-page] input {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  [data-mesh-page] textarea { min-height: 96px !important; resize: none; }
+  [data-mesh-page] div[style*="display: flex"] { flex-wrap: wrap !important; }
+  [data-mesh-page] div[style*="justify-content: space-between"] { gap: 8px; }
+  [data-mesh-page] code,
+  [data-mesh-page] [style*="word-break"] { overflow-wrap: anywhere; }
+}
+`;
+
+    let mobileCssInstalled = false;
+
+    function installMobileCss() {
+      if (typeof document === "undefined" || !document.head || mobileCssInstalled) return;
+      mobileCssInstalled = true;
+      if (document.getElementById("dsh-mesh-mobile-ui")) return;
+      const el = document.createElement("style");
+      el.id = "dsh-mesh-mobile-ui";
+      el.textContent = MOBILE_CSS;
+      document.head.appendChild(el);
+    }
+
     const label = { fontWeight: 600, color: "var(--dsw-alias-label-secondary, #666)", fontSize: 12, marginBottom: 4, display: "block" };
 
     // ─────────────────────── 小组件 ───────────────────────
@@ -802,6 +855,7 @@ window.__ModuleLoader__.load({
 
     function MeshPage() {
       const { state, error } = useMeshState(3000);
+      react.useEffect(() => installMobileCss(), []);
       const [target, setTarget] = react.useState("");
       const [task, setTask] = react.useState("");
       const [thread, setThread] = react.useState("");
@@ -845,9 +899,9 @@ window.__ModuleLoader__.load({
       };
 
       if (error && !state) {
-        return h("div", { style: S.page }, h("div", { style: S.pageInner }, h("h1", { style: S.h1 }, "局域网 Mesh"), h("div", { style: S.card }, `无法读取本机 mesh 状态：${error}`, h("div", { style: { ...S.muted, marginTop: 8 } }, "请确认主机侧插件 dsh-plugin-mesh 已加载。"))));
+        return h("div", { style: S.page, "data-mesh-page": "1" }, h("div", { style: S.pageInner }, h("h1", { style: S.h1 }, "局域网 Mesh"), h("div", { style: S.card }, `无法读取本机 mesh 状态：${error}`, h("div", { style: { ...S.muted, marginTop: 8 } }, "请确认主机侧插件 dsh-plugin-mesh 已加载。"))));
       }
-      if (!state) return h("div", { style: S.page }, h("div", { style: S.pageInner }, "正在加载…"));
+      if (!state) return h("div", { style: S.page, "data-mesh-page": "1" }, h("div", { style: S.pageInner }, "正在加载…"));
 
       // 主机侧出错时 /mesh/api/state 返回的是 {ok:false, error}，没有 self。
       // 之前这里会静默渲染成「本机 undefined · undefined:undefined」，把真正的原因
@@ -856,7 +910,7 @@ window.__ModuleLoader__.load({
       if (state.ok === false) {
         return h(
           "div",
-          { style: S.page },
+          { style: S.page, "data-mesh-page": "1" },
           h(
             "div",
             { style: S.pageInner },
@@ -879,7 +933,7 @@ window.__ModuleLoader__.load({
 
       return h(
         "div",
-        { style: S.page },
+        { style: S.page, "data-mesh-page": "1" },
         h(
           "div",
           { style: S.pageInner },
