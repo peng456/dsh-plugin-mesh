@@ -2803,9 +2803,10 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "mesh-pane-head" },
-          h("span", { className: "mesh-pane-title" }, "设备"),
+          // tab 已经叫「设备」了，这里只留台数，不再重复标题。
+          h("span", { className: "mesh-pane-title" }, `${peers.length} 台设备`),
           h("span", { className: "mesh-pane-sub", title: `更新于 ${ago(lastOk, now)}` },
-            h("span", { key: peers.length, className: "mesh-value" }, `${peers.length} 台`),
+            h("span", { key: peers.length, className: "mesh-value" }, `更新于 ${ago(lastOk, now)}`),
           ),
         ),
         h(
@@ -3840,8 +3841,13 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "mesh-pane-head" },
-              h("span", { className: "mesh-pane-title" }, "任务"),
-              h("span", { className: "mesh-pane-sub" }, h("span", { key: tasks.length, className: "mesh-value" }, `${tasks.length} 条`)),
+              // tab 已经叫「任务」了，这里只留条数。
+              h("span", { className: "mesh-pane-title" }, `${tasks.length} 条任务`),
+              h(
+                "span",
+                { className: "mesh-pane-sub" },
+                h("span", { key: tasks.length, className: "mesh-value" }, `收到 ${tasks.filter((t) => t.dir === "in").length} · 发出 ${tasks.filter((t) => t.dir === "out").length}`),
+              ),
             ),
             h(
               "div",
@@ -4404,7 +4410,7 @@ window.__ModuleLoader__.load({
           h(
             "header",
             { className: "mesh-settings-head" },
-            h("h1", null, "连接"),
+            // tab 已经叫「连接」了，标题再写一遍是重复；这里只留一句说明。
             h("p", null, "本机身份、配对码与跨网络互联。改动立即生效，不需要重启。"),
           ),
           h(
@@ -5655,10 +5661,10 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 null,
-                h("h1", { className: "mesh-home-title" }, "主页"),
+                // 不再重复写「主页」：tab 上已经写了一次，页面里再来一遍只是噪音。
                 h(
                   "p",
-                  { className: "mesh-home-sub" },
+                  { className: "mesh-home-sub", style: { margin: 0 } },
                   h(
                     react.Fragment,
                     null,
@@ -6543,6 +6549,8 @@ window.__ModuleLoader__.load({
       HomeView,
       HomeBoard,
       DispatchPanel,
+      DeviceList,
+      TasksView,
       DeviceDetail,
       DeviceRow,
       CapabilityChips,
