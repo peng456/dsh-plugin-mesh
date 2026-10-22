@@ -533,6 +533,9 @@ window.__ModuleLoader__.load({
       const ts = (state && state.tsnet) || {};
       return [
         `Mesh ${self.version || ""}`.trim(),
+        self.diskVersion && self.diskVersion !== self.version
+          ? `disk: ${self.diskVersion} (已升级，进程未重启)`
+          : "",
         `machine: ${self.machine || ""}`,
         `address: ${shortAddress(self.host, self.port)}`,
         `hostname: ${self.hostname || ""}`,
@@ -4392,9 +4395,19 @@ window.__ModuleLoader__.load({
           h("dt", null, "端口"), h("dd", null, String(self.port || "—")),
           h("dt", null, "主机名"), h("dd", null, self.hostname || "—"),
           h("dt", null, "MAC"), h("dd", null, self.mac || "—"),
-          h("dt", null, "版本"), h("dd", null, self.version || "—"),
+          h("dt", null, "版本（进程）"), h("dd", null, self.version || "—"),
+          // 进程版本 ≠ 磁盘版本 = 升级了没重启。光看一个版本号永远发现不了，
+          // 于是用户会拿旧行为当新版本的 bug 报上来（真踩过）。
+          h("dt", null, "版本（磁盘）"), h("dd", null, self.diskVersion || "—"),
           h("dt", null, "对端"), h("dd", null, `${peers.length} 台，在线 ${peers.filter((p) => p && p.online).length} 台`),
         ),
+        self.versionDrift
+          ? h(
+              "div",
+              { className: "mesh-notice", role: "status" },
+              `磁盘上是 ${self.diskVersion}，当前进程还在跑 ${self.version}：重启 DSH 后新版本才生效。`,
+            )
+          : null,
         h(
           "div",
           { className: "mesh-actions-row" },
@@ -6567,6 +6580,7 @@ window.__ModuleLoader__.load({
       TaskRow,
       TaskDetail,
       SettingsView,
+      Diagnostics,
       Composer,
       TopBar,
       TransferLayer,
