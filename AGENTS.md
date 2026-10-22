@@ -100,7 +100,8 @@ lib/identity.js       persistent UUID + OS machine fingerprint (claim only)
 lib/conversation.js   conversation key + reply target (both sides compute independently)
 lib/capabilities.js   runtime/GPU/capability collection, sanitising, staleness
 lib/prompt.js         task prompt text generation (pure, unit-tested)
-lib/tsnet/            sidecar download/verify, process manager, tailnet HTTP bridge
+lib/tsnet/            sidecar download/verify, per-channel process manager, tailnet HTTP bridge,
+                      channel-list resolution (channels.js, pure and unit-tested)
 client/client.js      renderer: sidebar icon + Mesh panel, hand-written bundle
 sidecar/              Go: tsnet node + control HTTP API + port forwarding
 scripts/              build/release/verify/push/submit tooling
@@ -116,9 +117,9 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 
 | Suite | Command | Covers |
 |---|---|---|
-| Core | `npm run selftest` | discovery, endpoints, conversation keys (52) |
-| Capabilities | `npm run selftest:caps` | sanitising, GPU parsing, retry-on-timeout, claim rules (64) |
-| Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output (12) |
+| Core / tsnet | `npm run selftest` | discovery, multi-channel endpoints, channel resolution, conversation keys (67) |
+| Capabilities | `npm run selftest:caps` | sanitising, GPU parsing, retry-on-timeout, claim rules (72) |
+| Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output (42) |
 | Prompt | `npm run selftest:prompt` | reply target must be a machine name, not `machine/user` (10) |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host

@@ -342,6 +342,54 @@ sidecar 二进制（约 9MB gzip），缓存在 `~/.dsh/mesh/bin/`。
 
 节点名自动取机器名（`立朋-mac` → `dsh-mac`，`文超-win` → `dsh-win`），不用你填。
 
+### 多 tailnet：一台机器，多条通道
+
+**设备身份只有一个**（同一个 `instanceId`、同一个机器名），但它可以同时有多条
+通信通道：局域网，以及任意多条 tailnet。每把 `tskey` 对应一个 tailnet，插件为
+每条通道各起一个用户态 Tailscale 节点（sidecar），各自使用独立的节点状态目录。
+
+为什么需要多通道：一个人可能同时有个人 tailnet、公司 tailnet、自建 Headscale；
+一台机器可能既要在家里被发现，又要在公司网络里被发现。以前只支持单通道，等于
+逼用户在这些网络里二选一。
+
+界面上的操作（侧栏 Mesh → 互联网组网）：
+
+- 「添加通道」填名称（可选）+ 授权码（+ 可选的 Headscale 控制服务器）→
+  保存后立即启动。每张通道卡片独立显示状态、tailnet 地址、授权链接。
+- 「断开 / 连接」只影响这一条通道；其它通道和局域网照常工作。
+- 「删除通道」会停掉对应 sidecar；删除最后一条等于关闭跨网络组网（旧版单通道字段也会一并清掉）。
+- 通道 id 由宿主生成（`ch-xxxxxxxx`），**改显示名不会改变设备身份**。
+
+发现与派发的行为：
+
+- 每条通道各扫一遍 sidecar 的节点表，命中 `/mesh/v1/health` 的设备进入**同一个
+  设备列表**；一台设备在 N 个 tailnet 里就是 N 条 tailnet 端点。
+- 端点按通道分别记健康状态：某条 tailnet 断了不会让设备离线，也不会连坐其它通道。
+- 发送时按「局域网 → tailnet 通道」逐个失败切换；两条 tailnet 的 100.x 网段即使
+  重叠也不会互相覆盖（端点身份是通道，不是地址）。
+- 本机名片会带上**每条通道的 tailnet 地址**（`tailnetIps[]`），对端在局域网通着
+  的时候就能提前记下备选地址，断网后直接切。
+
+配置文件的等价写法见下面的 `tsnetChannels`；手写配置时**务必显式给 `id`**
+（稳定标识，决定 tailnet 里的设备身份），只写 label 会按 label + 控制服务器推导，
+改名等于重新注册一台设备：
+
+```yaml
+tsnetChannels:
+  - id: personal
+    label: 个人
+    authKey: tskey-auth-...
+  - id: company
+    label: 公司
+    authKey: tskey-auth-...
+    controlUrl: https://headscale.example.com
+```
+
+配置文件里一旦出现非空的 `tsnetChannels`，界面就**只能看不能改**（部署方钉死），
+与其它配置项的规则一致。旧的单通道字段（`tsnetEnabled` / `tsnetAuthKey` /
+`tsnetControlUrl` / `tsnetHostname`）继续可用：没有通道列表时它们合成一条
+id = `default` 的通道，并沿用升级前的 sidecar 状态目录 —— **升级不会丢设备身份**。
+
 ### 安全边界
 
 进 tailnet 要授权码，进局域网要物理接入 —— 两者信任模型不同。所以留了
@@ -656,7 +704,19 @@ agent 多出四个工具：
     permissionPreset: workspace-write
     workspaceRoot: ''
     # ── 互联网自组网（Tailscale / tsnet）──
-    tsnetEnabled: false        # 也可以在 Mesh 页面上的开关里改（存 state.json）
+    # 多 tailnet 通道：每项 { id, label, authKey, controlUrl, hostname, enabled }。
+    # 非空时优先于下面的旧版单通道字段，且界面只能看不能改（部署方钉死）。
+    # 手写时**务必显式给 id**：它决定 sidecar 状态目录与 tailnet 设备身份。
+    tsnetChannels: []
+    #   - id: personal
+    #     label: 个人
+    #     authKey: tskey-auth-...
+    #   - id: company
+    #     label: 公司
+    #     authKey: tskey-auth-...
+    #     controlUrl: https://headscale.example.com
+    # 旧版单通道字段（没有 tsnetChannels 时生效；也可在 Mesh 页面上改，存 state.json）
+    tsnetEnabled: false
     tsnetAuthKey: ''           # 建议只在页面填；配置里填则优先且钉死
     tsnetControlUrl: ''        # 留空 = 官方 Tailscale；Headscale 填自己的
     tsnetHostname: ''          # 留空 = 由机器名派生（立朋-mac → dsh-mac）

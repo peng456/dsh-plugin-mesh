@@ -2723,13 +2723,24 @@ window.__ModuleLoader__.load({
             ? h("p", { className: "mesh-p" }, "对端还没有报告通道信息。等它下一次广播后会出现。")
             : eps.map((ep, i) => {
                 const cooling = ep.downUntil && now < ep.downUntil;
-                const active = !!(peer.online && peer.transport && ep.transport === peer.transport);
+                // 多 tailnet：通道 key 才是端点身份（lan / tsnet:<id>），
+                // 只比 transport 会把"局域网在用"错标到每条 tailnet 上。
+                const epKey = ep.channel || ep.transport || "";
+                const active = !!(peer.online && (peer.channel || peer.transport) && epKey === (peer.channel || peer.transport));
                 const state = active ? "在用" : cooling ? "冷却中" : ep.verified === false ? "未探测" : "备用";
                 const kind = active ? "ok" : cooling ? "warn" : "idle";
-                const label = ep.transport === "tsnet" ? "互联网" : "局域网";
+                const channelTag =
+                  ep.transport === "tsnet"
+                    ? epKey.startsWith("tsnet:cand:")
+                      ? "候选地址"
+                      : epKey.startsWith("tsnet:")
+                        ? epKey.slice("tsnet:".length)
+                        : ""
+                    : "";
+                const label = ep.transport === "tsnet" ? (channelTag ? `互联网 · ${channelTag}` : "互联网") : "局域网";
                 return h(
                   "div",
-                  { key: `ep-${ep.transport}-${i}`, className: "mesh-channel" },
+                  { key: `ep-${epKey}-${i}`, className: "mesh-channel" },
                   h("span", { className: "mesh-channel-icon" }, h(Icon, { name: ep.transport === "tsnet" ? "tailscale" : "wifi", size: 14 })),
                   h(
                     "span",
@@ -4208,9 +4219,56 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 单条通道的阶段 → 文案/颜色。 */
+    function channelPhase(ch) {
+      const p = ch && ch.node && ch.node.phase ? ch.node.phase : ch && ch.enabled ? "idle" : "off";
+      const map = {
+        off: ["未启用", "idle"],
+        idle: ["未连接", "idle"],
+        starting: ["正在启动", "warn"],
+        downloading: ["正在下载组件", "warn"],
+        "needs-login": ["需要授权", "warn"],
+        running: ["已连接", "ok"],
+        exited: ["已停止", "idle"],
+        error: ["出错", "err"],
+      };
+      const m = map[p] || [p, "idle"];
+      return { phase: p, label: m[0], kind: m[1] };
+    }
+
+    /**
+     * 汇总多条 tailnet 通道的状态。
+     *
+     * 多 tailnet 之后"连上没连上"不再是一个布尔值：3 条通道里连上 2 条，
+     * 既要显示"已连接"，又要让用户看见还差一条。所以标签带分数。
+     */
     function tsnetPhase(tsnet) {
-      const node = tsnet && tsnet.node;
-      const phase = node && node.phase ? node.phase : tsnet && tsnet.enabled ? "idle" : "off";
+      if (!tsnet) return { phase: "off", label: "未启用", kind: "idle", channels: [], running: 0 };
+      const channels = Array.isArray(tsnet.channels) ? tsnet.channels.slice() : [];
+      // 旧主机只有单节点字段：合成一个通道视图，界面逻辑不分叉
+      if (channels.length === 0 && tsnet.node) {
+        channels.push({
+          id: "default",
+          label: "Tailscale",
+          enabled: tsnet.enabled === true,
+          authKeySaved: tsnet.authKeySaved === true,
+          controlUrl: tsnet.controlUrl || "",
+          hostname: (tsnet.node && tsnet.node.hostname) || "",
+          node: tsnet.node,
+          recentEvents: tsnet.recentEvents || [],
+        });
+      }
+      const phases = channels.map((c) => channelPhase(c).phase);
+      const running = phases.filter((p) => p === "running").length;
+      let phase = tsnet.enabled ? "idle" : "off";
+      if (running > 0) phase = "running";
+      else if (phases.includes("needs-login")) phase = "needs-login";
+      else if (phases.includes("downloading")) phase = "downloading";
+      else if (phases.includes("starting")) phase = "starting";
+      else if (phases.includes("error")) phase = "error";
+      else if (phases.includes("exited")) phase = "exited";
+      else if (channels.length === 0) phase = tsnet.enabled ? "idle" : "off";
+      const base = channelPhase({ enabled: tsnet.enabled, node: null });
       const map = {
         off: ["未启用", "idle"],
         idle: ["已启用 · 未启动", "idle"],
@@ -4221,53 +4279,119 @@ window.__ModuleLoader__.load({
         exited: ["已停止", "idle"],
         error: ["出错", "err"],
       };
-      return { phase, label: (map[phase] || [phase, "idle"])[0], kind: (map[phase] || [phase, "idle"])[1] };
+      const m = map[phase] || base;
+      let label = m[0];
+      if (phase === "running" && channels.length > 1) label = `已连接 ${running}/${channels.length} 条`;
+      return { phase, label, kind: m[1], channels, running };
+    }
+
+    /** 通道列表的公共视图：旧主机没有 channels 时用旧字段兜底。 */
+    function tsnetChannelsOf(tsnet) {
+      const list = tsnet && Array.isArray(tsnet.channels) ? tsnet.channels.slice() : [];
+      if (list.length > 0) return list;
+      if (tsnet && tsnet.node) {
+        return [
+          {
+            id: "default",
+            label: "Tailscale",
+            enabled: tsnet.enabled === true,
+            authKeySaved: tsnet.authKeySaved === true,
+            controlUrl: tsnet.controlUrl || "",
+            hostname: (tsnet.node && tsnet.node.hostname) || "",
+            node: tsnet.node,
+            recentEvents: tsnet.recentEvents || [],
+          },
+        ];
+      }
+      return [];
+    }
+
+    /** 已连接通道的 tailnet 地址（供设置页/卡片显示一行摘要）。 */
+    function tsnetAddressList(tsnet) {
+      return tsnetChannelsOf(tsnet)
+        .filter((c) => c.node && c.node.phase === "running")
+        .map((c) => (c.node && c.node.selfIpv4) || "")
+        .filter(Boolean);
     }
 
     function TsnetBody({ tsnet, push, reload }) {
-      const [key, setKey] = react.useState("");
-      const [controlUrl, setControlUrl] = react.useState((tsnet && tsnet.controlUrl) || "");
       const [busy, setBusy] = react.useState("");
       const [error, setError] = react.useState("");
-
-      react.useEffect(() => {
-        setControlUrl((tsnet && tsnet.controlUrl) || "");
-      }, [tsnet && tsnet.controlUrl]);
+      const [draftLabel, setDraftLabel] = react.useState("");
+      const [draftKey, setDraftKey] = react.useState("");
+      const [draftControl, setDraftControl] = react.useState("");
 
       if (!tsnet) {
         return h("p", { className: "mesh-p" }, "当前主机版本还没有跨网络组网能力。升级插件后会出现在这里。");
       }
 
-      const node = tsnet.node || null;
+      const channels = tsnetChannelsOf(tsnet);
       const phase = tsnetPhase(tsnet);
-      const running = phase.phase === "running";
-      const events = (tsnet.recentEvents && tsnet.recentEvents.length ? tsnet.recentEvents : node && node.recentEvents ? node.recentEvents : []).slice(-6);
-      const canConnect = !!(tsnet.authKeySaved || key.trim());
+      const running = phase.running;
+      const events = (channels.find((c) => c.node && c.node.phase === "running")?.recentEvents || channels[0]?.recentEvents || tsnet.recentEvents || []).slice(-6);
 
-      const saveAndConnect = async () => {
-        if (!canConnect) {
+      const run = async (path, body, okText) => {
+        const tag = `${path}${body && body.id ? `:${body.id}` : ""}`;
+        setBusy(tag);
+        setError("");
+        try {
+          const r = await api(path, body || {});
+          if (r && r.ok) {
+            push("success", okText || "完成");
+            await reload();
+            return r;
+          }
+          setError(apiErr(r));
+          return r;
+        } catch (e) {
+          setError(String((e && e.message) || e));
+          return null;
+        } finally {
+          setBusy("");
+        }
+      };
+
+      // 保存通道列表时只回传非敏感字段；授权码留空 = 保留原值（宿主按 id 合并）。
+      const payloadOf = (list) =>
+        list.map((c) => ({
+          id: c.id,
+          label: c.label,
+          controlUrl: c.controlUrl || "",
+          hostname: c.hostname || "",
+          enabled: c.enabled !== false,
+        }));
+
+      const addChannel = async () => {
+        if (!draftKey.trim()) {
           setError("先填入授权码。");
           return;
         }
-        setBusy("connect");
+        setBusy("add");
         setError("");
         try {
-          const saved = await api("/tsnet/config", {
-            authKey: key.trim(),
-            controlUrl: controlUrl.trim(),
-            enabled: true,
-          });
+          const next = [
+            ...payloadOf(channels),
+            {
+              label: draftLabel.trim() || `Tailnet ${channels.length + 1}`,
+              authKey: draftKey.trim(),
+              controlUrl: draftControl.trim(),
+              enabled: true,
+            },
+          ];
+          const saved = await api("/tsnet/config", { channels: next });
           if (!saved || !saved.ok) {
             setError(`保存失败：${apiErr(saved)}`);
             return;
           }
-          setKey("");
-          const started = await api("/tsnet/start", {});
-          if (started && started.ok) {
-            push("success", "已开始连接。授权码只保存在本机，之后不用再填。");
-          } else {
-            push("error", `启动失败：${apiErr(started)}`);
+          const created = (saved.channels || []).find((c) => !channels.some((x) => x.id === c.id));
+          if (created) {
+            const started = await api("/tsnet/start", { id: created.id });
+            if (started && started.ok) push("success", `通道「${created.label}」已开始连接。授权码只保存在本机。`);
+            else push("error", `通道已保存，但启动失败：${apiErr(started)}`);
           }
+          setDraftLabel("");
+          setDraftKey("");
+          setDraftControl("");
           await reload();
         } catch (e) {
           setError(String((e && e.message) || e));
@@ -4276,22 +4400,20 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const runNode = async (path, okText) => {
-        setBusy(path);
-        setError("");
-        try {
-          const r = await api(path, {});
-          if (r && r.ok) {
-            push("success", okText || "完成");
-            await reload();
-          } else {
-            setError(apiErr(r));
-          }
-        } catch (e) {
-          setError(String((e && e.message) || e));
-        } finally {
-          setBusy("");
-        }
+      const removeChannel = async (ch) => {
+        const next = payloadOf(channels.filter((c) => c.id !== ch.id));
+        // 最后一条也允许删：宿主会顺带清掉旧版单通道字段并关闭组网，
+        // 否则"删不掉、也关不干净"会变成又一处静默残留。
+        await run(
+          "/tsnet/config",
+          { channels: next },
+          next.length === 0 ? "所有通道已删除，跨网络组网已关闭" : `通道「${ch.label || ch.id}」已删除`,
+        );
+      };
+
+      const updateEnabled = async (ch, enabled) => {
+        const next = payloadOf(channels).map((c) => (c.id === ch.id ? { ...c, enabled } : c));
+        await run("/tsnet/config", { channels: next }, enabled ? "通道已启用" : "通道已停用");
       };
 
       return h(
@@ -4300,54 +4422,136 @@ window.__ModuleLoader__.load({
         h(
           "p",
           { className: "mesh-p", style: { marginBottom: 12 } },
-          "让不在同一网络的电脑也能互相派发任务。使用同一套设备列表，不需要另装 Tailscale 客户端。",
+          "让不在同一网络的电脑也能互相派发任务。使用同一套设备列表，不需要另装 Tailscale 客户端。一台机器可以同时加入多个 tailnet：设备身份仍然只有一个，每条通道只是它的一条路。",
         ),
-        node && node.authUrl
-          ? h(
-              "div",
-              { className: "mesh-note is-warn" },
-              h(Icon, { name: "alert", size: 13 }),
-              h("span", null,
-                "这台机器需要你授权加入 tailnet：",
-                h("a", { href: node.authUrl, target: "_blank", rel: "noreferrer", style: { marginLeft: 4, wordBreak: "break-all" } }, "打开授权页"),
-              ),
-            )
-          : null,
-        node && node.error
-          ? h(
-              "div",
-              { className: "mesh-note is-err" },
-              h(Icon, { name: "alert", size: 13 }),
-              h("span", null, String(node.error)),
-            )
-          : null,
-        phase.phase === "downloading"
+        channels.length === 0
           ? h(
               "div",
               { className: "mesh-note" },
-              h("span", { className: "mesh-spinner" }),
-              h("span", null, `正在下载组件${node && node.downloadPercent ? ` · ${node.downloadPercent}%` : ""}。第一次使用会稍慢，之后不再下载。`),
+              h(Icon, { name: "key", size: 13 }),
+              h("span", null,
+                "还没有配置 tailnet 通道。需要一个 Tailscale 授权码：打开 ",
+                h("a", { href: TS_KEYS_URL, target: "_blank", rel: "noreferrer" }, TS_KEYS_URL),
+                " 登录后点 Generate auth key；生成时勾选 Reusable，如果后台开了设备审批再勾 Pre-approved。",
+              ),
             )
           : null,
-        h(
-          Collapse,
-          { open: running },
-          h(
+        channels.map((ch) => {
+          const cp = channelPhase(ch);
+          const node = ch.node || null;
+          const isBusy = !!busy;
+          return h(
             "div",
-            { className: "mesh-channel" },
-            h("span", { className: "mesh-channel-icon" }, h(Icon, { name: "tailscale", size: 14 })),
+            { key: ch.id, className: "mesh-channel-card", style: { marginBottom: 10 } },
             h(
-              "span",
-              { className: "mesh-channel-main" },
-              h("span", { className: "mesh-channel-title" }, "Tailscale", h(Badge, { kind: "ok" }, "已连接")),
-              h("span", { className: "mesh-channel-sub" }, [node && node.selfIpv4, node && node.selfDnsName].filter(Boolean).join("  ·  ") || "已建立连接"),
+              "div",
+              { className: "mesh-channel" },
+              h("span", { className: "mesh-channel-icon" }, h(Icon, { name: "tailscale", size: 14 })),
+              h(
+                "span",
+                { className: "mesh-channel-main" },
+                h(
+                  "span",
+                  { className: "mesh-channel-title" },
+                  ch.label || "Tailscale",
+                  h(Badge, { kind: cp.kind }, cp.label),
+                  ch.id !== "default" ? h("span", { className: "mesh-channel-sub", style: { marginLeft: 6 } }, ch.id) : null,
+                ),
+                h(
+                  "span",
+                  { className: "mesh-channel-sub" },
+                  node && node.selfIpv4
+                    ? [node.selfIpv4, node.selfDnsName].filter(Boolean).join("  ·  ")
+                    : ch.authKeySaved
+                      ? `已保存授权码${ch.controlUrl ? ` · ${ch.controlUrl}` : " · 官方 Tailscale"}`
+                      : "未设置授权码",
+                ),
+              ),
+              cp.phase === "running"
+                ? h(
+                    Button,
+                    {
+                      variant: "ghost",
+                      size: "sm",
+                      loading: busy === `/tsnet/stop:${ch.id}`,
+                      disabled: isBusy && busy !== `/tsnet/stop:${ch.id}`,
+                      onClick: () => run("/tsnet/stop", { id: ch.id }, `通道「${ch.label || ch.id}」已断开`),
+                    },
+                    "断开",
+                  )
+                : h(
+                    Button,
+                    {
+                      variant: "ghost",
+                      size: "sm",
+                      loading: busy === `/tsnet/start:${ch.id}`,
+                      disabled: isBusy && busy !== `/tsnet/start:${ch.id}`,
+                      onClick: () => run("/tsnet/start", { id: ch.id }, `通道「${ch.label || ch.id}」已启动`),
+                    },
+                    "连接",
+                  ),
             ),
-            h(Button, { variant: "ghost", size: "sm", loading: busy === "/tsnet/stop", onClick: () => runNode("/tsnet/stop", "已断开") }, "断开"),
-          ),
-        ),
+            node && node.authUrl
+              ? h(
+                  "div",
+                  { className: "mesh-note is-warn" },
+                  h(Icon, { name: "alert", size: 13 }),
+                  h("span", null,
+                    "这条通道需要你授权加入 tailnet：",
+                    h("a", { href: node.authUrl, target: "_blank", rel: "noreferrer", style: { marginLeft: 4, wordBreak: "break-all" } }, "打开授权页"),
+                  ),
+                )
+              : null,
+            node && node.error
+              ? h(
+                  "div",
+                  { className: "mesh-note is-err" },
+                  h(Icon, { name: "alert", size: 13 }),
+                  h("span", null, String(node.error)),
+                )
+              : null,
+            cp.phase === "downloading"
+              ? h(
+                  "div",
+                  { className: "mesh-note" },
+                  h("span", { className: "mesh-spinner" }),
+                  h("span", null, `正在下载组件${node && node.downloadPercent ? ` · ${node.downloadPercent}%` : ""}。第一次使用会稍慢，之后不再下载。`),
+                )
+              : null,
+            h(
+              Fold,
+              { title: "通道设置", right: ch.controlUrl ? "自定义控制服务器" : "官方 Tailscale" },
+              h(
+                "dl",
+                { className: "mesh-kv" },
+                h("dt", null, "通道 id"), h("dd", null, ch.id),
+                h("dt", null, "节点名"), h("dd", null, (node && node.hostname) || ch.hostname || "—"),
+                h("dt", null, "控制服务器"), h("dd", null, ch.controlUrl || "官方"),
+                h("dt", null, "授权码"), h("dd", null, ch.authKeySaved ? "已保存（不会显示内容）" : "未设置"),
+              ),
+              h(
+                "div",
+                { className: "mesh-actions-row" },
+                h(Button, { variant: "ghost", size: "sm", disabled: !!busy || cp.phase !== "running", loading: busy === `/tsnet/scan:${ch.id}`, onClick: () => run("/tsnet/scan", { id: ch.id }, "已扫描该通道") }, "扫描该通道"),
+                h(ConfirmButton, {
+                  label: "重新登录",
+                  confirmLabel: "确认清除身份？",
+                  disabled: !!busy || !ch.authKeySaved,
+                  onConfirm: () => run("/tsnet/relogin", { id: ch.id }, "已清除节点身份，等待重新授权"),
+                }),
+                h(ConfirmButton, {
+                  label: "删除通道",
+                  confirmLabel: "确认删除？",
+                  disabled: !!busy,
+                  onConfirm: () => removeChannel(ch),
+                }),
+              ),
+            ),
+          );
+        }),
         h(
-          Collapse,
-          { open: !running },
+          Fold,
+          { title: channels.length ? "添加通道" : "配置第一条通道", right: "多 tailnet", defaultOpen: channels.length === 0 },
           h(
             "div",
             null,
@@ -4356,21 +4560,39 @@ window.__ModuleLoader__.load({
               { className: "mesh-note" },
               h(Icon, { name: "key", size: 13 }),
               h("span", null,
-                "需要一个 Tailscale 授权码。打开 ",
-                h("a", { href: TS_KEYS_URL, target: "_blank", rel: "noreferrer" }, TS_KEYS_URL),
-                " 登录后点 Generate auth key；生成时勾选 Reusable，如果后台开了设备审批再勾 Pre-approved。",
+                "每条通道对应一个 tailnet（一把 tskey 一把钥匙，但可以加多条）。名称只用于本机显示；重命名不影响设备身份。",
               ),
             ),
             h(
               Field,
-              { label: "授权码", hint: "只保存在本机；之后留空即可沿用。粘贴新值会替换旧值。" },
+              { label: "名称（可选）", hint: "例如「个人」「公司」；留空自动命名。" },
+              h("input", {
+                className: "mesh-input",
+                value: draftLabel,
+                placeholder: "公司 tailnet",
+                onChange: (e) => setDraftLabel(e.target.value),
+              }),
+            ),
+            h(
+              Field,
+              { label: "授权码", hint: "只保存在本机；粘贴新值会新增一条通道。" },
               h("input", {
                 className: "mesh-input",
                 type: "password",
                 autoComplete: "off",
-                value: key,
-                placeholder: tsnet.authKeySaved ? "已保存 —— 留空沿用，粘贴新值可替换" : "tskey-auth-…",
-                onChange: (e) => setKey(e.target.value),
+                value: draftKey,
+                placeholder: "tskey-auth-…",
+                onChange: (e) => setDraftKey(e.target.value),
+              }),
+            ),
+            h(
+              Field,
+              { label: "控制服务器（可选）", hint: "留空用官方 Tailscale；Headscale 用户填自己的地址。" },
+              h("input", {
+                className: "mesh-input",
+                value: draftControl,
+                placeholder: "https://controlplane.tailscale.com",
+                onChange: (e) => setDraftControl(e.target.value),
               }),
             ),
             h(
@@ -4378,44 +4600,24 @@ window.__ModuleLoader__.load({
               { className: "mesh-actions-row" },
               h(
                 Button,
-                { variant: "primary", icon: "plug", loading: busy === "connect", disabled: !canConnect, onClick: saveAndConnect },
-                tsnet.enabled ? "保存并重启" : "保存并连接",
+                { variant: "primary", icon: "plug", loading: busy === "add", disabled: !!busy || !draftKey.trim(), onClick: addChannel },
+                "添加并连接",
               ),
-              tsnet.enabled && !running && tsnet.authKeySaved
-                ? h(Button, { variant: "ghost", loading: busy === "/tsnet/start", onClick: () => runNode("/tsnet/start", "已启动") }, "只启动")
-                : null,
             ),
           ),
         ),
         h(
           Fold,
-          { title: "高级", right: running ? "连接参数与维护" : undefined },
-          h(
-            Field,
-            { label: "控制服务器", hint: "留空用官方 Tailscale；Headscale 用户填自己的地址。修改后点“保存并重启”。" },
-            h("input", {
-              className: "mesh-input",
-              value: controlUrl,
-              placeholder: "https://controlplane.tailscale.com",
-              onChange: (e) => setControlUrl(e.target.value),
-            }),
-          ),
+          { title: "维护", right: running ? "扫描与组件" : undefined },
           h(
             "div",
             { className: "mesh-actions-row" },
-            h(Button, { variant: "ghost", size: "sm", disabled: !tsnet.enabled || !!busy, loading: busy === "/tsnet/scan", onClick: () => runNode("/tsnet/scan", "已扫描 tailnet") }, "扫描 tailnet"),
-            h(Button, { variant: "ghost", size: "sm", disabled: !canConnect || !!busy, loading: busy === "connect", onClick: saveAndConnect }, "保存并重启"),
-            h(ConfirmButton, {
-              label: "重新登录",
-              confirmLabel: "确认清除身份？",
-              disabled: !tsnet.enabled || !!busy,
-              onConfirm: () => runNode("/tsnet/relogin", "已清除节点身份，等待重新授权"),
-            }),
+            h(Button, { variant: "ghost", size: "sm", disabled: !!busy || running === 0, loading: busy === "/tsnet/scan", onClick: () => run("/tsnet/scan", {}, "已扫描所有通道") }, "扫描所有通道"),
             h(ConfirmButton, {
               label: "重新下载组件",
               confirmLabel: "确认重新下载？",
-              disabled: !tsnet.enabled || !!busy,
-              onConfirm: () => runNode("/tsnet/reinstall", "已重新下载组件"),
+              disabled: !!busy,
+              onConfirm: () => run("/tsnet/reinstall", {}, "已重新下载组件"),
             }),
           ),
           events.length
@@ -4534,8 +4736,8 @@ window.__ModuleLoader__.load({
                   id: "tsnet",
                   icon: "tailscale",
                   title: "互联网组网",
-                  subtitle: tsnet.enabled
-                    ? `${phase.label}${tsnet.node && tsnet.node.selfIpv4 ? ` · ${tsnet.node.selfIpv4}` : ""}`
+                  subtitle: tsnet.enabled || tsnetAddressList(tsnet).length
+                    ? `${phase.label}${tsnetAddressList(tsnet).length ? ` · ${tsnetAddressList(tsnet)[0]}` : ""}`
                     : "未启用 · 跨网络互联（Tailscale）",
                   status: h(Badge, { kind: phase.kind }, phase.label),
                   open: open === "tsnet",
@@ -4752,8 +4954,8 @@ window.__ModuleLoader__.load({
             children: h(
               "p",
               { className: "mesh-card-text" },
-              tsnet && tsnet.node && tsnet.node.selfIpv4
-                ? `已连接 · ${tsnet.node.selfIpv4}${tsnet.node.selfDnsName ? ` · ${tsnet.node.selfDnsName}` : ""}`
+              tsnetAddressList(tsnet).length
+                ? `已连接 ${tsnetAddressList(tsnet).length} 条通道 · ${tsnetAddressList(tsnet).join(" · ")}`
                 : "让不在同一网络的电脑也能互相派发任务。需要免费的 Tailscale 账号，授权码只保存一次。",
             ),
             footer: h(Button, { variant: "ghost", size: "sm", icon: "tailscale", onClick: () => onConnect("tsnet") }, "设置互联网组网"),
@@ -5703,8 +5905,8 @@ window.__ModuleLoader__.load({
             children: h(
               "p",
               { className: "mesh-card-text" },
-              tsnet && tsnet.node && tsnet.node.selfIpv4
-                ? `已连接 · ${tsnet.node.selfIpv4}${tsnet.node.selfDnsName ? ` · ${tsnet.node.selfDnsName}` : ""}`
+              tsnetAddressList(tsnet).length
+                ? `已连接 ${tsnetAddressList(tsnet).length} 条通道 · ${tsnetAddressList(tsnet).join(" · ")}`
                 : "让不在同一网络的电脑也能互相派发任务。需要免费的 Tailscale 账号，授权码只保存一次。",
             ),
             footer: h(Button, { variant: "ghost", size: "sm", icon: "tailscale", onClick: () => onConnect("tsnet") }, "设置互联网组网"),

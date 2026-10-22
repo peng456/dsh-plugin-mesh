@@ -26,7 +26,7 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 
 - Sends a JSON heartbeat to UDP multicast `239.255.42.99:45892` every `announceIntervalMs` (default 5000 ms) and listens on the same group.
 - Serves a small HTTP peer API on TCP port 45917 (configurable via `port`).
-- Optionally starts a bundled Go sidecar running a userspace Tailscale node (tsnet). No TUN device is created, so the host cannot route to `100.x.y.z`; all tailnet traffic is proxied through the sidecar. The binary is downloaded per-platform on first use and verified against checksums pinned in the plugin source.
+- Optionally starts bundled Go sidecars, each running a userspace Tailscale node (tsnet) for one tailnet channel. Multiple channels can run at once: one machine identity, several reachability paths. No TUN device is created, so the host cannot route to `100.x.y.z`; all tailnet traffic is proxied through the matching sidecar. The binary is downloaded per-platform on first use and verified against checksums pinned in the plugin source.
 - Auto-creates an agent session on the receiving machine when a task arrives, then routes that task to a new or reused session.
 - Reports a structured `osInfo` card entry (host) and a `systems[]` array: host first, then environments such as WSL distros on Windows (`kind: "wsl"`, Linux `platform`, distro name/version). Older peers only send `os`, and the UI falls back to parsing it; purely display data, at most 4 systems.
 - On Windows, probes runtimes inside **running** WSL distros (`wsl.exe -d <name> -e sh -lc …`) and reports them as `capabilities.wsl[]`; stopped distros are never started just to probe. Host and WSL runtimes are displayed separately.
@@ -77,10 +77,11 @@ Override by id in the profile's `cordis.patch.yml`:
 | `agentPreset` | string | `"standard"` | Agent preset for auto-created sessions |
 | `permissionPreset` | string | `"workspace-write"` | Permission preset for auto-created sessions |
 | `workspaceRoot` | string | `""` | |
-| `tsnetEnabled` | boolean | `false` | |
-| `tsnetAuthKey` | string | `""` | Tailscale auth key; must be reusable |
-| `tsnetControlUrl` | string | `""` | |
-| `tsnetHostname` | string | `""` | The plugin prefixes `dsh-`; do not include it yourself |
+| `tsnetChannels` | array | `[]` | Multi-tailnet channels: `{id, label, authKey, controlUrl, hostname, enabled}`. A non-empty list pins the channel set (UI read-only) and wins over the legacy single-channel fields. `id` is the stable sidecar directory / tailnet device identity — always give it explicitly when hand-editing; renaming `label` alone derives a new id and therefore registers a new device |
+| `tsnetEnabled` | boolean | `false` | Legacy single-channel switch; only used when `tsnetChannels` is empty |
+| `tsnetAuthKey` | string | `""` | Legacy single channel. Tailscale auth key; must be reusable |
+| `tsnetControlUrl` | string | `""` | Legacy single channel |
+| `tsnetHostname` | string | `""` | Legacy single channel. The plugin prefixes `dsh-`; do not include it yourself |
 | `tsnetPermissionPreset` | string | `""` | Empty = same as `permissionPreset` |
 | `maxWakesPerThread` | natural | `30` | Per-thread wake cap per window |
 | `threadWindowMs` | natural | `3600000` | Window for the cap above |
@@ -95,10 +96,16 @@ if you are not signed in yet. The key **must be Reusable**; single-use keys fail
 with `invalid key` on the next start. If device approval is enabled in the tailnet,
 tick Pre-approved as well.
 
-Set `tsnetEnabled: true` plus `tsnetAuthKey` in config, or paste the key once into the
-Mesh panel's tailnet card — it is stored in `~/.dsh/mesh/state.json` (mode 0600) and
-never needs re-entry. The plugin's UI links to the key page directly; do not tell users
-to hunt for it.
+Add a channel in the Mesh panel (name + key, optionally a Headscale control URL), or
+set `tsnetChannels` in config. Keys pasted in the UI are stored in
+`~/.dsh/mesh/state.json` (mode 0600) and never need re-entry. The plugin's UI links to
+the key page directly; do not tell users to hunt for it.
+
+One machine can join several tailnets at once. Each channel gets its own sidecar and
+its own state directory; the mesh device identity stays the same, so peers see one
+machine with several tailnet endpoints. Endpoint health is tracked per channel: one
+tailnet going down neither takes the device offline nor affects the other channels.
+Outbound dispatch tries LAN first, then each tailnet channel in order.
 
 ## Network and security facts
 
@@ -119,7 +126,7 @@ to hunt for it.
 
 ```bash
 npm run check            # version consistency + TDZ scan + syntax + loadability
-npm test                 # = check + four regression suites (~138 assertions, network-free)
+npm test                 # = check + regression suites (~280 assertions, network-free)
 npm run selftest:caps    # capability collection: sanitising, GPU parsing, retries, claim rules
 npm run selftest:client  # client bundle rendering without a browser
 npm run selftest:prompt  # task prompt generation

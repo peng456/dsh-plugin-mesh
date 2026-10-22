@@ -213,7 +213,11 @@ A（发起方）                                      B（执行方）
 
 - `state.json` / `threads.json` 按 DSH 根隔离，不再跨 profile 共享配对码。
 - `sessions/<sessionId>/` 是 mesh 会话的默认工作区；`workspaceRoot` 显式配置时覆盖。
-- tsnet 是机器级共享的例外：仍放共享位置，避免一台机器注册成多个 tailnet 节点。
+- tsnet 是机器级共享的例外：仍放共享位置（`<DSH_HOME>/mesh/tsnet/`），避免同一台机器的多个
+  profile 各自注册成 tailnet 设备。
+- tsnet 允许多条**通道**（多个 tailnet）：每条通道一个 sidecar、一个独立状态目录
+  （`tsnet/<通道 id>/`；`default` 沿用旧的 `tsnet/` 根目录，升级不丢身份）。设备身份仍然
+  只有一个 —— 通道只是这个节点的多条可达路径，发现结果按设备合并、端点按通道分开记健康。
 - 旧版本遗留的 `<DSH_HOME>/mesh/state.json` 在首次启动时复制到新根，配对码/身份不丢。
 
 ---

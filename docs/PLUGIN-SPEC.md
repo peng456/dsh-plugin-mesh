@@ -41,7 +41,7 @@
 | 指纹 | `fingerprint` | 物理机级哈希，仅用于"同一台机器换了 instanceId"的认领 |
 | 名片 | Card / `selfRecord` | 本机对外自述的 JSON 对象（心跳与 health 共用主体） |
 | 端点 | Endpoint | 一台设备的一条可达路径：`transport + host + port` |
-| 通道 | Transport | `lan` 或 `tsnet` |
+| 通道 | Transport + Channel | `lan`；tailnet 为 `tsnet:<通道 id>`（设备身份只有一个） |
 | 任务 | Task | 一次派发请求及其元数据 |
 | 线程 | `thread` | 同一件事的标签，用于复用会话与限速记账 |
 | 会话键 | Conversation Key | `hash(来源机器名, thread)`，每端独立计算，决定"用哪个会话处理" |
@@ -74,7 +74,7 @@
 | D5 | **不硬拒版本** | 现场多台机器不可能同时升级；缺字段就降级 | 版本不匹配直接断连 |
 | D6 | **局域网优先** | 同网段不走 tsnet，省 DERP 与用户态转发开销 | 两条通道争一个槽位 |
 | D7 | **协议与宿主解耦** | 线级协议不出现任何 IDE/DSH 专有字段 | 把 `sessionId` 当成跨机可用的 id |
-| D8 | **单实例、可并存** | 同机多个 profile 各自独立，不互相顶掉；整机一个 tsnet 节点 | 同机两实例互相删除记录 |
+| D8 | **单实例、可并存** | 同机多个 profile 各自独立，不互相顶掉；整机每个 tailnet 通道一个 tsnet 节点（可有多条通道） | 同机两实例互相删除记录；两条 tailnet 互相覆盖端点 |
 | D9 | **任何附加能力失败都不拖垮宿主** | Mesh 挂了，DSH/IDE 仍要能正常用 | 初始化异常导致宿主起不来 |
 | D10 | **不静默失败** | 每个"没做"都要有 `status` / `reason` / 日志 | 任务停在 `accepted` 永远不动 |
 
@@ -114,7 +114,7 @@
 | FR-2.2 | P0 | 主动扫描：并发探测本机所在 /24 的 mesh TCP 端口（默认 45917），启动时扫、周期默认 60s、可手动触发 | DISC-02/03/04/21 |
 | FR-2.3 | P0 | 已知对端保活：每 10s `GET /mesh/v1/health`，让发现一旦建立就不再依赖组播 | DISC-05 |
 | FR-2.4 | P0 | 超过 `peerTtlMs`（默认 20s）无任何证据 → 标记离线但保留记录；超过 `keepMs`（默认 5min）→ 丢弃 | DISC-06/07 |
-| FR-2.5 | P1 | 每台设备可有多条端点（lan / tsnet），端点级健康独立；任一条通即在线 | TS-07/08、DISC-22 |
+| FR-2.5 | P1 | 每台设备可有多条端点（lan / 每条 tailnet 通道各一条），端点级健康独立；任一条通即在线 | TS-07/08、DISC-22 |
 | FR-2.6 | P0 | 端点选择：局域网优先；只把网络层失败当作切换理由，HTTP 4xx/5xx 不切换 | TS-07 |
 | FR-2.7 | P1 | 网络切换（Wi-Fi→有线/热点）后，心跳中的地址 ≤5s 自愈 | DISC-09 |
 | FR-2.8 | P1 | 重名治理：只在"同名且在线 >1"时告警；UI 派发时若仅一台在线可自动选中；Agent 工具参考实现较严格（>1 匹配即拒绝，要求 `ip:port`），新实现可统一为"唯一在线可选"但必须写进实现说明 | DISC-12、DISP-05/06 |
@@ -291,7 +291,7 @@
 | `lib/capabilities.js` | 运行时/GPU 采集、净化、过期、摘要 | 可移植 |
 | `lib/prompt.js` | 任务提示词 | 纯函数，必须原样复刻语义 |
 | `lib/pairing.js` | 配对开关判定 | 纯函数 |
-| `lib/tsnet/*` | sidecar 下载/校验/管理/桥接 | 可选；协议 v1 |
+| `lib/tsnet/*` | sidecar 下载/校验/每个通道的进程管理/桥接；`channels.js` 解析通道列表 | 可选；协议 v1 |
 | `client/client.js` | 渲染层 | 每 IDE 重写 |
 | `sidecar/` | 用户态 Tailscale 节点（Go） | 可复用二进制，不必重写 |
 
@@ -308,7 +308,7 @@
    └─ ping 已知端点 → GET /mesh/v1/health → touch/markEndpoint
                                    │
                                    ▼
-                        Registry: id → { meta, endpoints{lan,tsnet} }
+                        Registry: id → { meta, endpoints{lan, tsnet:<channel>} }
                                    │
                         peers() 投影：online / host / port / transport / capabilitiesStale
 ```
@@ -415,7 +415,10 @@ else → inject 或 create
   "tsnetEnabled": false,
   "tsnetAuthKey": "tskey-auth-...",
   "tsnetControlUrl": "",
-  "tsnetHostname": ""
+  "tsnetHostname": "",
+  "tsnetChannels": [
+    { "id": "personal", "label": "个人", "authKey": "tskey-auth-...", "enabled": true }
+  ]
 }
 ```
 
@@ -575,6 +578,7 @@ else → inject 或 create
 |---|---|
 | 新增 `fingerprint` | 物理机指纹（16 位 hex），可空；仅用于认领 |
 | 新增 `tailnetIp` | 本机 tailnet IPv4，可空；作为未验证候选端点 |
+| 新增 `tailnetIps[]` | 每条 tailnet 通道一个地址；对端逐个记成未验证候选（`tsnet:cand:<ip>`），老对端仍读 `tailnetIp` |
 | 组播不再带 `mac` | 隐私；health 仍可返回 |
 | 新增 `capabilities` | 能力名片对象或 `null`；**v2 内的增量字段**（0.3.25 起） |
 | 内部多端点 | `endpoints[]` 是本地数据结构，**不上网线**；线上仍是一台设备一份名片 |
@@ -971,7 +975,7 @@ post("/mesh/v1/task", payload)  // 再发请求
 | POST | `/v1/scan` | 触发扫描 |
 | POST | `/v1/name` | 改名 |
 | POST | `/v1/pairing` | 开关/设置配对 |
-| POST | `/v1/tsnet/*` | start/stop/relogin/reinstall/scan |
+| POST | `/v1/tsnet/*` | start/stop/relogin/reinstall/scan；带 `{id}` 只作用于该通道，省略作用于全部 |
 | GET | `/v1/events` | SSE 事件流（见下） |
 | POST | `/v1/shutdown` | 优雅退出 |
 
