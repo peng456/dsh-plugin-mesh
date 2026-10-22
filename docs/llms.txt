@@ -28,6 +28,8 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 - Serves a small HTTP peer API on TCP port 45917 (configurable via `port`).
 - Optionally starts a bundled Go sidecar running a userspace Tailscale node (tsnet). No TUN device is created, so the host cannot route to `100.x.y.z`; all tailnet traffic is proxied through the sidecar. The binary is downloaded per-platform on first use and verified against checksums pinned in the plugin source.
 - Auto-creates an agent session on the receiving machine when a task arrives, then routes that task to a new or reused session.
+- Reports a structured `osInfo` card entry (host) and a `systems[]` array: host first, then environments such as WSL distros on Windows (`kind: "wsl"`, Linux `platform`, distro name/version). Older peers only send `os`, and the UI falls back to parsing it; purely display data, at most 4 systems.
+- On Windows, probes runtimes inside **running** WSL distros (`wsl.exe -d <name> -e sh -lc …`) and reports them as `capabilities.wsl[]`; stopped distros are never started just to probe. Host and WSL runtimes are displayed separately.
 
 ## Tools registered (callable by the agent)
 

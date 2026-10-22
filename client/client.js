@@ -136,6 +136,42 @@ window.__ModuleLoader__.load({
       return String(os).split(/\s+/)[0];
     }
 
+    /** 结构化系统身份：新对端有 osInfo，老对端只有 os 字符串，回退解析。 */
+    function osInfoLabel(peer) {
+      const info = peer && peer.osInfo;
+      if (!info) return osLabel(peer && peer.os);
+      const label = [info.name, info.version].filter(Boolean).join(" ");
+      return label || osLabel(peer && peer.os);
+    }
+
+    /**
+     * 一台机器上的「额外系统」（目前是 WSL 发行版）。
+     * 宿主机不在这里返回 —— 它已经由 osInfoLabel 表示了。
+     */
+    function extraSystems(peer) {
+      const list = peer && Array.isArray(peer.systems) ? peer.systems : [];
+      return list
+        .filter((s) => s && s.kind && s.kind !== "host")
+        .map((s, i) => ({
+          key: `${s.kind}-${s.name || i}`,
+          kind: s.kind,
+          text: [s.kind === "wsl" ? "WSL" : s.kind, s.name, s.version].filter(Boolean).join(" "),
+        }));
+    }
+
+    /** WSL 发行版里的运行时，压成一行；没有就返回空串。 */
+    function wslSummary(caps) {
+      const list = caps && Array.isArray(caps.wsl) ? caps.wsl : [];
+      return list
+        .map((w) => {
+          const rts = Object.entries(w.runtimes || {})
+            .map(([n, v]) => `${n} ${v}`)
+            .join("、");
+          return `${w.name}${rts ? `：${rts}` : ""}`;
+        })
+        .join(" · ");
+    }
+
     function shortAddress(host, port) {
       if (!host) return "地址未知";
       return port ? `${host}:${port}` : String(host);
@@ -2577,6 +2613,15 @@ window.__ModuleLoader__.load({
             : null,
           !runtimes.length ? h("span", { className: "mesh-chip is-muted" }, "未探到运行时") : null,
         ),
+        // WSL 发行版里的运行时单独一行：Windows 上的 Python 和 WSL 里的 Python
+        // 是两个环境，混进同一排 chip 会让人以为"装过了"，从而把任务派到没有它的地方。
+        wslSummary(caps)
+          ? h(
+              "div",
+              { className: "mesh-chips", style: { marginTop: 6 } },
+              h("span", { className: "mesh-chip is-muted" }, `WSL · ${wslSummary(caps)}`),
+            )
+          : null,
         runtimes.length > 6
           ? h(
               "button",
@@ -2907,10 +2952,22 @@ window.__ModuleLoader__.load({
                 "div",
                 { className: "mesh-meta" },
                 h(Status, { kind: online ? "ok" : "idle" }, isSelf ? "运行中" : online ? "在线" : "离线"),
+                h("span", null, osInfoLabel(peer)),
                 h("span", { className: "mesh-address" }, address),
                 isSelf ? null : h("span", null, `最后心跳 ${ago(peer.lastSeen, now)}`),
                 peer.capabilitiesStale ? h(Badge, { kind: "warn" }, "能力可能过期") : null,
               ),
+              // 同一台机器上的其它系统（WSL）。分开显示：Windows 上的 Python 和
+              // WSL 里的 Python 是两个环境，混成一行会让 Placement 判断错。
+              extraSystems(peer).length
+                ? h(
+                    "div",
+                    { className: "mesh-meta" },
+                    extraSystems(peer).map((sys) =>
+                      h("span", { key: sys.key, className: "mesh-chip" }, h("span", { className: "mesh-chip-label" }, sys.text)),
+                    ),
+                  )
+                : null,
             ),
             h(
               "div",
