@@ -101,3 +101,33 @@ jobs:
             [ -n "$line" ] && echo "::error title=日志尾部::$(esc "$line")"
           done
 
+
+  # ── Windows：真实用户平台，但非阻断 ────────────────────────────────────
+  # 历史上有一批 bug 只在 Windows 上出现，而且**只有 Windows 才能验**：
+  #   · Store 别名存根冒充运行时（WindowsApps 里全是 0 字节 .exe）
+  #   · 虚拟显示适配器冒充真卡（MuMu / GameViewer 排在真卡前面）
+  #   · tsnet sidecar 资产名少了 .exe（Windows 下载必 404）
+  # 这三条的判据在 macOS/Linux 上永远是绿的，等于没测。
+  #
+  # 仍然非阻断：门禁只认 macOS（发布也在 macOS 上），Windows 红了是信号不是结论；
+  # 但如果它天天红，就说明真的坏了 —— 与 linux 那条同样的态度。
+  windows:
+    name: portability / windows（非阻断）
+    runs-on: windows-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    defaults:
+      run:
+        # GitHub 的 Windows runner 自带 git-bash；不显式指定就会走 pwsh，
+        # 而 npm 脚本里的命令和自测都是按 POSIX 写的。
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # check 里的发版计划要读 tag 和历史
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: 全量测试
+        run: npm test
