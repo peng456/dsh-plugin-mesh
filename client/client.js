@@ -29,6 +29,10 @@ window.__ModuleLoader__.load({
 
     const PANEL_ID = "mesh";
     const API = "/mesh/api";
+    // 对端 DSH Web 的监听端口：dsh-web-app 的部署默认值就是 3080。对端用
+    // `--port` 改过的话，在本机 localStorage 写 mesh.webPort 覆盖。
+    const DSH_WEB_PORT = 3080;
+    const WEB_PORT_KEY = "mesh.webPort";
     const inject = ["slots"];
     const TS_KEYS_URL = "https://console.tailscale.com/admin/settings/keys";
     const TRANSFER_KEY = "mesh.transfers.v1";
@@ -183,6 +187,123 @@ window.__ModuleLoader__.load({
       const eps = Array.isArray(peer.endpoints) ? peer.endpoints : [];
       const ep = eps.find((x) => x && x.host);
       return ep ? shortAddress(ep.host, ep.port) : "地址未知";
+    }
+
+    /** 对端的局域网主机名/IP（不带 mesh 端口）：优先 peer.host，其次第一个 endpoint。 */
+    function peerHost(peer) {
+      if (!peer) return "";
+      if (peer.host) return String(peer.host);
+      const eps = Array.isArray(peer.endpoints) ? peer.endpoints : [];
+      const ep = eps.find((x) => x && x.host);
+      return ep ? String(ep.host) : "";
+    }
+
+    /** 对端 DSH Web 的地址；没有地址时返回空串（不编一个出来）。 */
+    function dshWebUrl(peer) {
+      const host = peerHost(peer);
+      if (!host) return "";
+      let port = DSH_WEB_PORT;
+      try {
+        const custom = Number(localStorage.getItem(WEB_PORT_KEY));
+        if (Number.isFinite(custom) && custom > 0 && custom < 65536) port = Math.floor(custom);
+      } catch {
+        /* 存储不可用就用默认端口 */
+      }
+      return `http://${host}:${port}/`;
+    }
+
+    /**
+     * 要一条能直接打开的地址。
+     *
+     * 优先问本机宿主（/mesh/api/web-url）：它去对端的配对通道里取一条带启动
+     * token 的地址，端口和 bind 都是对端自报的真值。对端是老版本插件、或者
+     * 取不到时，退回按约定拼出来的 http://<host>:3080/——那种情况浏览器会
+     * 停在 401 页，提示用户去对端取一次 token 地址。
+     * @returns {{ url: string, source: string, lanReachable?: boolean, reason?: string }}
+     */
+    async function resolveWebUrl(peer) {
+      const fallback = dshWebUrl(peer);
+      try {
+        const r = await api("/web-url", { peer: (peer && (peer.machine || peer.id)) || "" });
+        if (r && r.ok === true && typeof r.url === "string" && r.url)
+          return { url: r.url, source: "host", lanReachable: r.lanReachable === true };
+        return { url: fallback, source: "computed", reason: (r && r.error) || "" };
+      } catch (error) {
+        return { url: fallback, source: "computed", reason: String((error && error.message) || error) };
+      }
+    }
+
+    /**
+     * 壳里的原生浏览器是否可用（只读探测）。
+     *
+     * 这台 Android 壳会明确报 browserWebViewAvailable=false（工位 WebView 未就绪），
+     * 此时开 browser 页签只会落到一个"浏览器不可用"的空页面 —— 那比直接退回
+     * 外部浏览器更糟。所以先问一句：**壳明确说不可用才降级**，问不出来照常试。
+     */
+    function nativeBrowserUsable(sessionId) {
+      try {
+        const bridge = window.androidBridge;
+        if (!bridge || typeof bridge.browserHostCommand !== "function") return false;
+        if (!sessionId) return true; // 没有会话就无从判断，按可用处理
+        const raw = bridge.browserHostCommand(
+          JSON.stringify({ action: "status", session: sessionId, uiTabId: "mesh-probe" }),
+        );
+        if (typeof raw !== "string" || raw === "") return true; // 没答上来：不据此降级
+        const value = JSON.parse(raw);
+        return !(value && value.available === false);
+      } catch {
+        return true;
+      }
+    }
+
+    /**
+     * 在对端的 DSH Web 上开一个页面。
+     * 先走应用内浏览器（sidebar.right 的 browser 页签）——它就是壳里的那个
+     * WebView，不跳出 DSH；浏览器页不可用时退回外部浏览器。
+     * @returns {Promise<{ ok: boolean, how: string, url: string, lanReachable?: boolean, reason?: string }>}
+     */
+    async function openDshWebPage(peer) {
+      const resolved = await resolveWebUrl(peer);
+      const url = resolved.url;
+      if (!url) return { ok: false, how: "none", url: "", reason: resolved.reason || "这台设备没有上报地址" };
+      const extra = {
+        lanReachable: resolved.lanReachable,
+        viaHost: resolved.source === "host",
+      };
+      const sidebar = pluginCtx && pluginCtx.get ? pluginCtx.get("sidebarRight") : null;
+      const sessionId = currentSessionId();
+      const browserUsable = nativeBrowserUsable(sessionId);
+      // 先试强校验的 openTab（没有在屏会话会抛），再退化到按 session 的 openTabIn。
+      try {
+        if (browserUsable && sidebar && typeof sidebar.openTab === "function") {
+          sidebar.openTab("browser", { params: { url }, revealIfOpened: false });
+          return { ok: true, how: "browser", url, ...extra };
+        }
+      } catch {
+        /* 落到 openTabIn */
+      }
+      try {
+        if (browserUsable && sidebar && typeof sidebar.openTabIn === "function" && sessionId) {
+          sidebar.openTabIn(sessionId, "browser", { params: { url }, revealIfOpened: false });
+          return { ok: true, how: "browser", url, ...extra };
+        }
+      } catch {
+        /* 落到外部浏览器 */
+      }
+      const bridge = window.androidBridge;
+      if (bridge && typeof bridge.openExternalLink === "function") {
+        try {
+          bridge.openExternalLink(url);
+          return { ok: true, how: "external", url, ...extra, browserUnavailable: !browserUsable };
+        } catch {
+          return { ok: false, how: "none", url, reason: "外部浏览器也打不开" };
+        }
+      }
+      if (typeof window.open === "function") {
+        window.open(url, "_blank");
+        return { ok: true, how: "window", url, ...extra };
+      }
+      return { ok: false, how: "none", url, reason: "没有可用的打开方式" };
     }
 
     function apiErr(r) {
@@ -650,6 +771,86 @@ window.__ModuleLoader__.load({
   background: var(--mesh-bg);
 }
 .mesh-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 主面板的"出口"：宿主只给插件管理页注入返回键，Mesh 面板得自己带一个。 */
+.mesh-panel-back {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 30px; padding: 0 10px 0 7px;
+  border: 1px solid var(--mesh-line); border-radius: 8px;
+  background: var(--mesh-surface); color: var(--mesh-muted);
+  font-size: 12px; line-height: 1; cursor: pointer;
+  transition: background var(--mesh-dur-fast) var(--mesh-ease-out),
+    color var(--mesh-dur-fast) var(--mesh-ease-out),
+    transform var(--mesh-dur-press) var(--mesh-ease-out);
+}
+.mesh-panel-back:hover { background: var(--mesh-surface-2); color: var(--mesh-fg); }
+.mesh-panel-back:active { transform: scale(0.97); }
+.mesh-panel-back:focus-visible { outline: 2px solid var(--mesh-accent); outline-offset: 2px; }
+/* ── 对端 DSH Web 的应用内面板 ── */
+.mesh-web-layer {
+  position: absolute; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--mesh-bg);
+}
+.mesh-web-bar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--mesh-line);
+  background: var(--mesh-bg);
+}
+.mesh-web-title {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 12.5px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mesh-web-sub { color: var(--mesh-muted); font-weight: 400; }
+.mesh-web-mark { flex: 0 0 auto; display: inline-flex; align-items: center; color: var(--mesh-fg); }
+.mesh-web-frame { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; background: var(--mesh-bg); }
+.mesh-web-status {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  font-size: 11.5px; line-height: 1.5;
+  color: var(--mesh-muted);
+}
+.mesh-web-status.is-warn { color: var(--mesh-warn); }
+
+/* ── SSH 终端面板 ── */
+.mesh-ssh-form { display: flex; flex-direction: column; gap: 10px; padding: 16px; max-width: 520px; }
+.mesh-ssh-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mesh-muted); }
+.mesh-ssh-field input {
+  height: 36px; padding: 0 10px;
+  border: 1px solid var(--mesh-line-2); border-radius: 8px;
+  background: var(--mesh-surface); color: var(--mesh-fg); font-size: 14px;
+}
+.mesh-ssh-note { font-size: 11.5px; color: var(--mesh-muted); line-height: 1.5; }
+.mesh-ssh-error { font-size: 12px; color: var(--mesh-err); }
+.mesh-ssh-out {
+  flex: 1 1 auto; min-height: 0; margin: 0; padding: 10px 12px;
+  overflow: auto; white-space: pre-wrap; word-break: break-all;
+  background: #111418; color: #d7dde5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; line-height: 1.5;
+}
+.mesh-ssh-inputrow {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; border-top: 1px solid var(--mesh-line);
+  background: var(--mesh-bg);
+}
+.mesh-ssh-inputrow input {
+  flex: 1 1 auto; min-width: 0; height: 36px; padding: 0 10px;
+  border: 1px solid var(--mesh-line-2); border-radius: 8px;
+  background: var(--mesh-surface); color: var(--mesh-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+}
+.mesh-ssh-key, .mesh-ssh-send {
+  flex: 0 0 auto; height: 36px; padding: 0 10px;
+  border: 1px solid var(--mesh-line-2); border-radius: 8px;
+  background: var(--mesh-surface); color: var(--mesh-fg); font-size: 12px; cursor: pointer;
+}
+.mesh-ssh-send { background: var(--mesh-fg); color: var(--mesh-bg); border-color: transparent; }
+
 .mesh-logo {
   width: 26px; height: 26px; border-radius: 8px;
   display: grid; place-items: center;
@@ -1307,6 +1508,14 @@ window.__ModuleLoader__.load({
 .mesh-mini-row:first-child { border-top: 0; padding-top: 0; }
 .mesh-mini-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mesh-mini-meta { flex: 0 0 auto; font-size: 10.5px; color: var(--mesh-muted); }
+.mesh-mini-actions { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.mesh-mini-act {
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid var(--mesh-line); border-radius: 7px;
+  background: var(--mesh-surface); color: var(--mesh-muted); cursor: pointer;
+}
+.mesh-mini-act:active:not(:disabled) { transform: scale(0.95); }
+.mesh-mini-act:disabled { opacity: .4; cursor: not-allowed; }
 .mesh-home-hidden {
   margin-top: 18px; padding-top: 14px;
   border-top: 1px solid var(--mesh-line);
@@ -1701,6 +1910,7 @@ window.__ModuleLoader__.load({
     gap: 8px;
   }
   .mesh-brand { order: 1; }
+  .mesh-panel-back { order: 0; height: 28px; padding: 0 8px 0 6px; font-size: 11.5px; }
   .mesh-topright { order: 2; }
   .mesh-tabs { order: 3; flex: 0 0 100%; width: 100%; }
   .mesh-tab { flex: 1 1 0; justify-content: center; padding: 7px 6px; }
@@ -1772,6 +1982,7 @@ window.__ModuleLoader__.load({
   .mesh-task-row {
     touch-action: manipulation;
   }
+  .mesh-panel-back { touch-action: manipulation; }
   .mesh-tab { min-height: 44px; }
   .mesh-btn,
   .mesh-btn--sm,
@@ -2223,6 +2434,8 @@ window.__ModuleLoader__.load({
           ];
         case "chevron":
           return [h("path", { key: "a", d: "M9 6l6 6-6 6" })];
+        case "back":
+          return [h("path", { key: "a", d: "M15 6l-6 6 6 6" })];
         case "close":
           return [
             h("path", { key: "a", d: "M6 6l12 12" }),
@@ -2298,6 +2511,25 @@ window.__ModuleLoader__.load({
       }
     }
 
+    const DSHPATH =
+      "M48.8354 10.0479C48.3232 9.79199 48.1025 10.2798 47.8032 10.5278C47.7007 10.6079 47.6143 10.7119 47.5273 10.8076C46.7793 11.624 45.9048 12.1597 44.7622 12.0957C43.0923 12 41.666 12.5356 40.4058 13.8398C40.1377 12.2319 39.2476 11.272 37.8926 10.6558C37.1836 10.3359 36.4668 10.0156 35.9702 9.31982C35.6235 8.82373 35.5293 8.27197 35.356 7.72754C35.2456 7.3999 35.1353 7.06396 34.7651 7.00781C34.3633 6.94385 34.2056 7.2876 34.0479 7.57568C33.418 8.75195 33.1733 10.0479 33.1973 11.3599C33.2524 14.312 34.4736 16.6641 36.8999 18.3359C37.1758 18.5278 37.2466 18.7197 37.1597 19C36.9946 19.5757 36.7974 20.1357 36.624 20.7119C36.5137 21.0801 36.3486 21.1597 35.9624 21C34.6309 20.4321 33.481 19.5918 32.4644 18.5757C30.7393 16.8721 29.1792 14.9917 27.2334 13.52C26.7764 13.1758 26.3193 12.856 25.8467 12.5518C23.8618 10.584 26.1069 8.96777 26.627 8.77588C27.1704 8.57568 26.8159 7.8877 25.0591 7.896C23.3022 7.90381 21.6953 8.50391 19.647 9.30371C19.3477 9.42383 19.0322 9.51172 18.7095 9.58398C16.8501 9.22363 14.9199 9.14355 12.9033 9.37598C9.10596 9.80762 6.07275 11.6396 3.84326 14.7681C1.16455 18.5278 0.53418 22.7998 1.30664 27.2559C2.11768 31.9521 4.46582 35.8398 8.07373 38.8799C11.8159 42.0322 16.1255 43.5762 21.041 43.2803C24.0269 43.104 27.3516 42.6963 31.1016 39.4561C32.0469 39.936 33.0396 40.1279 34.686 40.272C35.9546 40.3921 37.1758 40.208 38.1211 40.0078C39.6021 39.688 39.4995 38.2881 38.9639 38.0322C34.623 35.9678 35.5762 36.8081 34.71 36.1279C36.9155 33.4639 40.2402 30.6958 41.54 21.728C41.6426 21.0161 41.5557 20.5679 41.54 19.9917C41.5322 19.6396 41.6108 19.5039 42.0049 19.4639C43.0923 19.3359 44.1479 19.0317 45.1167 18.4878C47.9292 16.9199 49.064 14.3438 49.3315 11.2559C49.3711 10.7837 49.3237 10.2959 48.8354 10.0479ZM24.3262 37.8398C20.1196 34.4639 18.0791 33.3521 17.2358 33.3999C16.4482 33.4482 16.5898 34.3682 16.7632 34.9678C16.9443 35.5601 17.1812 35.9683 17.5117 36.4878C17.7402 36.832 17.8979 37.3442 17.2832 37.728C15.9282 38.584 13.5728 37.4399 13.4624 37.3838C10.7207 35.7358 8.42822 33.5601 6.81348 30.584C5.25342 27.7197 4.34766 24.6479 4.19775 21.3677C4.1582 20.5757 4.38672 20.2959 5.15869 20.1519C6.17529 19.96 7.22314 19.9199 8.23926 20.0718C12.5327 20.7119 16.1885 22.6719 19.2529 25.7759C21.002 27.5439 22.3252 29.6558 23.6885 31.7202C25.1377 33.9121 26.6978 36 28.6831 37.7119C29.3843 38.312 29.9434 38.7681 30.479 39.104C28.8643 39.2881 26.1699 39.3281 24.3262 37.8398ZM26.3433 24.6001C26.3433 24.248 26.6191 23.9678 26.9658 23.9678C27.0444 23.9678 27.1152 23.9839 27.1782 24.0078C27.2651 24.04 27.3438 24.0879 27.4067 24.1602C27.5171 24.272 27.5801 24.4321 27.5801 24.6001C27.5801 24.9521 27.3042 25.2319 26.9575 25.2319C26.6108 25.2319 26.3433 24.9521 26.3433 24.6001ZM32.6064 27.8799C32.2046 28.0479 31.8027 28.1919 31.4165 28.208C30.8179 28.2397 30.1641 27.9922 29.8096 27.688C29.2583 27.2158 28.8643 26.9521 28.6987 26.1279C28.6279 25.7759 28.6675 25.2319 28.7305 24.9199C28.8721 24.248 28.7144 23.8159 28.2495 23.4238C27.8716 23.104 27.3911 23.0161 26.8633 23.0161C26.666 23.0161 26.4849 22.9277 26.3511 22.856C26.1304 22.7441 25.9492 22.4639 26.1226 22.1201C26.1777 22.0078 26.4458 21.7358 26.5088 21.688C27.2256 21.272 28.0527 21.4077 28.8169 21.7197C29.5259 22.0161 30.0615 22.5601 30.834 23.3281C31.6216 24.2559 31.7632 24.5117 32.2124 25.208C32.5669 25.752 32.8901 26.312 33.1104 26.9521C33.2446 27.3521 33.0713 27.6802 32.6064 27.8799Z";
+
+    /** DSH 官方图标（来自 dist/favicon.svg 的单条 path），颜色跟随 currentColor。 */
+    function DshMark({ size }) {
+      return h(
+        "svg",
+        {
+          width: size || 16,
+          height: size || 16,
+          viewBox: "0 0 50 50",
+          fill: "none",
+          "aria-hidden": "true",
+          focusable: "false",
+        },
+        h("path", { d: DSHPATH, fill: "currentColor" }),
+      );
+    }
+
     function Icon({ name, size, stroke, className }) {
       return h(
         "svg",
@@ -2336,7 +2568,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function IconButton({ icon, label, onClick, disabled, loading, active, badge }) {
+    function IconButton({ icon, iconNode, label, onClick, disabled, loading, active, badge }) {
       return h(
         "button",
         {
@@ -2348,7 +2580,7 @@ window.__ModuleLoader__.load({
           "aria-label": label,
           "aria-pressed": active === undefined ? undefined : !!active,
         },
-        loading ? h("span", { className: "mesh-spinner" }) : h(Icon, { name: icon, size: 15 }),
+        loading ? h("span", { className: "mesh-spinner" }) : iconNode || h(Icon, { name: icon, size: 15 }),
         badge ? h("span", { className: "mesh-icon-badge" }, badge > 9 ? "9+" : String(badge)) : null,
       );
     }
@@ -2826,16 +3058,28 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function DeviceRow({ peer, isSelf, active, onSelect, now, index }) {
+    function DeviceRow({ peer, isSelf, active, onSelect, onWeb, onSsh, now, index }) {
       const online = !!peer.online || !!isSelf;
       const name = peer.machine || "未命名设备";
+      const webUrl = isSelf ? "" : dshWebUrl(peer);
+      const select = () => onSelect(peer.id);
       return h(
-        "button",
+        "div",
         {
-          type: "button",
+          role: "button",
+          tabIndex: 0,
           className: cls("mesh-row", active && "is-active", !online && "is-offline"),
-          onClick: () => onSelect(peer.id),
+          onClick: select,
+          onKeyDown: (event) => {
+            // 只处理落在行本身上的回车/空格；行内按钮自己处理自己的键盘事件。
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+              event.preventDefault();
+              select();
+            }
+          },
           "aria-label": `${name}，${online ? "在线" : "离线"}`,
+          "aria-pressed": !!active,
           "data-mesh-view": "devices",
           "data-mesh-peer": peer.machine || "",
           "data-mesh-instance": peer.instanceId || peer.id || "",
@@ -2861,11 +3105,40 @@ window.__ModuleLoader__.load({
             h("span", null, isSelf ? "现在" : ago(peer.lastSeen, now)),
           ),
         ),
-        h("span", { className: "mesh-row-side" }, h(Icon, { name: "chevron", size: 13 })),
+        h(
+          "span",
+          { className: "mesh-row-side" },
+          // 「访问 DSH Web」：不选中设备，直接在对端的 DSH Web 上开一个页面。
+          webUrl && onWeb
+            ? h(IconButton, {
+                // 用 DSH 官方 logo 而不是地球：这一格代表的是"那台机器上的 DSH"
+                iconNode: h(DshMark, { size: 14 }),
+                label: `访问 ${name} 的 DSH Web（${webUrl}）`,
+                disabled: !online,
+                onClick: (event) => {
+                  event.stopPropagation();
+                  onWeb(peer);
+                },
+              })
+            : null,
+          // SSH 终端：与「访问 DSH Web」同一位置，连的是对端 22 端口
+          !isSelf && onSsh
+            ? h(IconButton, {
+                icon: "terminal",
+                label: `SSH 连接到 ${name}`,
+                disabled: !online,
+                onClick: (event) => {
+                  event.stopPropagation();
+                  onSsh(peer);
+                },
+              })
+            : null,
+          h(Icon, { name: "chevron", size: 13 }),
+        ),
       );
     }
 
-    function DeviceList({ selfPeer, peers, selectedId, onSelect, now, lastOk, onScan, scanning }) {
+    function DeviceList({ selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning }) {
       return h(
         "aside",
         { className: "mesh-list-pane" },
@@ -2886,12 +3159,12 @@ window.__ModuleLoader__.load({
                 react.Fragment,
                 null,
                 h("div", { className: "mesh-list-heading" }, "本机"),
-                h(DeviceRow, { peer: selfPeer, isSelf: true, active: selectedId === "self", onSelect, now, index: 0 }),
+                h(DeviceRow, { peer: selfPeer, isSelf: true, active: selectedId === "self", onSelect, onWeb, onSsh, now, index: 0 }),
               )
             : null,
           h("div", { className: "mesh-list-heading" }, "其他设备"),
           peers.length
-            ? peers.map((p, i) => h(DeviceRow, { key: p.id, peer: p, active: selectedId === p.id, onSelect, now, index: i + 1 }))
+            ? peers.map((p, i) => h(DeviceRow, { key: p.id, peer: p, active: selectedId === p.id, onSelect, onWeb, onSsh, now, index: i + 1 }))
             : h("div", { className: "mesh-list-empty" }, "还没有发现其他设备。点下面探测一次本网段。"),
           h(
             "div",
@@ -3069,7 +3342,7 @@ window.__ModuleLoader__.load({
     }
 
     function DeviceView(props) {
-      const { selfPeer, peers, selectedPeer, selectedId, onSelect, mobilePane, onBack, onCompose, onProbe, probe, hostDown, now, lastOk, onScan, scanning, firstRun, onRename, recentTasks, onOpenTask, onAllTasks } = props;
+      const { selfPeer, peers, selectedPeer, selectedId, onSelect, onWeb, onSsh, mobilePane, onBack, onCompose, onProbe, probe, hostDown, now, lastOk, onScan, scanning, firstRun, onRename, recentTasks, onOpenTask, onAllTasks } = props;
       return h(
         react.Fragment,
         null,
@@ -3077,7 +3350,7 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "mesh-split", "data-pane": mobilePane },
-          h(DeviceList, { selfPeer, peers, selectedId, onSelect, now, lastOk, onScan, scanning }),
+          h(DeviceList, { selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning }),
           h(DeviceDetail, { peer: selectedPeer, isSelf: selectedId === "self", onCompose, onProbe, probe, hostDown, now, onBack, onRename, onScan, recentTasks, onOpenTask, onAllTasks }),
         ),
       );
@@ -3557,6 +3830,302 @@ window.__ModuleLoader__.load({
             ),
           ),
         ),
+      );
+    }
+
+    /**
+     * 对端 DSH Web 的应用内面板。
+     *
+     * 承载方式是同源 iframe —— 指向**本机**的一个回环反代端口（宿主的
+     * /mesh/api/web-panel 起出来的），对端认证在服务端完成。所以这里不需要
+     * token、不依赖壳的浏览器 WebView，也不受对端 cookie SameSite 限制。
+     */
+    function WebPanel({ panel, onClose, onReload }) {
+      if (!panel) return null;
+      const ready = panel.state === "ready";
+      const name = panel.name || "对端";
+      return h(
+        "div",
+        {
+          className: "mesh-web-layer",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-label": `${name} 的 DSH Web`,
+          "data-mesh-view": "web",
+        },
+        h(
+          "div",
+          { className: "mesh-web-bar" },
+          h(
+            "button",
+            { type: "button", className: "mesh-panel-back", onClick: onClose, "aria-label": "关闭面板" },
+            h(Icon, { name: "back", size: 14 }),
+            h("span", null, "返回"),
+          ),
+          h("span", { className: "mesh-web-mark", "aria-hidden": "true" }, h(DshMark, { size: 16 })),
+          h(
+            "span",
+            { className: "mesh-web-title", title: panel.remote || "" },
+            name,
+            h("span", { className: "mesh-web-sub" }, " · DSH Web"),
+          ),
+          h(IconButton, { icon: "refresh", label: "重新加载面板", onClick: onReload }),
+        ),
+        !ready
+          ? h(
+              "div",
+              { className: "mesh-web-status" },
+              h("span", { className: "mesh-spinner" }),
+              h("span", null, "正在起回环代理…"),
+            )
+          : null,
+        ready && panel.hasSession === false
+          ? h(
+              "div",
+              { className: "mesh-web-status is-warn" },
+              h(Icon, { name: "alert", size: 14 }),
+              h("span", null, panel.note || "对端没给出可用 token，面板可能停在登录页。"),
+            )
+          : null,
+        ready
+          ? h("iframe", {
+              key: panel.reloadKey || 0,
+              className: "mesh-web-frame",
+              src: panel.url,
+              title: `${name} 的 DSH Web`,
+              // 对端界面里要用剪贴板（复制命令/日志），别让它被静默拒绝。
+              allow: "clipboard-read; clipboard-write; fullscreen",
+              referrerPolicy: "no-referrer",
+            })
+          : null,
+      );
+    }
+
+
+    /** 去掉终端控制序列：没有 xterm 时，把 ANSI 转义剥掉才不会满屏乱码。 */
+    function stripAnsi(text) {
+      return String(text)
+        .replace(/\u001b\][^\u0007]*\u0007/g, "")
+        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+        .replace(/\r(?!\n)/g, "");
+    }
+
+    /**
+     * 应用内 SSH 终端。
+     *
+     * 传输走同源 WebSocket（/mesh/api/ssh/ws），SSH 本身由本机宿主发起；
+     * 这里只是个"哑终端"：输出按行渲染、输入整行发送，另给 Ctrl+C / Tab 两个键。
+     * 没做完整 VT100（没有 xterm 依赖），够用来跑命令、看日志。
+     */
+    function SshPanel({ peer, onClose }) {
+      const machine = (peer && peer.machine) || "";
+      const [phase, setPhase] = react.useState("form");
+      const [username, setUsername] = react.useState("");
+      const [password, setPassword] = react.useState("");
+      const [hasKey, setHasKey] = react.useState(false);
+      // 密钥属于哪个用户名：换了用户名就不能再拿它去认证（否则只会得到认证失败）
+      const [keyUser, setKeyUser] = react.useState("");
+      // 密钥失效时不至于卡死：允许手动切回密码登录
+      const [forcePassword, setForcePassword] = react.useState(false);
+      const [output, setOutput] = react.useState("");
+      const [line, setLine] = react.useState("");
+      const [error, setError] = react.useState("");
+      const wsRef = react.useRef(null);
+      const idRef = react.useRef("");
+      const outRef = react.useRef(null);
+
+      react.useEffect(() => {
+        let alive = true;
+        api("/ssh/known", { machine })
+          .then((r) => {
+            if (!alive || !r || !r.ok) return;
+            if (r.username) {
+              setUsername(r.username);
+              setKeyUser(r.username);
+            }
+            if (r.hasKey) setHasKey(true);
+          })
+          .catch(() => {});
+        return () => {
+          alive = false;
+        };
+      }, [machine]);
+
+      react.useEffect(() => {
+        const el = outRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      }, [output]);
+
+      const closeSocket = () => {
+        try {
+          wsRef.current?.close();
+        } catch {
+          /* 已关 */
+        }
+        wsRef.current = null;
+        idRef.current = "";
+      };
+
+      react.useEffect(() => () => closeSocket(), []);
+
+      const connect = () => {
+        setError("");
+        setOutput("");
+        setPhase("connecting");
+        const scheme = location.protocol === "https:" ? "wss" : "ws";
+        let ws;
+        try {
+          ws = new WebSocket(`${scheme}://${location.host}/mesh/api/ssh/ws`);
+        } catch (e) {
+          setError(String(e && e.message ? e.message : e));
+          setPhase("error");
+          return;
+        }
+        wsRef.current = ws;
+        ws.onopen = () => {
+          ws.send(
+            JSON.stringify({
+              type: "open",
+              machine,
+              host: peer.host || "",
+              port: 22,
+              username: username.trim(),
+              password: keyApplies && !forcePassword ? "" : password,
+              cols: 100,
+              rows: 30,
+            }),
+          );
+        };
+        ws.onmessage = (event) => {
+          let msg;
+          try {
+            msg = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (msg.type === "ready") {
+            idRef.current = msg.id;
+            setPhase("open");
+            if (msg.buffer) setOutput(stripAnsi(msg.buffer));
+            return;
+          }
+          if (msg.type === "data") {
+            setOutput((prev) => (prev + stripAnsi(msg.data)).slice(-200000));
+            return;
+          }
+          if (msg.type === "exit") {
+            setPhase("closed");
+            return;
+          }
+          if (msg.type === "error") {
+            setError(String(msg.message || "未知错误"));
+            setPhase("error");
+          }
+        };
+        ws.onerror = () => {
+          setError("连接通道错误（WebSocket）");
+          setPhase("error");
+        };
+        ws.onclose = () => {
+          setPhase((prev) => (prev === "error" ? prev : "closed"));
+        };
+      };
+
+      const sendInput = (data) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== 1 || !idRef.current) return;
+        ws.send(JSON.stringify({ type: "input", id: idRef.current, data }));
+      };
+
+      const submit = (event) => {
+        event.preventDefault();
+        if (!line.trim()) return;
+        sendInput(line + "\r");
+        setLine("");
+      };
+
+      const disconnect = () => {
+        const id = idRef.current;
+        if (id) sendInput.call(null, ""); // 占位，避免 eslint 抱怨
+        try {
+          if (id) wsRef.current?.send(JSON.stringify({ type: "close", id }));
+        } catch {
+          /* 忽略 */
+        }
+        closeSocket();
+        onClose();
+      };
+
+      const keyApplies = hasKey && keyUser !== "" && username.trim() === keyUser;
+      const name = machine || "对端";
+      return h(
+        "div",
+        { className: "mesh-web-layer", role: "dialog", "aria-modal": "true", "aria-label": `${name} 的 SSH 终端` },
+        h(
+          "div",
+          { className: "mesh-web-bar" },
+          h("button", { type: "button", className: "mesh-panel-back", onClick: disconnect }, h(Icon, { name: "back", size: 14 }), h("span", null, "返回")),
+          h("span", { className: "mesh-web-title" }, name, h("span", { className: "mesh-web-sub" }, " · SSH")),
+          phase === "open"
+            ? h(IconButton, { icon: "close", label: "断开连接", onClick: disconnect })
+            : null,
+        ),
+        phase === "form" || phase === "connecting" || phase === "error"
+          ? h(
+              "div",
+              { className: "mesh-ssh-form" },
+              h(
+                "div",
+                { className: "mesh-ssh-note" },
+                keyApplies
+                  ? "已部署本机公钥，直接连接即可（免密）。"
+                  : hasKey
+                    ? `公钥属于 ${keyUser}；当前用户名不同，请输入密码。`
+                    : "首次连接需要用户名和密码；成功后会自动把本机公钥写到对端，之后免密。",
+              ),
+              h("label", { className: "mesh-ssh-field" }, h("span", null, "用户名"), h("input", { value: username, onChange: (e) => setUsername(e.target.value), autoCapitalize: "none", spellCheck: false })),
+              keyApplies && !forcePassword
+                ? null
+                : h("label", { className: "mesh-ssh-field" }, h("span", null, "密码"), h("input", { type: "password", value: password, onChange: (e) => setPassword(e.target.value) })),
+              keyApplies && !forcePassword && (phase === "error" || phase === "form")
+                ? h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "mesh-ssh-key",
+                      onClick: () => {
+                        setForcePassword(true);
+                        setError("");
+                        setPhase("form");
+                      },
+                    },
+                    "改用密码连接",
+                  )
+                : null,
+              error ? h("div", { className: "mesh-ssh-error" }, error) : null,
+              h(
+                Button,
+                { variant: "primary", onClick: connect, disabled: !username.trim() || phase === "connecting" },
+                phase === "connecting" ? "连接中…" : "连接",
+              ),
+            )
+          : null,
+        phase === "open" || phase === "closed"
+          ? h(
+              react.Fragment,
+              null,
+              h("pre", { className: "mesh-ssh-out", ref: outRef }, output || "已连接，等输出…"),
+              phase === "closed" ? h("div", { className: "mesh-ssh-note" }, "会话已结束") : null,
+              h(
+                "form",
+                { className: "mesh-ssh-inputrow", onSubmit: submit },
+                h("input", { value: line, onChange: (e) => setLine(e.target.value), placeholder: "输入命令，回车执行", autoCapitalize: "none", spellCheck: false }),
+                h("button", { type: "button", className: "mesh-ssh-key", onClick: () => sendInput("\u0003") }, "Ctrl-C"),
+                h("button", { type: "button", className: "mesh-ssh-key", onClick: () => sendInput("\t") }, "Tab"),
+                h("button", { type: "submit", className: "mesh-ssh-send" }, "发送"),
+              ),
+            )
+          : null,
       );
     }
 
@@ -4824,6 +5393,8 @@ window.__ModuleLoader__.load({
       onDevices,
       onTasks,
       onConnect,
+      onWeb,
+      onSsh,
       onScan,
       scanning,
       firstRun,
@@ -5574,6 +6145,8 @@ window.__ModuleLoader__.load({
       onDevices,
       onTasks,
       onConnect,
+      onWeb,
+      onSsh,
       onScan,
       scanning,
       firstRun,
@@ -5740,6 +6313,39 @@ window.__ModuleLoader__.load({
                 h(Dot, { kind: p.online ? "ok" : "idle" }),
                 h("span", { className: "mesh-mini-name" }, p.machine || "未命名设备"),
                 h("span", { className: "mesh-mini-meta" }, p.online ? `在线 · ${osLabel(p.os)}` : `${ago(p.lastSeen, now)}`),
+                // 与「设备」页同一组入口：访问 DSH Web / SSH 终端
+                h(
+                  "span",
+                  { className: "mesh-mini-actions" },
+                  onWeb
+                    ? h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "mesh-mini-act",
+                          title: `访问 ${p.machine || "对端"} 的 DSH Web`,
+                          "aria-label": `访问 ${p.machine || "对端"} 的 DSH Web`,
+                          disabled: !p.online,
+                          onClick: () => onWeb(p),
+                        },
+                        h(DshMark, { size: 14 }),
+                      )
+                    : null,
+                  onSsh
+                    ? h(
+                        "button",
+                        {
+                          type: "button",
+                          className: "mesh-mini-act",
+                          title: `SSH 连接到 ${p.machine || "对端"}`,
+                          "aria-label": `SSH 连接到 ${p.machine || "对端"}`,
+                          disabled: !p.online,
+                          onClick: () => onSsh(p),
+                        },
+                        h(Icon, { name: "terminal", size: 14 }),
+                      )
+                    : null,
+                ),
               ),
             )
           : h("p", { className: "mesh-card-text" }, "还没有发现其他设备。扫描本网段，或让对方也打开 Mesh。");
@@ -6105,7 +6711,7 @@ window.__ModuleLoader__.load({
 
     // ─────────────────────── 工作台外壳 ───────────────────────
 
-    function TopBar({ view, onView, online, total, taskCount, error, lastOk, now, refreshing, onRefresh, scanning, onScan, disabled, busy, focus, onToggleFocus, onTransfer, transferActive, onLog, transferCount }) {
+    function TopBar({ view, onView, online, total, taskCount, error, lastOk, now, refreshing, onRefresh, scanning, onScan, disabled, busy, focus, onToggleFocus, onTransfer, transferActive, onLog, transferCount, onExit }) {
       const tabs = [
         { value: "home", label: "主页", icon: "home" },
         { value: "devices", label: "设备", icon: "device", count: total },
@@ -6117,6 +6723,23 @@ window.__ModuleLoader__.load({
       return h(
         "header",
         { className: "mesh-topbar", "aria-busy": !!busy },
+        // 主面板是"点进去出不来"的：宿主只在插件管理页注入返回键，Mesh 这个
+        // 主面板没有，窄屏上连侧边栏都被抽屉挡住。这里自带一个，直接回到会话。
+        onExit
+          ? h(
+              "button",
+              {
+                type: "button",
+                className: "mesh-panel-back",
+                onClick: onExit,
+                title: "返回会话（退出 Mesh 面板）",
+                "aria-label": "返回会话",
+                "data-mesh-view": "back",
+              },
+              h(Icon, { name: "back", size: 14 }),
+              h("span", { className: "mesh-panel-back-text" }, "返回"),
+            )
+          : null,
         h(
           "div",
           { className: "mesh-brand" },
@@ -6243,6 +6866,10 @@ window.__ModuleLoader__.load({
       const [taskFilter, setTaskFilter] = react.useState("all");
       const [composer, setComposer] = react.useState(null);
       const [probe, setProbe] = react.useState(null);
+      // 对端 DSH Web 的应用内面板：{ peer, name, state: loading|ready, url, note, hasSession, reloadKey }
+      const [webPanel, setWebPanel] = react.useState(null);
+      // SSH 终端面板：null 或某个 peer
+      const [sshPeer, setSshPeer] = react.useState(null);
       const [scanning, setScanning] = react.useState(false);
       const [nameBusy, setNameBusy] = react.useState(false);
       const [nameDismissed, setNameDismissed] = react.useState(false);
@@ -6434,7 +7061,110 @@ window.__ModuleLoader__.load({
       };
 
       /**
-       * 派发成功的统一收尾：toast + 让轮询立刻刷新。
+       * 打开对端的 DSH Web。
+       *
+       * 主路是**应用内面板**：宿主起一个回环反代（认证在服务端做），这里只
+       * 把它的地址塞进同源 iframe —— 不依赖壳的浏览器 WebView（本机没有），
+       * 也不受对端 cookie 的 SameSite=Strict 影响。
+       * 反代起不来时才退回老的"浏览器页签 / 外部浏览器"那条链。
+       */
+      const openWeb = async (peer) => {
+        const name = (peer && peer.machine) || "对端";
+        setWebPanel({ peer, name, state: "loading", reloadKey: 0 });
+        try {
+          const r = await api("/web-panel", { peer: (peer && (peer.machine || peer.id)) || "" });
+          if (r && r.ok === true && typeof r.url === "string") {
+            setWebPanel((prev) => ({
+              ...(prev || { peer, name }),
+              state: "ready",
+              url: r.url,
+              remote: r.remote || "",
+              hasSession: r.hasSession !== false,
+              note: r.note || "",
+              reloadKey: 0,
+            }));
+            if (r.hasSession === false) {
+              push("warn", `${name} 那边没给出可用 token，面板可能停在登录页。`);
+            }
+            return;
+          }
+          setWebPanel(null);
+          push("warn", `应用内面板起不来（${(r && r.error) || "未知原因"}），改用外部方式打开。`);
+        } catch (error) {
+          setWebPanel(null);
+          push("warn", `应用内面板起不来（${String((error && error.message) || error)}），改用外部方式打开。`);
+        }
+
+        let result;
+        try {
+          result = await openDshWebPage(peer);
+        } catch (error) {
+          push("error", `打不开 ${name} 的 Web：${String((error && error.message) || error)}`);
+          return;
+        }
+        if (!result.ok) {
+          push("error", `打不开 ${name} 的 Web：${result.reason || "未知原因"}`);
+          return;
+        }
+        if (result.lanReachable === false) {
+          push("warn", `${name} 只监听 127.0.0.1，手机连不通；在那边把 webserver.host 改成 0.0.0.0 再重启。`);
+          return;
+        }
+        if (result.browserUnavailable) {
+          push("warn", `这台壳没有可用的浏览器 WebView，已改用外部浏览器打开 ${result.url}`);
+          return;
+        }
+        if (result.how === "browser" && result.viaHost) {
+          push("success", `已打开 ${result.url}`);
+          return;
+        }
+        if (result.how === "browser") {
+          push("info", `已打开 ${result.url}`);
+          return;
+        }
+        push("info", `应用内浏览器不可用，已用外部浏览器打开 ${result.url}`);
+      };
+
+      /**
+       * 回到会话：上游 layout.selectPanel(null)。
+       *
+       * 宿主（Android 壳）只会给**插件管理页**注入返回键，任何其它主面板都得
+       * 自己带出口——否则窄屏上点进 Mesh 就只剩浏览器的返回手势。
+       */
+      const leavePanel = () => {
+        try {
+          const layout = (pluginCtx && pluginCtx.get ? pluginCtx.get("layout") : null) || null;
+          if (layout && typeof layout.selectPanel === "function") {
+            layout.selectPanel(null);
+            return;
+          }
+        } catch (error) {
+          // 落到下面的兜底提示，不要静默失效
+        }
+        push("warn", "当前宿主没有 layout 服务，无法自动回到会话；用侧边栏切回对话即可。");
+      };
+
+      /**
+       * 关掉对端 Web 面板：先卸载前端这一层，再尽力让宿主把反代也停掉
+       * （停不掉只是多一个回环端口，不影响正确性）。
+       */
+      const closeWebPanel = () => {
+        const machine = webPanel && webPanel.peer ? webPanel.peer.machine || webPanel.peer.id || "" : "";
+        setWebPanel(null);
+        if (!machine) return;
+        api("/web-panel/close", { peer: machine }).catch(() => {
+          /* 关闭是尽力而为 */
+        });
+      };
+
+      /** 重新拉起面板（对端重启过、或 iframe 白屏时用）。 */
+      const reloadWebPanel = () => {
+        const peer = webPanel && webPanel.peer;
+        if (!peer) return;
+        void openWeb(peer);
+      };
+
+      /** 派发成功的统一收尾：toast + 让轮询立刻刷新。
        * 设备页弹层和主页的派发面板共用它，免得两处提示文案慢慢走散。
        */
       const notifyDispatched = (name, r) => {
@@ -6607,6 +7337,7 @@ window.__ModuleLoader__.load({
             transferActive: false,
             onLog: () => setTransferLogOpen(true),
             transferCount: transfers.length,
+            onExit: leavePanel,
           }),
           loading ? h(LoadingView) : h(ErrorView, { error, onRetry: reload, onCopy: () => copy(error) }),
         );
@@ -6645,6 +7376,7 @@ window.__ModuleLoader__.load({
             setTransferLogOpen(true);
           },
           transferCount: transfers.filter((item) => item.status === "sent" || item.status === "delivered").length,
+          onExit: leavePanel,
         }),
         error
           ? h(Banner, {
@@ -6693,6 +7425,8 @@ window.__ModuleLoader__.load({
                 onDevices: goDevices,
                 onTasks: goTasks,
                 onConnect: openConnect,
+                onWeb: openWeb,
+                onSsh: (peer) => setSshPeer(peer),
                 onScan: doScan,
                 scanning,
                 firstRun: firstRunNode,
@@ -6706,6 +7440,8 @@ window.__ModuleLoader__.load({
                 selectedPeer,
                 selectedId,
                 onSelect: selectPeer,
+                onWeb: openWeb,
+                onSsh: (peer) => setSshPeer(peer),
                 mobilePane,
                 onBack: () => setMobilePane("list"),
                 onCompose: openComposer,
@@ -6782,6 +7518,8 @@ window.__ModuleLoader__.load({
               onCopy: copyTransfer,
             })
           : null,
+        h(WebPanel, { panel: webPanel, onClose: closeWebPanel, onReload: reloadWebPanel }),
+        sshPeer ? h(SshPanel, { peer: sshPeer, onClose: () => setSshPeer(null) }) : null,
         h(Toasts, { items: toasts, onClose: close }),
       );
     }
@@ -6835,6 +7573,10 @@ window.__ModuleLoader__.load({
       TasksView,
       DeviceDetail,
       DeviceRow,
+      dshWebUrl,
+      resolveWebUrl,
+      openDshWebPage,
+      WebPanel,
       CapabilityChips,
       TaskRow,
       TaskDetail,
@@ -6861,3 +7603,5 @@ window.__ModuleLoader__.load({
     return module.exports;
   },
 });
+;
+//# sourceMappingURL=??dsh-plugin-mesh/client.js.map&rev=81fe4f4a3488
