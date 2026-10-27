@@ -1,0 +1,473 @@
+{
+  "version": 1,
+  "generatedFrom": "client/client.js",
+  "icons": {
+    "node": {
+      "color": "#5FA04E",
+      "category": "language"
+    },
+    "python": {
+      "color": "#3776AB",
+      "category": "language"
+    },
+    "go": {
+      "color": "#00ADD8",
+      "category": "language"
+    },
+    "docker": {
+      "color": "#2496ED",
+      "category": "tool"
+    },
+    "git": {
+      "color": "#F05032",
+      "category": "tool"
+    },
+    "rust": {
+      "color": "#CE422B",
+      "category": "language"
+    },
+    "nvidia": {
+      "color": "#76B900",
+      "category": "gpu"
+    },
+    "linux": {
+      "color": "#FCC624",
+      "category": "os"
+    },
+    "openjdk": {
+      "color": "#ED8B00",
+      "category": "language"
+    },
+    "ruby": {
+      "color": "#CC342D",
+      "category": "language"
+    },
+    "php": {
+      "color": "#777BB4",
+      "category": "language"
+    },
+    "dotnet": {
+      "color": "#512BD4",
+      "category": "language"
+    },
+    "kotlin": {
+      "color": "#7F52FF",
+      "category": "language"
+    },
+    "swift": {
+      "color": "#F05138",
+      "category": "language"
+    },
+    "bun": {
+      "color": "currentColor",
+      "category": "package"
+    },
+    "deno": {
+      "color": "currentColor",
+      "category": "package"
+    },
+    "npm": {
+      "color": "#CB3837",
+      "category": "package"
+    },
+    "pnpm": {
+      "color": "#F69220",
+      "category": "package"
+    },
+    "yarn": {
+      "color": "#2C8EBB",
+      "category": "package"
+    },
+    "ffmpeg": {
+      "color": "#007808",
+      "category": "tool"
+    },
+    "android": {
+      "color": "#34A853",
+      "category": "tool"
+    },
+    "bash": {
+      "color": "#4EAA25",
+      "category": "tool"
+    },
+    "sqlite": {
+      "color": "currentColor",
+      "category": "tool"
+    },
+    "postgresql": {
+      "color": "#4169E1",
+      "category": "tool"
+    },
+    "mysql": {
+      "color": "#4479A1",
+      "category": "tool"
+    },
+    "redis": {
+      "color": "#DC382D",
+      "category": "tool"
+    },
+    "nginx": {
+      "color": "#009639",
+      "category": "tool"
+    },
+    "cplusplus": {
+      "color": "#00599C",
+      "category": "tool"
+    },
+    "cmake": {
+      "color": "#064F8C",
+      "category": "tool"
+    },
+    "gradle": {
+      "color": "currentColor",
+      "category": "tool"
+    },
+    "apachemaven": {
+      "color": "#C71A36",
+      "category": "tool"
+    },
+    "amd": {
+      "color": "#ED1C24",
+      "category": "gpu"
+    },
+    "intel": {
+      "color": "#0071C5",
+      "category": "gpu"
+    },
+    "apple": {
+      "color": "currentColor",
+      "category": "os"
+    },
+    "dart": {
+      "color": "#0175C2",
+      "category": "language"
+    },
+    "lua": {
+      "color": "#2C2D72",
+      "category": "language"
+    },
+    "r": {
+      "color": "#276DC3",
+      "category": "language"
+    },
+    "julia": {
+      "color": "#9558B2",
+      "category": "language"
+    },
+    "perl": {
+      "color": "#39457E",
+      "category": "language"
+    },
+    "elixir": {
+      "color": "#4B275F",
+      "category": "language"
+    },
+    "erlang": {
+      "color": "#A90533",
+      "category": "language"
+    },
+    "scala": {
+      "color": "#DC322F",
+      "category": "language"
+    },
+    "clojure": {
+      "color": "#5881D8",
+      "category": "language"
+    },
+    "haskell": {
+      "color": "#5D4F85",
+      "category": "language"
+    },
+    "ocaml": {
+      "color": "#EC6813",
+      "category": "language"
+    },
+    "fsharp": {
+      "color": "#378BBA",
+      "category": "language"
+    },
+    "zig": {
+      "color": "#F7A41D",
+      "category": "language"
+    },
+    "nim": {
+      "color": "#FFC200",
+      "category": "language"
+    },
+    "crystal": {
+      "color": "currentColor",
+      "category": "language"
+    },
+    "apachegroovy": {
+      "color": "#4298B8",
+      "category": "language"
+    },
+    "bazel": {
+      "color": "#43A047",
+      "category": "tool"
+    },
+    "llvm": {
+      "color": "currentColor",
+      "category": "tool"
+    },
+    "xcode": {
+      "color": "#147EFB",
+      "category": "tool"
+    },
+    "podman": {
+      "color": "#892CA0",
+      "category": "tool"
+    },
+    "kubernetes": {
+      "color": "#326CE5",
+      "category": "tool"
+    },
+    "helm": {
+      "color": "#0F1689",
+      "category": "tool"
+    },
+    "terraform": {
+      "color": "#7B42BC",
+      "category": "tool"
+    },
+    "ansible": {
+      "color": "#EE0000",
+      "category": "tool"
+    },
+    "caddy": {
+      "color": "#1F88C0",
+      "category": "tool"
+    },
+    "traefikproxy": {
+      "color": "#24A1C1",
+      "category": "tool"
+    },
+    "wireguard": {
+      "color": "#88171A",
+      "category": "tool"
+    },
+    "zerotier": {
+      "color": "#FFB441",
+      "category": "tool"
+    },
+    "pytorch": {
+      "color": "#EE4C2C",
+      "category": "ai"
+    },
+    "tensorflow": {
+      "color": "#FF6F00",
+      "category": "ai"
+    },
+    "onnx": {
+      "color": "#005CED",
+      "category": "ai"
+    },
+    "opencv": {
+      "color": "#5C3EE8",
+      "category": "ai"
+    },
+    "ollama": {
+      "color": "currentColor",
+      "category": "ai"
+    },
+    "huggingface": {
+      "color": "#FFD21E",
+      "category": "ai"
+    },
+    "ubuntu": {
+      "color": "#E95420",
+      "category": "os"
+    },
+    "debian": {
+      "color": "#A81D33",
+      "category": "os"
+    },
+    "archlinux": {
+      "color": "#1793D1",
+      "category": "os"
+    },
+    "alpinelinux": {
+      "color": "#0D597F",
+      "category": "os"
+    },
+    "fedora": {
+      "color": "#51A2DA",
+      "category": "os"
+    },
+    "raspberrypi": {
+      "color": "#A22846",
+      "category": "os"
+    },
+    "homebrew": {
+      "color": "#FBB040",
+      "category": "package"
+    },
+    "pypi": {
+      "color": "#3775A9",
+      "category": "package"
+    },
+    "condaforge": {
+      "color": "#44A833",
+      "category": "package"
+    },
+    "vscodium": {
+      "color": "#2F80ED",
+      "category": "tool"
+    }
+  },
+  "aliases": {
+    "node": "node",
+    "nodejs": "node",
+    "python": "python",
+    "python3": "python",
+    "go": "go",
+    "golang": "go",
+    "docker": "docker",
+    "git": "git",
+    "rust": "rust",
+    "rustc": "rust",
+    "cargo": "rust",
+    "java": "openjdk",
+    "jdk": "openjdk",
+    "jre": "openjdk",
+    "ruby": "ruby",
+    "php": "php",
+    "dotnet": "dotnet",
+    "dotnet-sdk": "dotnet",
+    "csharp": "dotnet",
+    "c#": "dotnet",
+    "mono": "dotnet",
+    "kotlin": "kotlin",
+    "swift": "swift",
+    "dart": "dart",
+    "flutter": "dart",
+    "lua": "lua",
+    "luajit": "lua",
+    "r": "r",
+    "rscript": "r",
+    "julia": "julia",
+    "perl": "perl",
+    "elixir": "elixir",
+    "erlang": "erlang",
+    "scala": "scala",
+    "clojure": "clojure",
+    "haskell": "haskell",
+    "ghc": "haskell",
+    "cabal": "haskell",
+    "stack": "haskell",
+    "ocaml": "ocaml",
+    "opam": "ocaml",
+    "fsharp": "fsharp",
+    "zig": "zig",
+    "nim": "nim",
+    "crystal": "crystal",
+    "groovy": "apachegroovy",
+    "apachegroovy": "apachegroovy",
+    "bun": "bun",
+    "deno": "deno",
+    "npm": "npm",
+    "pnpm": "pnpm",
+    "yarn": "yarn",
+    "ffmpeg": "ffmpeg",
+    "adb": "android",
+    "android": "android",
+    "bash": "bash",
+    "sh": "bash",
+    "zsh": "bash",
+    "sqlite": "sqlite",
+    "sqlite3": "sqlite",
+    "postgres": "postgresql",
+    "postgresql": "postgresql",
+    "psql": "postgresql",
+    "mysql": "mysql",
+    "mariadb": "mysql",
+    "redis": "redis",
+    "nginx": "nginx",
+    "gcc": "cplusplus",
+    "g++": "cplusplus",
+    "cc": "cplusplus",
+    "cpp": "cplusplus",
+    "c++": "cplusplus",
+    "clang": "llvm",
+    "llvm": "llvm",
+    "cmake": "cmake",
+    "bazel": "bazel",
+    "buck": "bazel",
+    "gradle": "gradle",
+    "mvn": "apachemaven",
+    "maven": "apachemaven",
+    "xcode": "xcode",
+    "podman": "podman",
+    "kubernetes": "kubernetes",
+    "kubectl": "kubernetes",
+    "k8s": "kubernetes",
+    "k3s": "kubernetes",
+    "minikube": "kubernetes",
+    "helm": "helm",
+    "terraform": "terraform",
+    "tofu": "terraform",
+    "ansible": "ansible",
+    "caddy": "caddy",
+    "traefik": "traefikproxy",
+    "traefikproxy": "traefikproxy",
+    "wireguard": "wireguard",
+    "wg": "wireguard",
+    "zerotier": "zerotier",
+    "pytorch": "pytorch",
+    "torch": "pytorch",
+    "tensorflow": "tensorflow",
+    "tf": "tensorflow",
+    "onnx": "onnx",
+    "onnxruntime": "onnx",
+    "opencv": "opencv",
+    "cv2": "opencv",
+    "ollama": "ollama",
+    "huggingface": "huggingface",
+    "hf": "huggingface",
+    "ubuntu": "ubuntu",
+    "debian": "debian",
+    "archlinux": "archlinux",
+    "arch": "archlinux",
+    "alpinelinux": "alpinelinux",
+    "alpine": "alpinelinux",
+    "fedora": "fedora",
+    "raspberrypi": "raspberrypi",
+    "rpi": "raspberrypi",
+    "homebrew": "homebrew",
+    "brew": "homebrew",
+    "pypi": "pypi",
+    "pip": "pypi",
+    "conda": "condaforge",
+    "mamba": "condaforge",
+    "condaforge": "condaforge",
+    "vscode": "vscodium",
+    "vscodium": "vscodium",
+    "macos": "apple",
+    "osx": "apple",
+    "darwin": "apple",
+    "ios": "apple",
+    "wsl": "linux",
+    "amd": "amd",
+    "radeon": "amd",
+    "intel": "intel",
+    "arc": "intel",
+    "iris": "intel",
+    "uhd": "intel",
+    "apple": "apple",
+    "metal": "apple"
+  },
+  "tokens": {
+    "bg": "--dsw-alias-bg-base",
+    "surface": "--dsw-alias-bg-layer-1",
+    "surface-2": "--dsw-alias-bg-layer-2",
+    "line": "--dsw-alias-border-l1",
+    "line-2": "--dsw-alias-border-l2",
+    "fg": "--dsw-alias-label-primary",
+    "muted": "--dsw-alias-label-secondary",
+    "accent": "--dsw-alias-brand-primary",
+    "ok": "--dsw-alias-state-success-primary",
+    "warn": "--dsw-alias-state-warn-primary",
+    "err": "--dsw-alias-state-error-primary",
+    "idle": "--dsw-alias-state-idle-primary"
+  }
+}
