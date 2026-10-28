@@ -174,8 +174,8 @@
         {
           "id": "peers",
           "title": {
-            "zh": "Mesh 设备",
-            "en": "Mesh devices"
+            "zh": "设备",
+            "en": "Devices"
           },
           "icon": "team",
           "placement": [
@@ -186,8 +186,8 @@
         {
           "id": "tasks",
           "title": {
-            "zh": "Mesh 任务",
-            "en": "Mesh tasks"
+            "zh": "任务",
+            "en": "Tasks"
           },
           "icon": "todo",
           "placement": [
