@@ -67,3 +67,38 @@
 
 ### 6.4 可选 UI 增强（零代码，验证中）
 - `/root/.dsh/dsh-go/ui.json` 写 `plugins.seats["sidebar.panellist"]={"dsh-plugin-mesh":"island"}` → mesh Web 面板嵌入 dsh-go 原生侧栏（1~2 秒生效、免重启，回滚删文件）。
+## 7. 妗岄潰绔畨瑁呴€傞厤鐗堬紙2026-10-29 02:10锛屽凡鎵ц锛?
+- 宸插浠斤細`E:\DSH-Home\profiles\desktop\node_modules\dsh-plugin-mesh.bak-20261029-020932\`
+- 宸叉浛鎹负 `0.5.4-dshgo.2`锛坙ib/client/scripts/sidecar/package.json/cordis.patch.yml/llms.txt锛涗繚鐣欏師 `node_modules` 閲岀殑 ssh2 渚濊禆锛?- profile 閰嶇疆 `E:\DSH-Home\profiles\desktop\cordis.patch.yml` 鐨?mesh 鍧楀凡鍔?USB 浼犺緭閰嶇疆锛堝師鏈夐敭淇濈暀锛夛細
+  ```yaml
+  - id: mesh
+    name: dsh-plugin-mesh
+    config:
+      usbEnabled: true
+      usbAdbPath: 'E:\AndroidSDK\platform-tools\adb.exe'
+      usbForwardBase: 46000
+      usbPollMs: 15000
+      minTaskChars: 2
+      maxWakesPerThread: 200
+  ```
+  锛堥厤缃浠斤細`cordis.patch.yml.mesh-usb-bak-20261029-021003`锛沋AML 宸茬敤 `yaml` 瑙ｆ瀽鏍￠獙閫氳繃锛?3 涓?entry锛?- 閲嶅惎鑴氭湰锛歚.tmp\restart-dsh.ps1`锛堝欢杩?20s 鏉€ `DeepSeek Harness` 鍐嶅惎鍔級锛屾棩蹇?`.tmp\restart-dsh.log`
+
+### 閲嶅惎鍚庢€庝箞缁х画
+1. 鎵撳紑 DSH 妗岄潰绔?鈫?渚ф爮鍘嗗彶浼氳瘽璇淬€岀户缁€嶅嵆鍙紙鏈細璇濇湭鍒狅級銆?2. 棰勬湡鍙樺寲锛?   - 妗岄潰 mesh 鐗堟湰 `0.5.4-dshgo.2`锛坄/mesh/v1/health`锛?   - `/mesh/v1/health` 鐨?`diag.usb` 鍑虹幇 `available:true`銆乣endpoints:[usb:1441e87a]`
+   - `/mesh/v1/peers` 閲屾墜鏈烘潯鐩?endpoints 澶氫竴鏉?`transport:"usb"`锛圠AN+USB 鍙岄€氶亾锛屽悓涓€璁惧锛?   - **鍏虫帀鎵嬫満 Wi-Fi 鍚庝粛鑳?`mesh_run` 娲惧彂**锛圲SB 閫氶亾锛?3. 楠岃瘉鍛戒护锛?   ```powershell
+   (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:45917/mesh/v1/health).Content
+   (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:45917/mesh/v1/peers).Content
+   ```
+
+### 鍥炴粴锛堟闈㈢锛?```powershell
+$dst='E:\DSH-Home\profiles\desktop\node_modules\dsh-plugin-mesh'
+Remove-Item -Recurse -Force $dst
+Rename-Item "$dst.bak-20261029-020932" 'dsh-plugin-mesh'
+# 閰嶇疆鍥炴粴锛?Copy-Item 'E:\DSH-Home\profiles\desktop\cordis.patch.yml.mesh-usb-bak-20261029-021003' 'E:\DSH-Home\profiles\desktop\cordis.patch.yml' -Force
+# 鐒跺悗閲嶅惎 DSH 妗岄潰绔?```
+
+## 8. 宸茬煡/寰呭姙
+- 鎵嬫満 mesh 鏄剧ず鍚嶄粛鏄?`localhost`锛坰tate.json 鏀瑰悕浠诲姟鍦ㄦ墜鏈轰晶鎺掗槦锛岄噸鍚紩鎿庡悗鍙兘鍙?`Xiaomi15Ultra`锛涙垨鎵嬪姩鍦?mesh 椤甸潰鏀瑰悕锛?- 鎵嬫満 Wi-Fi 鑺傜數浼氭媺楂樻帰娴?RTT 鈫?鍋跺彂"绂荤嚎"锛涘凡鎵ц `adb shell svc power stayon true`锛岄暱鏈熷缓璁敤 USB 閫氶亾
+- tsnet锛堣法浜掕仈缃戠粍缃戯級鏈仛鐪熸満楠岃瘉锛堥渶瑕?tailscale 鎺堟潈鐮侊紝鍙€夛級
+- ui.json island锛坢esh 闈㈡澘杩涙墜鏈哄師鐢熶晶鏍忥級宸插啓鍏?`/root/.dsh/dsh-go/ui.json`锛屽緟鐪熸満纭鏄剧ず
+
