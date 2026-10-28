@@ -59,6 +59,7 @@
     "selftest:usb-integration": "node --experimental-vm-modules lib/_selftest-usb-integration.mjs",
     "selftest:dshgo": "node lib/_selftest-dshgo.mjs",
     "selftest:inbound-preset": "node lib/_selftest-inbound-preset.mjs",
+    "selftest:dshgo-ui": "node lib/_selftest-dshgo-ui.mjs",
     "selftest:client": "node lib/_selftest-client.mjs",
     "selftest:prompt": "node lib/_selftest-prompt.mjs",
     "selftest:caps": "node lib/_selftest-capabilities.mjs",
@@ -72,8 +73,8 @@
     "selftest:diagnostics": "node lib/_selftest-diagnostics.mjs",
     "selftest:osinfo": "node lib/_selftest-osinfo.mjs",
     "selftest:avatar": "node lib/_selftest-avatar.mjs",
-    "test": "npm run check && npm run selftest:netinfo && npm run selftest:dshgo && npm run selftest:inbound-preset && npm run selftest:usb && npm run selftest:usb-integration && npm run selftest && npm run selftest:prompt && npm run selftest:pairing && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:avatar && npm run selftest:osinfo",
-    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/netinfo.js && node --check lib/dshgo.js && node --check lib/inbound-preset.js && node --check lib/usb.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/pairing.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:peerdeps && npm run check:registry && npm run check:loadable && npm run check:docs",
+    "test": "npm run check && npm run selftest:netinfo && npm run selftest:dshgo && npm run selftest:inbound-preset && npm run selftest:dshgo-ui && npm run selftest:usb && npm run selftest:usb-integration && npm run selftest && npm run selftest:prompt && npm run selftest:pairing && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:avatar && npm run selftest:osinfo",
+    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/netinfo.js && node --check lib/dshgo.js && node --check lib/inbound-preset.js && node --check lib/dshgo-ui.js && node --check lib/usb.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/pairing.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:peerdeps && npm run check:registry && npm run check:loadable && npm run check:docs",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
     "release:plan": "node scripts/release-plan.mjs",
@@ -139,6 +140,61 @@
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "dshGo": {
+    "v": 1,
+    "title": {
+      "zh": "设备互联",
+      "en": "Mesh"
+    },
+    "icon": "team",
+    "contributes": {
+      "composer.strip": [
+        {
+          "id": "mesh-status",
+          "icon": "team",
+          "panel": "peers"
+        }
+      ],
+      "panels": [
+        {
+          "id": "home",
+          "title": {
+            "zh": "Mesh",
+            "en": "Mesh"
+          },
+          "icon": "team",
+          "placement": [
+            "session.tab",
+            "features"
+          ]
+        },
+        {
+          "id": "peers",
+          "title": {
+            "zh": "Mesh 设备",
+            "en": "Mesh devices"
+          },
+          "icon": "team",
+          "placement": [
+            "session.tab",
+            "features"
+          ]
+        },
+        {
+          "id": "tasks",
+          "title": {
+            "zh": "Mesh 任务",
+            "en": "Mesh tasks"
+          },
+          "icon": "todo",
+          "placement": [
+            "session.tab",
+            "features"
+          ]
+        }
       ]
     }
   },

@@ -28,6 +28,7 @@ import { MeshDiscovery, preferredAddress, lanIPv4Addresses, macForAddress, order
 import { collectNetInfo, configureNetInfo, peerHostsFromSpecs, peerPortsFromSpecs } from "./netinfo.js";
 import { dshGoInfo, dshGoSummary, isDshGo } from "./dshgo.js";
 import { resolveInboundPermissionPreset, describeInboundPermissionPreset } from "./inbound-preset.js";
+import { registerDshGoUI } from "./dshgo-ui.js";
 import { candidateAddresses, scanForPeers } from "./scan.js";
 import { machineFingerprint } from "./identity.js";
 import {
@@ -1408,6 +1409,57 @@ function applyUnsafe(ctx, config) {
 
   // 4) UI 接口
   registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound, log, warn, threadState, hostDispatched, capFor, capOverrides, throttled, waker, onHistoryChange: scheduleHistorySave, diagnostics: diagnosticsPayload });
+
+  // 5) dsh-go 原生界面（bridge 面板：设备列表 / 任务队列 / 状态条）。
+  //    没有 dsh-go-bridge 的主机（桌面 DSH）上 registerDshGoUI 是 no-op —— 桌面零变化。
+  //    sendProbe 复用 mesh_run 同一套 payload/鉴权/回执绑定规则，只多一个"由 UI 触发"的入口。
+  try {
+    registerDshGoUI(ctx, {
+      discovery,
+      log,
+      warn,
+      getSelf: () => discovery.selfRecord(),
+      getTasks: () => ({ inbound, outbound }),
+      loadState,
+      saveState,
+      sendProbe: async ({ target, text, thread }) => {
+        if (!target) throw new Error("设备不存在");
+        if (target.online !== true) throw new Error("设备当前离线");
+        const id = `t-${randomBytes(6).toString("hex")}`;
+        const payload = {
+          id,
+          from: `${machineOf(discovery)}/${safeUser()}`,
+          fromMachine: machineOf(discovery),
+          task: String(text ?? "").slice(0, 2000),
+          thread: String(thread ?? ""),
+          noWake: false,
+          newSession: false,
+          workspace: "",
+          originSession: "",
+        };
+        try {
+          const res = await peerFetch(target, "/mesh/v1/task", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Dsh-Mesh-Token": currentSecret() },
+            body: JSON.stringify(payload),
+            timeoutMs: config.requestTimeoutMs,
+          });
+          outbound.push({ ...payload, toMachine: target.machine, at: new Date().toISOString(), ok: res.ok, status: res.status });
+          if (outbound.length > MAX_HISTORY) outbound.shift();
+          scheduleHistorySave();
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return { id };
+        } catch (err) {
+          outbound.push({ ...payload, toMachine: target.machine, at: new Date().toISOString(), ok: false, error: String(err?.message ?? err) });
+          if (outbound.length > MAX_HISTORY) outbound.shift();
+          scheduleHistorySave();
+          throw err;
+        }
+      },
+    });
+  } catch (err) {
+    warn(`dsh-go 原生界面接线失败（不影响其它功能）：${err?.message ?? err}`);
+  }
 
   ctx.effect(() => () => {
     discovery.stop();
