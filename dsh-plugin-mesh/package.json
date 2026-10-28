@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-mesh",
-  "version": "0.5.4-dshgo.1",
+  "version": "0.5.4-dshgo.2",
   "type": "module",
   "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例、显示每台机器上报的能力，并双向派发任务；可用内置的用户态 Tailscale 节点跨互联网组网。Discovers other DSH instances on the LAN, shows the capabilities each one reports, and dispatches tasks between machines in both directions, with an optional userspace Tailscale node for links across networks.",
   "license": "MIT",
@@ -73,7 +73,7 @@
     "selftest:osinfo": "node lib/_selftest-osinfo.mjs",
     "selftest:avatar": "node lib/_selftest-avatar.mjs",
     "test": "npm run check && npm run selftest:netinfo && npm run selftest:dshgo && npm run selftest:inbound-preset && npm run selftest:usb && npm run selftest:usb-integration && npm run selftest && npm run selftest:prompt && npm run selftest:pairing && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:avatar && npm run selftest:osinfo",
-    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/netinfo.js && node --check lib/dshgo.js && node --check lib/inbound-preset.js && node --check lib/usb.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/pairing.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:registry && npm run check:loadable && npm run check:docs",
+    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/netinfo.js && node --check lib/dshgo.js && node --check lib/inbound-preset.js && node --check lib/usb.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/pairing.js && node --check lib/scan.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:peerdeps && npm run check:registry && npm run check:loadable && npm run check:docs",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
     "release:plan": "node scripts/release-plan.mjs",
@@ -83,6 +83,7 @@
     "check:scope": "python3 tools/scopecheck.py lib/index.js",
     "prepublishOnly": "npm test && node scripts/check-tarball.mjs",
     "check:docs": "node scripts/sync-llms.mjs",
+    "check:peerdeps": "node scripts/check-peerdeps.mjs",
     "check:registry": "node scripts/check-registry.mjs",
     "e2e:android": "node scripts/e2e-android.mjs",
     "selftest:pairing": "node lib/_selftest-pairing.mjs"
@@ -92,6 +93,7 @@
     "access": "public"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-brand": "*",
     "@deepseek-ai/schemastery": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-llm": "*",
@@ -101,6 +103,9 @@
     "@deepseek-ai/dsh-client-locale": "*"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-brand": {
+      "optional": true
+    },
     "@deepseek-ai/schemastery": {
       "optional": true
     },
