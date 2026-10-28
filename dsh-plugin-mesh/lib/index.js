@@ -60,6 +60,7 @@ import {
 } from "./persist.js";
 import { TsnetNode, channelKey, channelSignature } from "./tsnet/manager.js";
 import { configureSidecarPlatform, describeSidecarTarget } from "./tsnet/download.js";
+import { createUsbTransport } from "./usb.js";
 import { resolveTailnetChannels } from "./tsnet/channels.js";
 import { tailnetFetch, tailnetOrigin } from "./tsnet/bridge.js";
 import { createWebProxy } from "./web-proxy.js";
@@ -271,6 +272,21 @@ export const Config = z.object({
    * 逻辑在 P1 实现；因此这里不校验枚举，非法值按 auto 处理。
    */
   sidecarPlatform: z.string().default("auto"),
+  /**
+   * USB/adb 传输（P1.5）：桌面把手机插 USB 时，走 `adb forward` 的
+   * `127.0.0.1:<本地端口>` 隧道访问手机 mesh，不依赖局域网/Wi-Fi。
+   *
+   * **默认关闭**（opt-in）：不配 = 桌面与手机行为完全不变。
+   * 没有 adb 时只探测为 `available:false`，不影响局域网/tsnet 发现
+   * （ENOENT = 没装 adb，不是"没有手机"，见 AGENTS.md 硬约束 1）。
+   */
+  usbEnabled: z.boolean().default(false),
+  /** adb 可执行文件路径；空 = 用 PATH 里的 adb（Windows 可填绝对路径） */
+  usbAdbPath: z.string().default(""),
+  /** 本地转发端口区间基址（每个 serial 在 [base, base+span) 里稳定取一个端口） */
+  usbForwardBase: z.natural().min(1024).max(65000).default(46000),
+  /** USB 轮询间隔（毫秒）：设备枚举 + forward 维护 + health 探测 */
+  usbPollMs: z.natural().min(1000).max(3600000).default(15000),
   /**
    * tailnet 通道的探测间隔（毫秒）。局域网走 pingIntervalMs。
    *
@@ -805,6 +821,211 @@ function netSummary(info) {
   }
 }
 
+/**
+ * USB 诊断的安全包装：`/mesh/v1/health` 是**未鉴权**接口，只允许计数/错误码，
+ * 不给 adb 路径、错误原文（可能含本机路径）。传入的是 `createUsbWiring().diag()`
+ * （本身已脱敏），这里再兜一层异常。**永不抛**。
+ */
+function usbStatusSafe(usbStatus) {
+  const empty = { enabled: false, available: false, devices: 0, endpoints: 0, errors: [] };
+  try {
+    if (typeof usbStatus !== "function") return empty;
+    const out = usbStatus();
+    return out && typeof out === "object" ? out : empty;
+  } catch {
+    return { enabled: true, available: false, reason: "DIAG_FAILED", devices: 0, endpoints: 0, errors: [] };
+  }
+}
+
+/** 数字配置的区间钳制（config 来自 schema，但热更新/手写 patch 仍可能越界）。 */
+function usbClampNumber(value, min, max, fallback) {  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+/**
+ * USB/adb 传输的接线：把 `lib/usb.js` 的端点事件翻译成 discovery 注册。
+ *
+ * 为什么独立成函数（而不是直接塞进 applyUnsafe）：
+ *   · 这段逻辑是真机验收的关键（端点登记/去重/诊断），必须能**离线单测**；
+ *   · `lib/usb.js` 自包含（不 import discovery/index），这里也只依赖
+ *     `discovery.note()` 一个入口，fake 掉 transport 就能在 Node 里跑全链路。
+ *
+ * 契约（见 analysis/USB-ADAPTER-DESIGN.md §4.2）：
+ *   · `onEndpoints(list)` → 对每个 endpoint **原样**把 `ep.record` 交给
+ *     `discovery.note(record, ep.host, {transport:"usb", channel: ep.key, port, rttMs, probeIntervalMs})`。
+ *     端点身份用 `usb:<serial>`（channel），所以同一台手机的 LAN 与 USB 通道会落在
+ *     **同一个 peer** 的多 endpoint 下（discovery.#upsert 按 instanceId 合并），
+ *     不会造出第二个设备条目。
+ *   · `onError` → 记环形错误（诊断用）+ 一条 warn；传输层自己已按
+ *     serial|phase|code 限流 60s，这里不重复限流、也不把错误翻译成"没有设备"。
+ *   · 任何情况下不抛：调用点在定时器、HTTP 健康检查、卸载路径上。
+ *
+ * @returns {{enabled: boolean, transport: object|null, createError: string,
+ *   start: () => Promise<object|null>, stop: () => void,
+ *   status: () => object|null, diag: (opts?: {detail?: boolean}) => object}}
+ */
+export function createUsbWiring({ config = {}, discovery = null, log = () => {}, warn = () => {}, createTransport = null } = {}) {
+  const enabled = config?.usbEnabled === true;
+  const factory = typeof createTransport === "function" ? createTransport : null;
+  /** 最近错误（给 diag 用；传输层 status().errors 也有一份，取并集）。 */
+  const recentErrors = [];
+  const rememberError = (raw) => {
+    const e = raw && typeof raw === "object" ? raw : {};
+    recentErrors.push({
+      serial: String(e.serial ?? "").slice(0, 64),
+      phase: String(e.phase ?? "").slice(0, 32),
+      code: String(e.code ?? "INTERNAL").slice(0, 32),
+      at: Number(e.at) || Date.now(),
+    });
+    if (recentErrors.length > 20) recentErrors.shift();
+  };
+
+  let transport = null;
+  let createError = "";
+  let lastEndpoints = [];
+  let probeIntervalMs = 10000;
+  let pollMs = 15000;
+
+  if (enabled) {
+    if (typeof factory !== "function") {
+      createError = "NO_FACTORY";
+      rememberError({ phase: "create", code: "NO_FACTORY" });
+    } else {
+      pollMs = usbClampNumber(config.usbPollMs, 1000, 3600000, 15000);
+      const forwardBase = usbClampNumber(config.usbForwardBase, 1024, 65000, 46000);
+      probeIntervalMs = Math.max(1000, Number(config.pingIntervalMs) || 10000);
+      try {
+        transport = factory({
+          adbPath: String(config.usbAdbPath ?? "").trim() || "adb",
+          // 手机侧 mesh 端口：目前固定默认端口（手机配置里就是 45917）。
+          devicePort: MESH_DEFAULT_PORT,
+          forwardBase,
+          pollMs,
+          // 这只是 health 探测的本地超时，不是任务 HTTP 的超时（后者默认 20s）
+          probeTimeoutMs: Math.min(1200, Number(config.requestTimeoutMs) || 20000),
+          log: (m) => log(`usb: ${m}`),
+          onError: (e) => {
+            rememberError(e);
+            warn(`USB ${e?.serial || "adb"} ${e?.phase || "?"}/${e?.code || "?"}：${e?.message || ""}`);
+          },
+          onEndpoints: (list, meta) => {
+            lastEndpoints = Array.isArray(list) ? list.slice() : [];
+            for (const ep of lastEndpoints) {
+              try {
+                if (!ep || !ep.record) continue;
+                // 端点注册唯一入口：record 原样交给 discovery（协议字段一个都不改）
+                discovery?.note?.(ep.record, ep.host || "127.0.0.1", {
+                  transport: "usb",
+                  channel: String(ep.key || `usb:${ep.serial || "unknown"}`),
+                  port: Number(ep.port) || 0,
+                  rttMs: Number(ep.rttMs) || 0,
+                  probeIntervalMs,
+                });
+              } catch {
+                /* note() 自己不该抛；这里兜底，一个坏端点不能拖垮整轮 */
+              }
+            }
+            void meta;
+          },
+        });
+      } catch (err) {
+        createError = String(err?.message ?? err).slice(0, 200);
+        rememberError({ phase: "create", code: "INTERNAL" });
+        transport = null;
+      }
+    }
+  }
+
+  /** 传输层 status 的安全包装（永不抛）。 */
+  const status = () => {
+    try {
+      return transport && typeof transport.status === "function" ? transport.status() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * 诊断快照。`detail=false`（health，未鉴权）只给计数/错误码；
+   * `detail=true`（诊断页/日志）补 devicePort/forwards/skipped/endpointKeys。
+   * **永不抛**。
+   */
+  const diag = (opts = {}) => {
+    const detail = opts && opts.detail === true;
+    if (!enabled) return { enabled: false, available: false, devices: 0, endpoints: 0, errors: [] };
+    const st = status();
+    const base = {
+      enabled: true,
+      available: false,
+      reason: createError ? "CREATE_FAILED" : "STATUS_UNAVAILABLE",
+      adbVersion: "",
+      started: false,
+      pollCount: 0,
+      devices: 0,
+      endpoints: lastEndpoints.length,
+      errors: recentErrors.slice(-5),
+    };
+    if (!st) return detail ? { ...base, ...(createError ? { createError } : {}) } : base;
+    const statusErrors = (Array.isArray(st.errors) ? st.errors : [])
+      .slice(-5)
+      .map((e) => ({
+        serial: String(e?.serial ?? "").slice(0, 64),
+        phase: String(e?.phase ?? "").slice(0, 32),
+        code: String(e?.code ?? "").slice(0, 32),
+      }));
+    const summary = {
+      enabled: true,
+      available: st.available === true,
+      reason: st.available === true ? "" : String(st.reason || "UNAVAILABLE").slice(0, 40),
+      adbVersion: String(st.adbVersion || "").slice(0, 32),
+      started: st.started === true,
+      pollCount: Number(st.pollCount) || 0,
+      devices: Array.isArray(st.devices) ? st.devices.length : 0,
+      endpoints: Array.isArray(st.endpoints) ? st.endpoints.length : lastEndpoints.length,
+      errors: (statusErrors.length > 0 ? statusErrors : recentErrors.slice(-5)).slice(-5),
+    };
+    if (!detail) return summary;
+    return {
+      ...summary,
+      devicePort: Number(st.devicePort) || MESH_DEFAULT_PORT,
+      pollMs: Number(st.pollMs) || pollMs,
+      forwards: Array.isArray(st.forwards) ? st.forwards.length : 0,
+      skipped: (Array.isArray(st.skipped) ? st.skipped : []).slice(0, 5).map((s) => ({
+        serial: String(s?.serial ?? "").slice(0, 64),
+        reason: String(s?.reason ?? "").slice(0, 40),
+      })),
+      endpointKeys: (Array.isArray(st.endpoints) ? st.endpoints : []).slice(0, 8).map((e) => ({
+        key: String(e?.key ?? ""),
+        machine: String(e?.machine ?? ""),
+        rttMs: Number(e?.rttMs) || 0,
+      })),
+    };
+  };
+
+  /** 启动（幂等由传输层保证）；失败返回 null，不抛。 */
+  const start = () => {
+    try {
+      if (!transport || typeof transport.start !== "function") return Promise.resolve(null);
+      return Promise.resolve(transport.start()).catch(() => null);
+    } catch {
+      return Promise.resolve(null);
+    }
+  };
+
+  /** 停止（卸载路径）；不抛。传输层只删除自己建的 forward。 */
+  const stop = () => {
+    try {
+      if (transport && typeof transport.stop === "function") return transport.stop();
+    } catch {
+      /* 卸载路径不能抛 */
+    }
+    return null;
+  };
+
+  return { enabled, transport, createError, start, stop, status, diag };
+}
+
 export function apply(ctx, config) {
   if (config.enabled === false) {
     ctx.logger?.info?.("mesh: 已禁用");
@@ -963,6 +1184,27 @@ function applyUnsafe(ctx, config) {
   };
   discovery.on("change", schedulePeerSnapshot);
 
+  // ── USB/adb 传输（P1.5，默认关闭）──
+  //
+  // 桌面把手机插 USB 时，走 adb forward 的 127.0.0.1 隧道发现/派发手机 mesh，
+  // 与局域网/tsnet 并列。默认 usbEnabled=false → 不创建、不探测、零行为变化。
+  // 端点注册全部经 discovery.note()：channel=`usb:<serial>`，同一台手机在
+  // LAN 与 USB 上会合并成同一个 peer 的多端点（不会造第二个设备条目）。
+  const usbWiring = createUsbWiring({
+    config,
+    discovery,
+    log,
+    warn,
+    createTransport: createUsbTransport,
+  });
+  if (usbWiring.enabled) {
+    // 卸载/热重载即清定时器；forward 只删本模块自己建的（用户手工建的保留）
+    ctx.effect(() => () => usbWiring.stop());
+    log(`USB 传输已启用（adb=${config.usbAdbPath || "PATH"}，轮询 ${config.usbPollMs}ms），等待 HTTP 服务就绪后启动`);
+  } else {
+    log("USB 传输未启用（usbEnabled=false）");
+  }
+
   // ── 能力采集（Placement 步骤 ①）──
   //
   // 尽早启动：采集是异步的、绝不阻塞启动（首轮可能要等 GPU 探测 ~3.5s）。
@@ -1007,6 +1249,9 @@ function applyUnsafe(ctx, config) {
       arch: arch(),
       config,
       capabilities: currentCapabilities(),
+      // P1.5：USB/adb 传输状态（detail=true 带 devicePort/forwards/skipped；
+      // 数据已在 createUsbWiring().diag() 里脱敏，不含 adb 路径/错误原文）。
+      usb: usbWiring.diag({ detail: true }),
     }),
     // P0：地址与 MAC 的探测过程必须可查（source/errors），不能只给一个结论。
     net: netSummary(collectNetInfo()),
@@ -1024,7 +1269,7 @@ function applyUnsafe(ctx, config) {
   });
 
   // 1) 先起对端 HTTP（拿到真实端口），再开始发现
-  startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn, waker, threadState, capFor, capOverrides, throttled, onHistoryChange: scheduleHistorySave, diagnostics: diagnosticsPayload })
+  startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn, waker, threadState, capFor, capOverrides, throttled, onHistoryChange: scheduleHistorySave, diagnostics: diagnosticsPayload, usbStatus: () => usbWiring.diag() })
     .then(async (port) => {
       discovery.setPort(port);
 
@@ -1052,6 +1297,24 @@ function applyUnsafe(ctx, config) {
       const staticPeers = peerHostsFromSpecs(config.staticPeers ?? []);
       if (staticPeers.length > 0) {
         log(`静态对端 ${staticPeers.length} 个：${staticPeers.join(", ")}（并入扫描候选，不改变零配置发现）`);
+      }
+
+      // USB/adb 传输：HTTP 服务已就绪后启动首轮轮询（设计锚点 4）。
+      // 失败只记 warning，不影响局域网/tsnet —— 三条发现路径互相独立。
+      if (usbWiring.enabled) {
+        usbWiring
+          .start()
+          .then((st) => {
+            const d = usbWiring.diag();
+            const devices = d?.devices ?? (Array.isArray(st?.devices) ? st.devices.length : 0);
+            if (d?.available) {
+              log(`USB 传输已启动：adb ${d.adbVersion || "?"}，可用设备 ${devices} 台，端点 ${d.endpoints} 个（轮询 ${config.usbPollMs}ms）`);
+            } else {
+              // ENOENT = 没装 adb，不是"没有手机"；原样带出 reason
+              warn(`USB 传输不可用（${d?.reason || st?.reason || "UNKNOWN"}）：${config.usbAdbPath || "adb"} —— 不影响局域网/tsnet 发现`);
+            }
+          })
+          .catch(() => {});
       }
 
       // 主动发现 + 保活
@@ -2181,7 +2444,7 @@ async function peerFetchEndpoint(ep, url, opts = {}) {
 
 // ───────────────────────── 对端 HTTP 服务 ─────────────────────────
 
-function startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn, waker, threadState, capFor, capOverrides, throttled, onHistoryChange, diagnostics }) {
+function startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn, waker, threadState, capFor, capOverrides, throttled, onHistoryChange, diagnostics, usbStatus = null }) {
   const send = (res, code, payload) => {
     const body = Buffer.from(JSON.stringify(payload), "utf8");
     res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Content-Length": body.length });
@@ -2214,6 +2477,9 @@ function startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn,
           dshGo: dshGoSummary(),
           inboundPermissionPreset: inbound.value,
           inboundPermissionPresetSource: inbound.source,
+          // P1.5：USB/adb 传输状态（脱敏：只给计数/错误码，不给路径/错误原文）。
+          // 免鉴权接口也要能验收"USB 端点有没有被登记"，否则真机只能翻日志。
+          usb: usbStatusSafe(usbStatus),
         };
       } catch {
         return {
@@ -2223,6 +2489,7 @@ function startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn,
           dshGo: dshGoSummary(),
           inboundPermissionPreset: "",
           inboundPermissionPresetSource: "none",
+          usb: usbStatusSafe(usbStatus),
         };
       }
     };

@@ -57,6 +57,9 @@ export function buildDiagnostics({
   machine = "",
   config = {},
   capabilities = null,
+  // P1.5：USB/adb 传输状态摘要（由 index.js 的 createUsbWiring().diag({detail:true}) 传入）。
+  // 传 null = 本流程未接 USB；传对象 = 已接（enabled=false 表示配置未开启）。
+  usb = null,
 } = {}) {
   const safeConfig = {};
   for (const key of [
@@ -74,6 +77,10 @@ export function buildDiagnostics({
     "permissionPresetOnDshGo",
     "workspaceRoot",
     "tsnetEnabled",
+    "usbEnabled",
+    "usbAdbPath",
+    "usbForwardBase",
+    "usbPollMs",
   ]) {
     if (config?.[key] !== undefined) safeConfig[key] = config[key];
   }
@@ -106,6 +113,28 @@ export function buildDiagnostics({
           gpu: String(capabilities.gpu?.name ?? ""),
           wsl: Array.isArray(capabilities.wsl)
             ? capabilities.wsl.map((w) => String(w?.name ?? "")).filter(Boolean)
+            : [],
+        }
+      : null,
+    // USB/adb 传输的只读汇总。字段已在 createUsbWiring().diag() 里脱敏（无路径/原文）。
+    usb: usb && typeof usb === "object"
+      ? {
+          enabled: usb.enabled === true,
+          available: usb.available === true,
+          reason: String(usb.reason ?? ""),
+          adbVersion: String(usb.adbVersion ?? ""),
+          started: usb.started === true,
+          pollCount: Number(usb.pollCount) || 0,
+          devices: Number(usb.devices) || 0,
+          endpoints: Number(usb.endpoints) || 0,
+          forwards: Number(usb.forwards) || 0,
+          errCount: Array.isArray(usb.errors) ? usb.errors.length : 0,
+          errors: Array.isArray(usb.errors)
+            ? usb.errors.slice(-5).map((e) => ({
+                serial: String(e?.serial ?? ""),
+                phase: String(e?.phase ?? ""),
+                code: String(e?.code ?? ""),
+              }))
             : [],
         }
       : null,

@@ -57,6 +57,18 @@
         # P0 只存值与诊断展示（/mesh/v1/health 的 diag），资产选择逻辑在 P1。
         sidecarPlatform: auto
 
+        # ── P1.5：USB/adb 传输（默认关闭，opt-in）──
+        # 桌面把手机插 USB 时，走 adb forward 的 127.0.0.1 隧道发现/派发手机 mesh，
+        # 不依赖局域网/Wi-Fi。默认 false：桌面与手机行为完全不变。
+        # 没有 adb 时只探测为 available:false，不影响局域网/tsnet 发现。
+        usbEnabled: false
+        # adb 可执行文件路径；空 = 用 PATH 里的 adb（Windows 可填绝对路径）。
+        usbAdbPath: ''
+        # 本地转发端口区间基址：每个 serial 在 [base, base+span) 里稳定取一个端口。
+        usbForwardBase: 46000
+        # USB 轮询间隔（毫秒）：设备枚举 + forward 维护 + health 探测。
+        usbPollMs: 15000
+
         # 心跳与离线判定
         announceIntervalMs: 5000
         peerTtlMs: 20000
