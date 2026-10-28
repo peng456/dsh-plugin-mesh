@@ -102,3 +102,19 @@ Rename-Item "$dst.bak-20261029-020932" 'dsh-plugin-mesh'
 - tsnet锛堣法浜掕仈缃戠粍缃戯級鏈仛鐪熸満楠岃瘉锛堥渶瑕?tailscale 鎺堟潈鐮侊紝鍙€夛級
 - ui.json island锛坢esh 闈㈡澘杩涙墜鏈哄師鐢熶晶鏍忥級宸插啓鍏?`/root/.dsh/dsh-go/ui.json`锛屽緟鐪熸満纭鏄剧ず
 
+## 9. 鎵嬫満鍓嶇锛?.5.4-dshgo.3锛?026-10-29 02:30锛?
+### 9.1 浜や粯
+- **鍘熺敓闈㈡澘锛坉sh-go-bridge v1锛?*锛歚package.json` 鍔?`dshGo` 娓呭崟 + 鏂?`lib/dshgo-ui.js` + `lib/index.js` 鏈€灏忔帴绾匡紙鏃?bridge 鏃?no-op锛?  - `home` 棣栧睆锛? 涓?widget锛堟湰鏈虹姸鎬?/ 鍦ㄧ嚎璁惧 / 鏈€杩戜换鍔?/ 蹇嵎鍏ュ彛锛夛紝榛樿鍏ㄥ紑锛?*椤哄簭涓庢樉闅愬彲璋?*锛堛€岃皟鏁翠富椤点€嶁啋 鍚岄潰鏉?config 瑙嗗浘淇濆瓨鍒?`state.json` 鐨?`homeWidgets`锛?  - `peers` / `tasks` 浜岀骇椤碉紙quick 鍏ュ彛鐢?`open:'panel:peers'` 鐩磋揪锛?  - 鐘舵€佹潯锛歚Mesh 路 N 鍦ㄧ嚎 路 usb/lan`
+  - 鐐规寜锛氬埛鏂?/ 澶嶅埗锛堝湴鍧€路ID路鏈満锛? 鎵撳紑闈㈡澘 / 涓€閿帰娴嬫淳鍙戯紙鍚庡彴璺?+ toast锛? 甯冨眬缂栬緫
+  - limits 瀹炴祴锛歨ome 10 鑺傜偣/940B銆乧onfig 7/711銆乸eers 6/648銆乼asks 8/621锛堜笂闄?120 鑺傜偣/8 灞?32KiB锛?- **Web 鎵嬫満鐗?*锛歚client/client.js` 鈮?60px 鏂偣锛氬崟鍒楄澶囧崱鐗囷紙鈮?4px锛夈€佸湪绾?灞€鍩熺綉/USB 寰界珷銆佽鎯呴粯璁ゆ姌鍙犮€佸簳閮ㄥ父椹绘淳鍙戞潯 + 鍙睍寮€闈㈡澘銆佹寜閽?鈮?8px銆乻afe-area銆佽緭鍏ユ 16px 闃茬缉鏀撅紱瀹藉睆娓叉煋涓嶅彉
+- 娴嬭瘯锛氭柊澧?`selftest:dshgo-ui` 39 渚嬨€乣selftest:client` 绐勫睆 12 + 妗岄潰鍥炲綊 48锛沗npm test` 鍏ㄧ豢
+- commits锛歚aacf7da`锛坈lient 鎵嬫満鐗堬級銆乣a9cdfc9`锛堝師鐢熼潰鏉匡級銆乣03941eb`锛堢増鏈?bump锛?
+### 9.2 閮ㄧ讲鐘舵€?- 鎵嬫満锛歚0.5.4-dshgo.3` 宸茶銆佸紩鎿庡凡閲嶅惎锛坔ealth `version=0.5.4-dshgo.3`锛?- 妗岄潰锛歱rofile 鏂囦欢宸叉洿鏂颁负 `0.5.4-dshgo.3`锛堝浠?`dsh-plugin-mesh.bak2-20261029-022927`锛夛紱**杩愯涓殑杩涚▼浠嶆槸 dshgo.2锛岄噸鍚?DSH 妗岄潰绔悗鐢熸晥**
+- 鎵撳寘锛歚dist/dsh-plugin-mesh-0.5.4-dshgo.3.tgz`
+
+### 9.3 鐪熸満楠屾敹鐐癸紙鎵嬫満 dsh-go锛?1. 鍘熺敓鐣岄潰鍑虹幇銆孧esh銆嶆彃浠堕潰鏉匡細棣栧睆 home锛堟湰鏈虹姸鎬?/ 鍦ㄧ嚎璁惧 / 鏈€杩戜换鍔?/ 蹇嵎鍏ュ彛锛夛紝鐐广€岃皟鏁翠富椤点€嶅彲鏀归『搴?鏄鹃殣
+2. 蹇嵎鍏ュ彛鑳界洿杈捐澶囧垪琛?浠诲姟闃熷垪/Web 闈㈡澘锛涙帰娴嬫淳鍙戞湁 toast
+3. 鐘舵€佹潯 `Mesh 路 N 鍦ㄧ嚎 路 usb/lan` 鍙锛岀偣鍑绘墦寮€璁惧鍒楄〃
+4. 鍒囧埌銆岀綉椤点€嶇晫闈㈡垨 island 宓屽叆鏃讹細绐勫睆甯冨眬鐢熸晥锛堝崟鍒楀崱鐗囥€佸簳閮ㄦ淳鍙戞潯锛?
+### 9.4 鍥炴粴
+鍚?搂7锛氭墜鏈虹敤 `dsh-plugin-mesh.bak-*` 鎭㈠锛屾闈㈢敤 `dsh-plugin-mesh.bak2-20261029-022927` 鎭㈠锛岀劧鍚庨噸鍚紩鎿?妗岄潰绔€?
