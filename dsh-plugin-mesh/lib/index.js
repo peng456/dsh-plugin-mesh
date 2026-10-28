@@ -25,6 +25,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { MeshDiscovery, preferredAddress, lanIPv4Addresses, macForAddress, orderedEndpoints } from "./discovery.js";
+import { collectNetInfo, configureNetInfo, peerHostsFromSpecs, peerPortsFromSpecs } from "./netinfo.js";
 import { candidateAddresses, scanForPeers } from "./scan.js";
 import { machineFingerprint } from "./identity.js";
 import {
@@ -243,6 +244,30 @@ export const Config = z.object({
   scanTimeoutMs: z.natural().default(800),
   /** 定期 ping 已知对端（毫秒），0 = 关闭。这条让发现不依赖组播也能保活 */
   pingIntervalMs: z.natural().default(10000),
+  /**
+   * 静态对端：**手动发现入口**。组播被路由器/防火墙挡住、或本机拿不到可靠网卡
+   * 信息时（Android/proot），这里点名的地址会直接并入扫描候选并进同一个注册表
+   * —— 对端列表可见、ping 保活、`mesh_run` 派发全都照旧。
+   *
+   * 形如 `["192.168.1.6:45917", "192.168.1.6"]`；省略端口时用本机端口与默认端口去试。
+   * 允许主机名（交给系统解析）。默认空 = 不改变原有零配置行为。
+   */
+  staticPeers: z.array(String).default([]),
+  /**
+   * 本机对外地址（空 = 自动探测）。填了就用它做公告与自述 `host`。
+   *
+   * 用于 Android/proot 这类"网卡能枚举但地址不可信/拿不到"的环境；
+   * 形如 `"192.168.1.19"` 或 `"192.168.1.19:45917"`（端口部分忽略 —— 本机监听端口
+   * 由 HTTP 服务决定）。填错时只记一条诊断，不会变成"没有地址"。
+   */
+  advertiseAddress: z.string().default(""),
+  /**
+   * tsnet sidecar 资产风味：`auto` | `linux` | `android`。
+   *
+   * P0 只做"存值 + 诊断可见"（`/mesh/v1/health` 的 diag 里能看到），真正的资产选择
+   * 逻辑在 P1 实现；因此这里不校验枚举，非法值按 auto 处理。
+   */
+  sidecarPlatform: z.string().default("auto"),
   /**
    * tailnet 通道的探测间隔（毫秒）。局域网走 pingIntervalMs。
    *
@@ -731,6 +756,36 @@ function validateMachineName(raw) {
 
 // ───────────────────────── 插件入口 ─────────────────────────
 
+/**
+ * `sidecarPlatform` 的生效值：只认 auto/linux/android，其余按 auto（并保留原文，
+ * 让诊断里能看出用户填了什么怪值）。P0 只用于展示，选择逻辑在 P1。
+ */
+function sidecarPlatformValue(config) {
+  const raw = String(config?.sidecarPlatform ?? "").trim().toLowerCase();
+  return raw === "linux" || raw === "android" ? raw : "auto";
+}
+
+/**
+ * 网络探测结果的可观察摘要（诊断/健康检查用）。
+ *
+ * 只带"从哪来 / 能不能用 / 哪一步失败"，不带地址列表（地址本身在 selfRecord 里，
+ * 而且健康检查是未鉴权的，别往外多送东西）。**绝不抛**。
+ */
+function netSummary(info) {
+  try {
+    if (!info) return { source: "none", macsAvailable: false, errors: [] };
+    return {
+      source: String(info.source ?? "none"),
+      macsAvailable: info.macsAvailable === true,
+      errors: (Array.isArray(info.errors) ? info.errors : [])
+        .slice(0, 6)
+        .map((e) => ({ source: String(e?.source ?? ""), code: String(e?.code ?? "") })),
+    };
+  } catch (err) {
+    return { source: "error", macsAvailable: false, errors: [{ source: "netinfo", code: "THROW" }] };
+  }
+}
+
 export function apply(ctx, config) {
   if (config.enabled === false) {
     ctx.logger?.info?.("mesh: 已禁用");
@@ -754,6 +809,9 @@ export function apply(ctx, config) {
 function applyUnsafe(ctx, config) {
 
   applyStoredSettings(config);
+  // 地址采集的配置必须在任何 selfRecord()/公告/健康检查之前生效：这些路径都会
+  // 同步读 netinfo 的模块级配置（advertiseAddress 是最高优先级来源）。
+  configureNetInfo({ advertiseAddress: config.advertiseAddress ?? "" });
   const resolved = resolveMachineName(config);
   const identity = { name: resolved.name, source: resolved.source };
   ensureSecret();
@@ -829,6 +887,9 @@ function applyUnsafe(ctx, config) {
     },
     intervalMs: config.announceIntervalMs,
     ttlMs: config.peerTtlMs,
+    // 手工指定的对外地址（空 = 自动探测）。Android/proot 上网卡信息可能不可靠，
+    // 这个值进 netinfo 的 config 分支，优先级最高。
+    advertiseAddress: config.advertiseAddress ?? "",
   });
   // 让发送路径能回报端点成败（见 peerFetch）
   activeDiscovery = discovery;
@@ -899,9 +960,9 @@ function applyUnsafe(ctx, config) {
   // 入站唤醒的"能力位"：服务齐备后由 setupInbound 置位
   const waker = { ready: false, ctx: undefined };
 
-  /** 诊断块：进程自述版本 / 磁盘版本 / 入口 mtime / 安全字段的配置 / 能力摘要。 */
-  const diagnosticsPayload = () =>
-    buildDiagnostics({
+  /** 诊断块：进程自述版本 / 磁盘版本 / 入口 mtime / 安全字段的配置 / 能力摘要 / 网络探测。 */
+  const diagnosticsPayload = () => ({
+    ...buildDiagnostics({
       version: VERSION,
       packageVersion: DISK_VERSION,
       entry: ENTRY_INFO.path,
@@ -913,7 +974,11 @@ function applyUnsafe(ctx, config) {
       arch: arch(),
       config,
       capabilities: currentCapabilities(),
-    });
+    }),
+    // P0：地址与 MAC 的探测过程必须可查（source/errors），不能只给一个结论。
+    net: netSummary(collectNetInfo()),
+    sidecarPlatform: sidecarPlatformValue(config),
+  });
 
   // 1) 先起对端 HTTP（拿到真实端口），再开始发现
   startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn, waker, threadState, capFor, capOverrides, throttled, onHistoryChange: scheduleHistorySave, diagnostics: diagnosticsPayload })
@@ -929,12 +994,22 @@ function applyUnsafe(ctx, config) {
         log("已关闭组播，仅使用主动扫描 + ping");
       }
 
+      // 地址探测结果必须在启动日志里可见：Android/proot 上"没地址"和"地址探不到"
+      // 是两件完全不同的事，日志里不写来源就永远只能靠猜（AGENTS.md 硬约束 1）。
+      const bootNet = netSummary(discovery.netInfo());
       log(
         `已启动 machine=${identity.name}（来源 ${identity.source}）` +
           ` 文件搬运 nonce=${FILE_TRANSFER_NONCE}` +
-        ` 地址=${preferredAddress()}:${port} 实例=${instanceId} ` +
-          `配对要求=${config.requirePairing ? "开" : "关"}`,
+        ` 地址=${preferredAddress()}:${port}（来源 ${bootNet.source}，MAC ${bootNet.macsAvailable ? "可用" : "不可用"}）` +
+          ` 实例=${instanceId} 配对要求=${config.requirePairing ? "开" : "关"}`,
       );
+      if (bootNet.errors.length > 0) {
+        warn(`地址探测有 ${bootNet.errors.length} 项未成功：${bootNet.errors.map((e) => `${e.source}=${e.code}`).join(", ")}`);
+      }
+      const staticPeers = peerHostsFromSpecs(config.staticPeers ?? []);
+      if (staticPeers.length > 0) {
+        log(`静态对端 ${staticPeers.length} 个：${staticPeers.join(", ")}（并入扫描候选，不改变零配置发现）`);
+      }
 
       // 主动发现 + 保活
       const stop = { aborted: false };
@@ -1910,7 +1985,9 @@ async function scanTailnet({ discovery, config, log, reason, ports, channelId = 
  * 局域网路径也一样需要它，所以做成共用的一个来源。
  */
 function scanPortList(discovery, config) {
-  return [...new Set([discovery.port, MESH_DEFAULT_PORT, ...(config.scanPorts ?? [])])].filter((p) => Number(p) > 0);
+  // staticPeers 里写了端口的条目也要扫：显式地址通常就是"对端不在默认端口"的情况。
+  const peerPorts = peerPortsFromSpecs(config.staticPeers ?? []);
+  return [...new Set([discovery.port, MESH_DEFAULT_PORT, ...(config.scanPorts ?? []), ...peerPorts])].filter((p) => Number(p) > 0);
 }
 
 /**
@@ -1921,12 +1998,14 @@ function scanPortList(discovery, config) {
 async function runScan({ discovery, config, log, warn, signal, reason = "扫描" }) {
   const port = discovery.port;
   if (!port) return { scanned: 0, found: 0 };
-  const addresses = candidateAddresses(config.scanRanges ?? []);
+  // staticPeers 是配置点名要扫的地址，必须能进候选（网段展开可能被 limit 截断）。
+  const peerHosts = peerHostsFromSpecs(config.staticPeers ?? []);
+  const addresses = candidateAddresses(config.scanRanges ?? [], 1024, peerHosts);
   const ports = scanPortList(discovery, config);
   let lanFound = 0;
 
   if (addresses.length === 0) {
-    warn(`${reason}: 没有可扫描的地址（检查 scanRanges 是否合法 / 网卡是否存在）`);
+    warn(`${reason}: 没有可扫描的地址（检查 scanRanges / staticPeers 是否合法，或网卡是否存在）`);
   }
   if (addresses.length > 0) {
     log(`${reason}: 探测 ${addresses.length} 个地址的 ${ports.join("/")} 端口…`);
@@ -2064,8 +2143,22 @@ function startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn,
     const path = url.pathname;
     const self = { ...discovery.selfRecord(), instanceId: discovery.instanceId };
 
+    // 地址/MAC 探测的可观察摘要。免鉴权接口只给"来源与是否可用"，不给地址列表。
+    // 为什么放在这里：Android/proot 上"没有地址"与"地址探不到"在数据上一样，
+    // 不把 source/errors 带出来就只能靠猜（AGENTS.md 硬约束 1）。
+    const netDiag = () => {
+      try {
+        const info = typeof discovery.netInfo === "function" ? discovery.netInfo() : null;
+        return { net: netSummary(info), sidecarPlatform: sidecarPlatformValue(config) };
+      } catch {
+        return { net: { source: "error", macsAvailable: false, errors: [{ source: "netinfo", code: "THROW" }] }, sidecarPlatform: sidecarPlatformValue(config) };
+      }
+    };
+
     // 免鉴权：只暴露身份，用于连通性探测、主动扫描与配对握手
-    if (path === "/mesh/v1/health") return send(res, 200, { ok: true, ...self, requirePairing: pairingRequired(config) });
+    if (path === "/mesh/v1/health") {
+      return send(res, 200, { ok: true, ...self, requirePairing: pairingRequired(config), diag: netDiag() });
+    }
     if (path === "/mesh/v1/hello") {
       return send(res, 200, {
         ok: true,
@@ -2550,6 +2643,9 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
         port: discovery.port,
         instanceId: discovery.instanceId,
         addresses: lanIPv4Addresses(),
+        // 地址从哪来 / MAC 能不能用。Android/proot 上这两个结论经常是"探测失败"
+        // 而不是"设备没有"，必须让排障的人一眼看见（P0）。
+        net: netSummary(discovery.netInfo()),
         platform: platform(),
         version: VERSION,
         // 磁盘上的版本 vs 本进程加载的版本。两者不一致 = 升级了但没重启，
@@ -2584,6 +2680,11 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
         scanIntervalMs: config.scanIntervalMs,
         pingIntervalMs: config.pingIntervalMs,
         scanRanges: config.scanRanges ?? [],
+        // P0 新增：静态对端 / 手工对外地址 / sidecar 风味。UI 可以只读展示，
+        // 旧客户端不认识这些键会直接忽略（纯增量，不破坏协议）。
+        staticPeers: config.staticPeers ?? [],
+        advertiseAddress: config.advertiseAddress ?? "",
+        sidecarPlatform: sidecarPlatformValue(config),
         // 对端能力名片超过这个年龄就按"未知"处理（UI 用它渲染"能力信息已过期"）
         capabilityStaleMs: CAPABILITY_STALE_MS,
       },

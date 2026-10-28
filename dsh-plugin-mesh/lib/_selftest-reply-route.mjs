@@ -99,6 +99,16 @@ try {
   const key = (thread) => conversationKey({ fromMachine: "B", thread });
   const disk = () => JSON.parse(readFileSync(join(a.home, "mesh", "threads.json"), "utf8"));
 
+  // P0：/mesh/v1/health 必须带"地址探测摘要 + sidecarPlatform"（diag），且不能被
+  // 探测失败打成 500。这里的 fake discovery 没有 netInfo()，正好顺带验证兜底；
+  // 真实 MeshDiscovery 有 netInfo()，会给出 source/errors。
+  const health = await (await fetch(`http://127.0.0.1:${a.port}/mesh/v1/health`)).json();
+  assert.equal(health.ok, true);
+  assert.equal(typeof health.diag?.net?.source, "string", "health 应带地址探测来源");
+  assert.equal(typeof health.diag?.net?.macsAvailable, "boolean");
+  assert.equal(health.diag?.sidecarPlatform, "auto");
+  console.log("✓ /mesh/v1/health carries net diag (source/macsAvailable) + sidecarPlatform");
+
   // First dispatch: persistence must be visible before B returns any reply.
   assert.match(await a.send("B", "roundtrip", "original-session"), /已派发/);
   assert.equal(disk().threads[key("roundtrip")].sessionId, "original-session");

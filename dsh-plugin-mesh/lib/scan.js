@@ -15,8 +15,11 @@ import { lanIPv4Addresses } from "./discovery.js";
  * 由本机网卡推导出候选地址列表（默认扫同 /24 网段）。
  * @param extraRanges 额外网段，如 ["192.168.1.0/24"]；不传则用本机所有非回环 IPv4 的 /24
  * @param limit 最多返回多少个候选（防止超大网段扫太久）
+ * @param extraHosts 显式主机（`staticPeers`）—— 这些是**配置里点名要扫**的地址，
+ *   不能因为 limit 被截掉，所以排在网段展开之前。允许 IPv4 或主机名
+ *   （`scanForPeers` 直接 `http://<host>:<port>`，主机名交给系统解析）。
  */
-export function candidateAddresses(extraRanges = [], limit = 1024) {
+export function candidateAddresses(extraRanges = [], limit = 1024, extraHosts = []) {
   const seen = new Set();
   const out = [];
   const push = (ip) => {
@@ -34,9 +37,24 @@ export function candidateAddresses(extraRanges = [], limit = 1024) {
   // 注意：这里**不排除本机 IP**。因为同机跑多个实例时它们共用一个 IP，
   // 排掉就永远发现不了彼此；而扫到自己也无害 —— discovery.note() 会按
   // 实例 id 把自身拒掉。
-  for (const { address } of lanIPv4Addresses()) {
+  //
+  // ⚠ 网卡枚举必须包 try/catch：Android/proot 上它可能直接抛（netlink 被拒），
+  // 此时**仍然要**用 scanRanges / staticPeers 扫 —— 否则"组播被挡 + 网卡枚举失败"
+  // 就等于完全没有发现路径（GAP-ANALYSIS 的 G4：真机表现是"扫描完成：未命中"，
+  // 且没有任何报错）。
+  let local = [];
+  try {
+    local = lanIPv4Addresses();
+  } catch {
+    /* 探测失败：下面用显式网段/主机兜底，绝不把失败当"没有网段" */
+  }
+  for (const { address } of local) {
     const prefix = address.slice(0, address.lastIndexOf("."));
     for (let host = 1; host <= 254; host += 1) push(`${prefix}.${host}`);
+  }
+  for (const host of Array.isArray(extraHosts) ? extraHosts : []) {
+    const value = String(host ?? "").trim();
+    if (value) push(value);
   }
   for (const range of extraRanges) {
     for (const ip of expandCidr(range)) push(ip);

@@ -43,6 +43,20 @@
         # 定期 ping 已知对端保活（毫秒）；0 = 关闭
         pingIntervalMs: 10000
 
+        # ── P0：静态对端与手工地址（dsh-go / Android proot 场景）──
+        # 组播被挡、或本机网卡信息不可靠时，这些地址会直接并入扫描候选，
+        # 命中后与自动发现完全一样（对端列表 / ping 保活 / mesh_run 派发）。
+        # 形如 ["192.168.1.6:45917", "192.168.1.6"]；省略端口时用本机端口与默认端口去试。
+        # 默认空数组 = 不改变原有零配置行为。
+        staticPeers: []
+        # 手工指定本机对外地址（空 = 自动探测）：填了就用它做公告与自述 host。
+        # 形如 "192.168.1.19" 或 "192.168.1.19:45917"（端口忽略）。
+        # 用于 Android/proot 这类"网卡能枚举但 MAC/地址不可信"的环境；填错只记诊断。
+        advertiseAddress: ''
+        # tsnet sidecar 资产风味：auto | linux | android。
+        # P0 只存值与诊断展示（/mesh/v1/health 的 diag），资产选择逻辑在 P1。
+        sidecarPlatform: auto
+
         # 心跳与离线判定
         announceIntervalMs: 5000
         peerTtlMs: 20000
