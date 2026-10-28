@@ -7221,12 +7221,54 @@ function CapabilityChips({ caps, peer }) {
       onDragEndZone,
       children,
       footer,
+      logoAvatar,
+      logoPeers,
+      logoName,
+      onOpenPeer,
     }) {
       const wide = size && size.w === 2;
       const height = size && size.h;
       const isDragging = drag && drag.draggingId === card.id;
       const isDropTarget = drag && drag.dropId === card.id;
       const isResizing = drag && drag.resizingId === card.id;
+      // 真实头像：概览卡用本机头像；设备卡用设备头像栈（悬停向右展开、点头像直达该设备）。
+      const [logoOpen, setLogoOpen] = react.useState(false);
+      const stackPeers = Array.isArray(logoPeers) ? logoPeers.filter(Boolean) : [];
+      const isStack = stackPeers.length > 0;
+      const logoExpanded = isStack && logoOpen;
+      const avatarSrc = typeof logoAvatar === "string" ? logoAvatar : "";
+      const hasAvatar = !!avatarSrc || isStack;
+      const logoNode = !hasAvatar
+        ? null
+        : avatarSrc
+          ? h(Avatar, { name: logoName || "", avatar: avatarSrc, className: "mesh-avatar mesh-card-avatar" })
+          : h(
+              "span",
+              { className: "mesh-card-stack" },
+              stackPeers.slice(0, 8).map((p, i) =>
+                h(
+                  "button",
+                  {
+                    key: p.id || p.machine || String(i),
+                    type: "button",
+                    className: "mesh-card-stack-item" + (i === 0 ? " is-primary" : ""),
+                    title: `${p.machine || "设备"}${p.host ? " · " + p.host : ""}`,
+                    tabIndex: logoExpanded || i === 0 ? 0 : -1,
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      if (onOpenPeer) {
+                        try {
+                          onOpenPeer(p);
+                        } catch {
+                          /* 导航失败不影响主页 */
+                        }
+                      }
+                    },
+                  },
+                  h(Avatar, { name: p.machine, avatar: p.avatar, className: "mesh-avatar" }),
+                ),
+              ),
+            );
       const beginDrag = (e) => {
         if (!editing) return;
         e.dataTransfer.effectAllowed = "move";
@@ -7276,8 +7318,16 @@ function CapabilityChips({ caps, peer }) {
         },
         h(
           "div",
-          { className: "mesh-card-head" },
-          h("span", { className: "mesh-card-logo" }, h(Icon, { name: card.icon, size: card.full ? 19 : 17 })),
+          { className: cls("mesh-card-head", logoExpanded && "is-logo-expanded") },
+          h(
+            "span",
+            {
+              className: cls("mesh-card-logo", hasAvatar && "has-avatar", logoExpanded && "is-expanded"),
+              onMouseEnter: isStack ? () => setLogoOpen(true) : undefined,
+              onMouseLeave: isStack ? () => setLogoOpen(false) : undefined,
+            },
+            hasAvatar ? logoNode : h(Icon, { name: card.icon, size: card.full ? 19 : 17 }),
+          ),
           h(
             "div",
             { className: "mesh-card-headtext" },
@@ -7761,6 +7811,11 @@ function CapabilityChips({ caps, peer }) {
           onDragEnd: dragEnd,
           onDragOver: dragOver,
           onDrop: dropCard,
+          // 传给 BoardCard：概览卡显示本机头像，设备卡显示设备头像栈（可悬停展开、点击直达）。
+          logoAvatar: card.id === "overview" ? String((self && self.avatar) || "") : "",
+          logoPeers: card.id === "devices" ? peers : null,
+          logoName: (self && self.machine) || "",
+          onOpenPeer,
         };
 
         if (isCustomCard(card)) {
