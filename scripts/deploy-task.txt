@@ -1,0 +1,22 @@
+【mesh 适配 · 一键部署（P0+P1+P1.5）。这是**一条** bash 命令，请原样执行并把完整输出贴回】
+set -x
+set -e
+T=$(mktemp -d)
+curl -fsSL --max-time 120 -o "$T/mesh.tgz" http://127.0.0.1:8792/dsh-plugin-mesh-0.5.4.tgz
+curl -fsSL --max-time 60  -o "$T/patch.py" http://127.0.0.1:8792/dshgo-config-patch.py
+mkdir -p "$T/x" && tar xzf "$T/mesh.tgz" -C "$T/x"
+P=/root/.dsh/profiles/web/node_modules/dsh-plugin-mesh
+cp -a "$P" "${P}.bak-$(date +%Y%m%d-%H%M%S)"
+rm -rf "$P/lib" "$P/client" "$P/scripts" "$P/sidecar"
+cp -a "$T/x/package/lib" "$T/x/package/client" "$T/x/package/scripts" "$T/x/package/sidecar" "$P/"
+cp "$T/x/package/package.json" "$P/package.json"
+cp "$T/x/package/cordis.patch.yml" "$P/cordis.patch.yml"
+cp "$T/x/package/llms.txt" "$P/llms.txt" 2>/dev/null || true
+python3 "$T/patch.py" --file /root/.dsh/profiles/web/cordis.patch.yml --preset danger-full-access --apply
+echo '--- profile patch (mesh block) ---'
+sed -n '/- id: mesh/,+8p' /root/.dsh/profiles/web/cordis.patch.yml
+echo '--- installed files ---'
+ls -l "$P/lib/netinfo.js" "$P/lib/dshgo.js" "$P/lib/usb.js" "$P/lib/inbound-preset.js" "$P/package.json"
+node -e "console.log('PLUGIN_VERSION', require('$P/package.json').version)"
+node -e "const n=require('$P/package.json'); console.log('BUNDLE_PATCH', !!(n.dsh && n.dsh.bundle && n.dsh.bundle.patch))"
+echo DEPLOY_DONE

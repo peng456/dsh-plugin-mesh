@@ -125,8 +125,14 @@ try {
     assert.equal(a.permissionPresetFor(defaultInbound, { transport: "lan" }), "danger-full-access", "dsh-go 上必须用覆盖值");
     assert.equal(
       a.permissionPresetFor({ ...defaultInbound, permissionPresetOnDshGo: "" }, { transport: "lan" }),
-      "workspace-write",
-      "覆盖值为空时保持原行为",
+      "danger-full-access",
+      "dsh-go 上覆盖值为空 → 内置默认 danger-full-access（proot 无沙箱后端，无人值守的前提）",
+    );
+    // 用户显式设了更严格的值时不擅自升级（尊重意图）
+    assert.equal(
+      a.permissionPresetFor({ ...defaultInbound, permissionPresetOnDshGo: "", permissionPreset: "read-only" }, { transport: "lan" }),
+      "read-only",
+      "dsh-go 上用户显式 read-only 不得被升级",
     );
     // health 的 diag 也要能读到"入站会用哪个权限"，排障时不用猜。
     const health2 = await (await fetch(`http://127.0.0.1:${a.port}/mesh/v1/health`)).json();

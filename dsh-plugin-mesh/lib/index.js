@@ -77,7 +77,8 @@ import {
 export const name = "dsh-plugin-mesh";
 export const inject = ["tools", "webServer"];
 
-const VERSION = "0.5.4";
+// 本地 fork：在 0.5.4 之上做 dsh-go 适配（P0/P1/P1.5）。预发布后缀便于真机 /mesh/v1/health 一眼确认装的是适配版。
+const VERSION = "0.5.4-dshgo.1";
 // 诊断用：进程启动时间、入口真实路径、**磁盘上** package.json 的版本。
 // 这三样放一起才能回答"现在跑的到底是哪份代码" —— 只看 state.json 或重启日志
 // 都答不了（真踩过：磁盘升到 0.5.1，进程还在 0.5.0，界面显示 0.5.0）。
@@ -1529,9 +1530,11 @@ function setupInbound(ctx, config, log, warn, waker) {
       const dshGoNote = [];
       if (isDshGo()) {
         dshGoNote.push(
-          config.permissionPresetOnDshGo
+          inbound.source === "dsh-go"
             ? "dsh-go 环境，已启用 permissionPresetOnDshGo 覆盖"
-            : "dsh-go 环境但未设 permissionPresetOnDshGo —— workspace-write 会停在「待确认」",
+            : inbound.source === "dsh-go-default"
+              ? `dsh-go 环境，未显式配置 → 使用内置默认 ${inbound.value}（proot 无沙箱后端）`
+              : "dsh-go 环境但用户显式指定了权限 preset —— 若为 workspace-write 会停在「待确认」",
         );
       }
       log(
@@ -3035,8 +3038,8 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
         staticPeers: config.staticPeers ?? [],
         advertiseAddress: config.advertiseAddress ?? "",
         sidecarPlatform: sidecarPlatformValue(config),
-        // P1：dsh-go 上的入站权限覆盖（空 = 不覆盖）。UI 只读展示，
-        // 生效值见 self.inboundPermissionPreset。
+        // P1：dsh-go 上的入站权限覆盖（空 = 使用内置默认，dsh-go 上为 danger-full-access）。
+        // UI 只读展示；生效值与来源见 self.inboundPermissionPreset。
         permissionPresetOnDshGo: config.permissionPresetOnDshGo ?? "",
         // 对端能力名片超过这个年龄就按"未知"处理（UI 用它渲染"能力信息已过期"）
         capabilityStaleMs: CAPABILITY_STALE_MS,

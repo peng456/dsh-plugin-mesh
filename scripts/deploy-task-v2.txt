@@ -1,0 +1,46 @@
+# 恢复 + 升级到适配版（用户在 dsh-go 聊天里发送的一段命令）
+# 背景：上一版部署把手机上的 mesh 弄挂了（插件文件替换 + profile patch 改动触发 live 重载失败）。
+# 本段先恢复备份，再升级到修复版（0.5.4-dshgo.1：dsh-go 上入站任务自动 danger-full-access，不需要改配置）。
+# 复制下面整段（从 set -x 到 RESTORE_AND_UPGRADE_DONE）发送给 dsh-go 里的 agent。
+
+```
+set -x
+P=/root/.dsh/profiles/web/node_modules
+PF=/root/.dsh/profiles/web/cordis.patch.yml
+PB=$(ls -t $PF.bak-* 2>/dev/null | head -1); echo "PATCHBAK=$PB"; [ -n "$PB" ] && cp -a "$PB" $PF
+B=$(ls -d $P/dsh-plugin-mesh.bak-* 2>/dev/null | tail -1); echo "PLUGINBAK=$B"; [ -n "$B" ] && rm -rf $P/dsh-plugin-mesh && mv "$B" $P/dsh-plugin-mesh
+T=$(mktemp -d)
+curl -fsSL --max-time 120 -o "$T/mesh.tgz" http://127.0.0.1:8792/dsh-plugin-mesh-0.5.4-dshgo.1.tgz
+mkdir -p "$T/x" && tar xzf "$T/mesh.tgz" -C "$T/x"
+Q=$P/dsh-plugin-mesh
+cp -a "$Q" "${Q}.bak2-$(date +%Y%m%d-%H%M%S)"
+rm -rf "$Q/lib" "$Q/client" "$Q/scripts" "$Q/sidecar"
+cp -a "$T/x/package/lib" "$T/x/package/client" "$T/x/package/scripts" "$T/x/package/sidecar" "$Q/"
+cp "$T/x/package/package.json" "$Q/package.json"
+cp "$T/x/package/cordis.patch.yml" "$Q/cordis.patch.yml"
+cp "$T/x/package/llms.txt" "$Q/llms.txt" 2>/dev/null || true
+( cd "$Q" && node scripts/check-loadable.mjs --allow-missing-runtime-dep && echo LOADABLE_OK )
+node -e "console.log('VERSION', require('$Q/package.json').version)"
+echo RESTORE_AND_UPGRADE_DONE
+```
+
+## 之后 Lead 执行（无需用户操作）
+1. `adb shell am force-stop io.github.ccch1mneyyy.dsh_app` + `am start .../.LauncherMist`
+2. 等 ~30s，检查：
+   - `adb forward tcp:45917 tcp:45917` 后 `GET /mesh/v1/health`：
+     - `version` 应为 `0.5.4-dshgo.1`
+     - `osInfo.platform === "android"`、`systems[]` 有 Android host + Ubuntu runtime
+     - `capabilities.cpuCores === 8`
+     - `diag.inboundPermissionPreset.value === "danger-full-access"`、`source === "dsh-go-default"`（或 dsh-go）
+     - `diag.dshGo.isDshGo === true`、`diag.sidecarTarget` = android/arm64
+   - 不再有 `待确认`：派一个小任务验证自动执行
+3. 若 `LOADABLE_OK` 没出现或 health 里 version 仍是 0.5.4：执行回滚（见下）。
+
+## 回滚
+```bash
+P=/root/.dsh/profiles/web/node_modules
+rm -rf $P/dsh-plugin-mesh && mv $(ls -d $P/dsh-plugin-mesh.bak2-* | tail -1) $P/dsh-plugin-mesh
+PF=/root/.dsh/profiles/web/cordis.patch.yml
+cp -a $(ls -t $PF.bak-* | head -1) $PF
+```
+然后 adb force-stop/start 重启引擎。

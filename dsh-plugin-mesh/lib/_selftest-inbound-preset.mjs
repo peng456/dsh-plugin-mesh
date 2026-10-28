@@ -67,16 +67,29 @@ check("dsh-go + 非空覆盖：lan 与 tsnet 都用覆盖值（环境约束优�
   assert.equal(resolveInboundPermissionPreset({ config, task: TSNET, dshGo: true }), "danger-full-access");
 });
 
-check("dsh-go + 空覆盖：完全退回旧语义（lan 默认 / tsnet 收紧）", () => {
+check("dsh-go + 空覆盖：使用内置默认 danger-full-access（lan 与 tsnet 都是；无人值守的前提）", () => {
   const config = dshGoConfig({ tsnetPermissionPreset: "read-only" });
-  assert.equal(resolveInboundPermissionPreset({ config, task: LAN, dshGo: true }), "workspace-write");
-  assert.equal(resolveInboundPermissionPreset({ config, task: TSNET, dshGo: true }), "read-only");
+  assert.equal(resolveInboundPermissionPreset({ config, task: LAN, dshGo: true }), "danger-full-access");
+  assert.equal(resolveInboundPermissionPreset({ config, task: TSNET, dshGo: true }), "danger-full-access");
+  assert.deepEqual(describeInboundPermissionPreset({ config, task: LAN, dshGo: true }), {
+    value: "danger-full-access",
+    source: "dsh-go-default",
+  });
 });
 
-check("空白覆盖值视为未配置（不能被 ' ' 意外触发）", () => {
+check("dsh-go + 空覆盖 + 用户显式更严格 permissionPreset：尊重用户意图（不擅自升级）", () => {
+  const config = dshGoConfig({ permissionPreset: "read-only" });
+  assert.equal(resolveInboundPermissionPreset({ config, task: LAN, dshGo: true }), "read-only");
+  assert.deepEqual(describeInboundPermissionPreset({ config, task: LAN, dshGo: true }), {
+    value: "read-only",
+    source: "default",
+  });
+});
+
+check("空白覆盖值视为未配置（不能被 ' ' 意外触发）→ 仍走内置默认", () => {
   const config = dshGoConfig({ permissionPresetOnDshGo: "   " });
-  assert.equal(resolveInboundPermissionPreset({ config, task: LAN, dshGo: true }), "workspace-write");
-  assert.equal(describeInboundPermissionPreset({ config, task: LAN, dshGo: true }).source, "default");
+  assert.equal(resolveInboundPermissionPreset({ config, task: LAN, dshGo: true }), "danger-full-access");
+  assert.equal(describeInboundPermissionPreset({ config, task: LAN, dshGo: true }).source, "dsh-go-default");
 });
 
 check("覆盖值首尾空白被裁掉（手写 yaml 常见）", () => {
