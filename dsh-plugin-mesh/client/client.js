@@ -1143,6 +1143,8 @@ window.__ModuleLoader__.load({
   display: block;
 }
 .mesh-avatar .mesh-dot, .mesh-detail-avatar .mesh-dot { z-index: 2; }
+.mesh-avatar-os { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px; border-radius: 5px; background: var(--mesh-surface); display: grid; place-items: center; box-shadow: 0 0 0 2px var(--mesh-bg); z-index: 3; }
+.mesh-detail-avatar .mesh-avatar-os { width: 19px; height: 19px; border-radius: 6px; }
 .mesh-row-main { flex: 1; min-width: 0; }
 .mesh-row-name {
   display: flex; align-items: center; gap: 6px;
@@ -4172,6 +4174,9 @@ function CapabilityChips({ caps, peer }) {
           Avatar,
           { name, avatar: peer.avatar, className: "mesh-avatar", platform: peerPlatform(peer) },
           h(Dot, { kind: online ? "ok" : "idle" }),
+          platformBrand(peerPlatform(peer))
+            ? h("span", { className: "mesh-avatar-os", title: `系统：${osLabel(peer.os)}` }, h(PlatformLogo, { brand: platformBrand(peerPlatform(peer)), size: 11 }))
+            : null,
         ),
         h(
           "span",
@@ -4322,7 +4327,14 @@ function CapabilityChips({ caps, peer }) {
           h(
             "header",
             { className: "mesh-detail-head" },
-            h(Avatar, { name: peer.machine, avatar: peer.avatar, className: "mesh-detail-avatar", platform: peerPlatform(peer) }, h(Dot, { kind: online ? "ok" : "idle" })),
+            h(
+              Avatar,
+              { name: peer.machine, avatar: peer.avatar, className: "mesh-detail-avatar", platform: peerPlatform(peer) },
+              h(Dot, { kind: online ? "ok" : "idle" }),
+              platformBrand(peerPlatform(peer))
+                ? h("span", { className: "mesh-avatar-os", title: `系统：${osLabel(peer.os)}` }, h(PlatformLogo, { brand: platformBrand(peerPlatform(peer)), size: 12 }))
+                : null,
+            ),
             h(
               "div",
               { className: "mesh-detail-copy" },
