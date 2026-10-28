@@ -85,6 +85,27 @@ the kill-switch section. Most common cause on a machine with a local proxy: the
 sidecar dials raw TCP/UDP, so an "HTTP clients only" proxy setting does not cover
 it (`register request: … context deadline exceeded`).
 
+## Remote panel and SSH terminal
+
+Two per-peer entry points in the Mesh panel (device page and the device card on
+the home board, enabled while the peer is online):
+
+| Entry | What it does | Requires |
+|---|---|---|
+| **访问 Web** | Opens the peer's DSH Web GUI inside the panel | Peer runs a web profile; the URL + token come from `GET /mesh/v1/web-url` on demand |
+| **SSH** | In-app interactive shell (PTY, ring buffer, resize) | sshd on the peer (default port 22) |
+
+- Remote web has two modes: by default it opens the peer's current engine; if that
+  machine also runs a second engine (the desktop app with the history), set
+  `desktopWebPort` there and `<peer>:<port>/mesh/web/...` is forwarded to it. Auth is
+  completed server-side, so the launch token never appears in the URL bar.
+- SSH key auto-deploy: first connection uses username + password; on success the
+  plugin generates an RSA key (PKCS#1 PEM — ssh2 cannot read Node's ed25519 export),
+  appends the public key to the peer's `authorized_keys` idempotently, then proves it
+  with a fresh private-key-only connection. A different username falls back to password.
+- The private key and credentials live under the profile's mesh directory (mode 0600);
+  they are never broadcast and never included in the peer card.
+
 ## Configuration
 
 Override by id in the profile's `cordis.patch.yml`:
