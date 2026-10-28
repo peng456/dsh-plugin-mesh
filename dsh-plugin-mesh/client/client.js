@@ -9166,9 +9166,28 @@ function CapabilityChips({ caps, peer }) {
           MeshIcon,
         ),
       );
-      ctx.slots.inject("main", () =>
-        ctx.slots.register({ name: "main", key: PANEL_ID }, MeshApp),
-      );
+      ctx.slots.inject("main", () => {
+        ctx.slots.register({ name: "main", key: PANEL_ID }, MeshApp);
+        // 手机端体验：Android WebView（UA 含 "; wv)"）或窄屏（<700px）打开网页版时，
+        // 400ms 后自动切到 Mesh 面板，省掉「点侧栏图标」那一步；桌面宽屏不受影响。
+        try {
+          const layout = (ctx.get && ctx.get("layout")) || ctx.layout;
+          const ua = typeof navigator !== "undefined" ? String(navigator.userAgent || "") : "";
+          const w = typeof window !== "undefined" ? Number(window.innerWidth) || 0 : 0;
+          const mobile = /;\s*wv\)/i.test(ua) || (w > 0 && w < 700);
+          if (mobile && layout && typeof layout.selectPanel === "function") {
+            setTimeout(() => {
+              try {
+                layout.selectPanel(PANEL_ID);
+              } catch {
+                /* 布局位未就绪时忽略：不打扰会话 */
+              }
+            }, 400);
+          }
+        } catch {
+          /* 探测 UA/宽度失败不影响面板注册 */
+        }
+      });
       ctx.logger?.info?.("mesh client: 已注册 Mesh 工作台");
     }
 
