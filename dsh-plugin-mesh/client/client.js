@@ -1741,6 +1741,8 @@ textarea.mesh-setting-input { min-height: 54px; resize: vertical; }
 .mesh-card-logo.is-expanded .mesh-card-stack-item:not(.is-primary) { width: 34px; opacity: 1; transform: none; pointer-events: auto; }
 .mesh-card-headtext { transition: opacity .16s ease, transform .16s ease; }
 .mesh-card-head.is-logo-expanded .mesh-card-headtext { opacity: 0; transform: translateX(-4px); pointer-events: none; }
+.mesh-mini-avatar { width: 18px; height: 18px; border-radius: 6px; font-size: 10px; flex: 0 0 auto; }
+.mesh-mini-row.is-self .mesh-mini-name { font-weight: 600; }
 .mesh-card-headtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mesh-card-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
 .mesh-card-sub { font-size: 10.5px; color: var(--mesh-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -7732,15 +7734,29 @@ function CapabilityChips({ caps, peer }) {
       const metricLabel = (metric) => (HOME_METRICS.find((m) => m.value === metric) || HOME_METRICS[0]).label;
 
       const miniPeers = (filter) => {
-        const list = peers.filter((p) => filter !== "online" || p.online);
-        return list.length
-          ? list.slice(0, 3).map((p) =>
+        // 设备卡列表：本机永远第一行；其余设备在线优先、离线排到更下方（连接过但当前不在线）。
+        const rank = (p) => (p && p.online ? 1 : 0);
+        const sorted = peers
+          .slice()
+          .sort((a, b) => rank(b) - rank(a) || Number((b && b.lastSeen) || 0) - Number((a && a.lastSeen) || 0));
+        const list = filter === "online" ? sorted.filter((p) => p && p.online) : sorted;
+        const selfRow =
+          filter === "all" && self
+            ? h(
+                "div",
+                { key: "self", className: "mesh-mini-row is-self" },
+                h(Avatar, { name: self.machine, avatar: self.avatar, className: "mesh-avatar mesh-mini-avatar" }),
+                h("span", { className: "mesh-mini-name" }, self.machine || "本机"),
+                h("span", { className: "mesh-mini-meta" }, `在线 · ${osLabel(self.platform)} · 本机`),
+              )
+            : null;
+        const rows = list.slice(0, 3).map((p) =>
               h(
                 "div",
-                { key: p.id, className: "mesh-mini-row" },
+                { key: p.id || p.machine, className: "mesh-mini-row" },
                 h(Dot, { kind: p.online ? "ok" : "idle" }),
                 h("span", { className: "mesh-mini-name" }, p.machine || "未命名设备"),
-                h("span", { className: "mesh-mini-meta" }, p.online ? `在线 · ${osLabel(p.os)}` : `${ago(p.lastSeen, now)}`),
+                h("span", { className: "mesh-mini-meta" }, p.online ? `在线 · ${osLabel(p.os)}` : `离线 · ${ago(p.lastSeen, now)}`),
                 // 与「设备」页同一组入口：访问 DSH Web / SSH 终端
                 h(
                   "span",
@@ -7775,8 +7791,11 @@ function CapabilityChips({ caps, peer }) {
                     : null,
                 ),
               ),
-            )
-          : h("p", { className: "mesh-card-text" }, "还没有发现其他设备。扫描本网段，或让对方也打开 Mesh。");
+            );
+        const all = selfRow ? [selfRow].concat(rows) : rows;
+        return all.length
+          ? all
+          : h("p", { className: "mesh-card-text" }, "还没有发现其他设备；扫本机网段，或让对方也开 Mesh。");
       };
       const miniTasks = (filter) => {
         const list = tasks.filter((t) => filter === "all" || t.dir === filter);
@@ -7813,7 +7832,19 @@ function CapabilityChips({ caps, peer }) {
           onDrop: dropCard,
           // 传给 BoardCard：概览卡显示本机头像，设备卡显示设备头像栈（可悬停展开、点击直达）。
           logoAvatar: card.id === "overview" ? String((self && self.avatar) || "") : "",
-          logoPeers: card.id === "devices" ? peers : null,
+          logoPeers:
+            card.id === "devices"
+              ? [
+                  {
+                    id: "self",
+                    machine: (self && self.machine) || "本机",
+                    avatar: (self && self.avatar) || "",
+                    host: (self && self.host) || "",
+                    online: true,
+                    self: true,
+                  },
+                ].concat(peers.filter((p) => p && p.online))
+              : null,
           logoName: (self && self.machine) || "",
           onOpenPeer,
         };
