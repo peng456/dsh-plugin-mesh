@@ -1726,6 +1726,21 @@ textarea.mesh-setting-input { min-height: 54px; resize: vertical; }
   background: color-mix(in srgb, var(--mesh-accent) 9%, transparent);
 }
 .mesh-card.is-full .mesh-card-logo { width: 42px; height: 42px; border-radius: 12px; }
+/* 卡片标题图标 = 真实头像：概览显示本机头像；设备显示设备头像栈（悬停向右展开，点击直达该设备）。 */
+.mesh-card-logo.has-avatar { padding: 0; background: transparent; overflow: visible; }
+.mesh-card-avatar { width: 100%; height: 100%; border-radius: inherit; }
+.mesh-card-stack { display: flex; align-items: center; gap: 5px; }
+.mesh-card-stack-item { width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; }
+.mesh-card-stack-item .mesh-avatar { width: 100%; height: 100%; border-radius: 10px; }
+.mesh-card-stack-item:not(.is-primary) {
+  width: 0; opacity: 0; transform: translateX(-5px); pointer-events: none; overflow: hidden;
+  transition: width .24s cubic-bezier(.2, .8, .2, 1), opacity .16s ease, transform .24s cubic-bezier(.2, .8, .2, 1);
+}
+.mesh-card-logo.is-expanded { width: auto; padding-right: 2px; }
+.mesh-card-logo.is-expanded .mesh-card-stack-item.is-primary { width: 36px; }
+.mesh-card-logo.is-expanded .mesh-card-stack-item:not(.is-primary) { width: 34px; opacity: 1; transform: none; pointer-events: auto; }
+.mesh-card-headtext { transition: opacity .16s ease, transform .16s ease; }
+.mesh-card-head.is-logo-expanded .mesh-card-headtext { opacity: 0; transform: translateX(-4px); pointer-events: none; }
 .mesh-card-headtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mesh-card-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
 .mesh-card-sub { font-size: 10.5px; color: var(--mesh-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6653,7 +6668,44 @@ function CapabilityChips({ caps, peer }) {
       );
     }
 
-    function HomeCard({ card, subtitle, status, editing, index, count, onMove, onHide, children, footer }) {
+    function HomeCard({ card, subtitle, status, editing, index, count, onMove, onHide, children, footer, self, peers, onOpenPeer }) {
+      // 卡片标题图标：概览 = 本机头像；设备 = 设备头像栈（悬停向右平滑展开、点某个头像直达该设备详情）。
+      const [logoOpen, setLogoOpen] = react.useState(false);
+      const selfAvatar = card.id === "overview" ? String((self && self.avatar) || "") : "";
+      const stackPeers = card.id === "devices" && Array.isArray(peers) ? peers.filter(Boolean) : [];
+      const isStack = stackPeers.length > 0;
+      const stackExpanded = isStack && logoOpen;
+      const logoNode = selfAvatar
+        ? h(Avatar, { name: (self && self.machine) || "", avatar: selfAvatar, className: "mesh-avatar mesh-card-avatar" })
+        : isStack
+          ? h(
+              "span",
+              { className: "mesh-card-stack" },
+              stackPeers.slice(0, 8).map((p, i) =>
+                h(
+                  "button",
+                  {
+                    key: p.id || p.machine || String(i),
+                    type: "button",
+                    className: "mesh-card-stack-item" + (i === 0 ? " is-primary" : ""),
+                    title: `${p.machine || "设备"}${p.host ? " · " + p.host : ""}`,
+                    tabIndex: stackExpanded || i === 0 ? 0 : -1,
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      if (onOpenPeer) {
+                        try {
+                          onOpenPeer(p);
+                        } catch {
+                          /* 导航失败不影响主页 */
+                        }
+                      }
+                    },
+                  },
+                  h(Avatar, { name: p.machine, avatar: p.avatar, className: "mesh-avatar" }),
+                ),
+              ),
+            )
+          : h(Icon, { name: card.icon, size: card.full ? 19 : 17 });
       return h(
         "article",
         {
@@ -6664,8 +6716,16 @@ function CapabilityChips({ caps, peer }) {
         },
         h(
           "div",
-          { className: "mesh-card-head" },
-          h("span", { className: "mesh-card-logo" }, h(Icon, { name: card.icon, size: card.full ? 19 : 17 })),
+          { className: cls("mesh-card-head", stackExpanded && "is-logo-expanded") },
+          h(
+            "span",
+            {
+              className: cls("mesh-card-logo", (selfAvatar || isStack) && "has-avatar", stackExpanded && "is-expanded"),
+              onMouseEnter: isStack ? () => setLogoOpen(true) : undefined,
+              onMouseLeave: isStack ? () => setLogoOpen(false) : undefined,
+            },
+            logoNode,
+          ),
           h(
             "div",
             { className: "mesh-card-headtext" },
@@ -6702,6 +6762,7 @@ function CapabilityChips({ caps, peer }) {
       onFocusChange,
       onReset,
       onDevices,
+      onOpenPeer,
       onTasks,
       onConnect,
       onWeb,
@@ -6743,6 +6804,7 @@ function CapabilityChips({ caps, peer }) {
         if (card.id === "overview") {
           return h(HomeCard, {
             ...common,
+            self,
             subtitle: `${osLabel(self.platform)} · 本机`,
             status: h(Status, { kind: "ok" }, "本机在线"),
             children: h(
@@ -6775,6 +6837,8 @@ function CapabilityChips({ caps, peer }) {
         if (card.id === "devices") {
           return h(HomeCard, {
             ...common,
+            peers,
+            onOpenPeer,
             subtitle: `${peers.length} 台其他设备`,
             status: h(Badge, { kind: online ? "ok" : "muted" }, `${online} 在线`),
             children: peers.length
@@ -7454,6 +7518,7 @@ function CapabilityChips({ caps, peer }) {
       onDensityChange,
       onReset,
       onDevices,
+      onOpenPeer,
       onTasks,
       onConnect,
       onWeb,
@@ -8801,6 +8866,10 @@ function CapabilityChips({ caps, peer }) {
                 onDensityChange: setDensity,
                 onReset: resetHome,
                 onDevices: goDevices,
+                onOpenPeer: (peer) => {
+                  selectPeer(peer.id);
+                  goDevices();
+                },
                 onTasks: goTasks,
                 onConnect: openConnect,
                 onWeb: remoteEnabled ? openWeb : undefined,
