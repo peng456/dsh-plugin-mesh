@@ -1,0 +1,150 @@
+# dsh-plugin-mesh
+
+> DSH Mesh is a plugin for DeepSeek Harness (dsh) that discovers other dsh instances on the local network over UDP multicast or port scan, shows each peer's self-reported capabilities in a sidebar panel, and dispatches tasks between machines in both directions — over the LAN, or over an automatically downloaded userspace Tailscale (tsnet) sidecar when machines are not on the same network.
+
+Canonical package: `dsh-plugin-mesh` (npm, MIT).
+Repository: https://github.com/peng456/dsh-plugin-mesh
+Showcase: https://peng456.github.io/dsh-plugin-mesh/
+Primary documentation language is Chinese; this file is the English, machine-oriented entry point.
+
+## Install
+
+```bash
+dsh plugin add dsh-plugin-mesh                 # 'desktop' profile: must run in DSH Desktop's own terminal
+dsh plugin --profile web add dsh-plugin-mesh   # any other profile: a normal terminal is fine
+```
+
+From source instead: `git clone https://github.com/peng456/dsh-plugin-mesh && cd dsh-plugin-mesh && ./install.sh`
+
+`dsh plugin --profile desktop ...` is rejected from a normal terminal by dsh itself (bin.js:29 — the desktop profile is managed exclusively by the Electron application). Use the app's built-in terminal, or `install.sh`.
+
+**A restart of the dsh host is required after install** — the plugin loads at startup.
+
+Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON containing `{"app":"dsh-mesh","machine":"<name>",...}`.
+
+## What it does at runtime
+
+- Sends a JSON heartbeat to UDP multicast `239.255.42.99:45892` every `announceIntervalMs` (default 5000 ms) and listens on the same group.
+- Serves a small HTTP peer API on TCP port 45917 (configurable via `port`).
+- Optionally starts bundled Go sidecars, each running a userspace Tailscale node (tsnet) for one tailnet channel. Multiple channels can run at once: one machine identity, several reachability paths. No TUN device is created, so the host cannot route to `100.x.y.z`; all tailnet traffic is proxied through the matching sidecar. The binary is downloaded per-platform on first use and verified against checksums pinned in the plugin source.
+- Auto-creates an agent session on the receiving machine when a task arrives, then routes that task to a new or reused session.
+- Reports a structured `osInfo` card entry (host) and a `systems[]` array: host first, then environments such as WSL distros on Windows (`kind: "wsl"`, Linux `platform`, distro name/version). Older peers only send `os`, and the UI falls back to parsing it; purely display data, at most 4 systems.
+- On Windows, probes runtimes inside **running** WSL distros (`wsl.exe -d <name> -e sh -lc …`) and reports them as `capabilities.wsl[]`; stopped distros are never started just to probe. Host and WSL runtimes are displayed separately.
+
+## Tools registered (callable by the agent)
+
+| Tool | Parameters | Purpose |
+|---|---|---|
+| `mesh_peers` | `includeOffline?: boolean` | List discovered peers: online state, address, OS, user, and the capabilities each peer reports. |
+| `mesh_scan` | none | Actively scan the local subnet for mesh peers. Use when multicast is blocked. |
+| `mesh_run` | `peer: string` (required), `task: string` (required), `thread?: string`, `noWake?: boolean`, `newSession?: boolean`, `workspace?: string` | Dispatch a task to another machine. Asynchronous — a successful call means "accepted", not "done". |
+| `mesh_tasks` | none | Show recently received and sent mesh tasks. |
+
+`peer` accepts a machine name, an instance id, or `ip:port`. **Do not pass `machine/user`** — `from` fields look like `machine/user`, but the peer key is the machine name only.
+
+Reuse the same `thread` value for the same piece of work: the receiving side reuses one session per `thread`, which saves tokens and keeps context. Use `noWake: true` for pure acknowledgements — otherwise a task wakes an agent session on the peer.
+
+`newSession: true` forces a fresh session while keeping the same conversation key (i.e. it is still the same conversation, with a clean context).
+
+## Configuration
+
+Override by id in the profile's `cordis.patch.yml`:
+
+```yaml
+- id: mesh
+  config:
+    requirePairing: true
+```
+
+**`config:` is replaced wholesale, not merged** (dsh's patch layer does `target[key] = value`). To add one key you must restate the keys you want to keep, or the others fall back to schema defaults.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | boolean | `true` | |
+| `machineName` | string | `""` | Human-readable name; empty = ask/derive from hostname |
+| `port` | natural | `45917` | HTTP peer port |
+| `announceIntervalMs` | natural | `5000` | Multicast heartbeat period |
+| `peerTtlMs` | natural | `20000` | Peer marked offline after this silence |
+| `requestTimeoutMs` | natural | `20000` | Per-request timeout |
+| `useMulticast` | boolean | `true` | |
+| `scanOnStart` | boolean | `true` | |
+| `scanIntervalMs` | natural | `60000` | |
+| `scanConcurrency` | natural | `64` | |
+| `scanTimeoutMs` | natural | `800` | |
+| `pingIntervalMs` | natural | `10000` | LAN health probe period |
+| `tsnetProbeIntervalMs` | natural | `60000` | Tailnet health probe period |
+| `requirePairing` | boolean | `false` | **Default off: the peer API accepts unauthenticated task POSTs.** Setting it `true` here pins pairing on; otherwise the Mesh panel's pairing switch (persisted in `state.json`) decides |
+| `agentPreset` | string | `"standard"` | Agent preset for auto-created sessions |
+| `permissionPreset` | string | `"workspace-write"` | Permission preset for auto-created sessions |
+| `workspaceRoot` | string | `""` | |
+| `tsnetChannels` | array | `[]` | Multi-tailnet channels: `{id, label, authKey, controlUrl, hostname, enabled}`. A non-empty list pins the channel set (UI read-only) and wins over the legacy single-channel fields. `id` is the stable sidecar directory / tailnet device identity — always give it explicitly when hand-editing; renaming `label` alone derives a new id and therefore registers a new device |
+| `tsnetEnabled` | boolean | `false` | Legacy single-channel switch; only used when `tsnetChannels` is empty |
+| `tsnetAuthKey` | string | `""` | Legacy single channel. Tailscale auth key; must be reusable |
+| `tsnetControlUrl` | string | `""` | Legacy single channel |
+| `tsnetHostname` | string | `""` | Legacy single channel. The plugin prefixes `dsh-`; do not include it yourself |
+| `tsnetPermissionPreset` | string | `""` | Empty = same as `permissionPreset` |
+| `maxWakesPerThread` | natural | `30` | Per-thread wake cap per window |
+| `threadWindowMs` | natural | `3600000` | Window for the cap above |
+| `threadCooldownMs` | natural | `5000` | Cooldown between session-creating wakes |
+| `minTaskChars` | natural | `24` | Bodies shorter than this are not woken (inbox only) |
+
+## Tailnet setup (the only step that needs an external account)
+
+Cross-network links require a free Tailscale account and an auth key. Create one at
+<https://console.tailscale.com/admin/settings/keys> — that URL redirects to sign-up
+if you are not signed in yet. The key **must be Reusable**; single-use keys fail
+with `invalid key` on the next start. If device approval is enabled in the tailnet,
+tick Pre-approved as well.
+
+Add a channel in the Mesh panel (name + key, optionally a Headscale control URL), or
+set `tsnetChannels` in config. Keys pasted in the UI are stored in
+`~/.dsh/mesh/state.json` (mode 0600) and never need re-entry. The plugin's UI links to
+the key page directly; do not tell users to hunt for it.
+
+One machine can join several tailnets at once. Each channel gets its own sidecar and
+its own state directory; the mesh device identity stays the same, so peers see one
+machine with several tailnet endpoints. Endpoint health is tracked per channel: one
+tailnet going down neither takes the device offline nor affects the other channels.
+Outbound dispatch tries LAN first, then each tailnet channel in order.
+
+## Network and security facts
+
+- Ports: TCP `45917` (peer HTTP), UDP `45892` (multicast group `239.255.42.99`).
+- Discovery is intentionally public: any host on the same L2 network can see the machine and its self-reported card.
+- With `requirePairing: false` (the default), **any host that can reach TCP 45917 can POST a task, which wakes an agent session** using `permissionPreset`. Turn on the pairing switch in the Mesh panel (immediate, no restart) or set `requirePairing: true`, and make both machines share one secret, on untrusted networks. The token travels in a plain HTTP header — it guards against stray devices, not against a network sniffer.
+- The shared secret is stored in `~/.dsh/mesh/state.json` (mode 0600) alongside `machineName`, the persisted `instanceIds`, and the tsnet auth key. It is never included in the multicast card.
+- Persistent identity is a UUID per profile; the OS machine fingerprint is used only to reclaim a reinstalled device (same name, or the old record already offline). Two live instances on one physical machine are kept separate.
+- Sidecar binaries are verified against sha256 checksums pinned in `lib/tsnet/checksums.js` — deliberately not fetched from the same release, so a hostile mirror cannot swap both.
+
+## Requirements
+
+- A dsh host that can load cordis plugins with a client half (DSH Desktop, or `dsh web` + a profile).
+- Node >= 20 for development. Peer `@deepseek-ai/*` packages are provided by the host and are not bundled.
+- No Go toolchain and no Tailscale client are required by end users.
+
+## Development
+
+```bash
+npm run check            # version consistency + TDZ scan + syntax + loadability
+npm test                 # = check + regression suites (~280 assertions, network-free)
+npm run selftest:caps    # capability collection: sanitising, GPU parsing, retries, claim rules
+npm run selftest:client  # client bundle rendering without a browser
+npm run selftest:prompt  # task prompt generation
+npm run build:sidecar    # rebuild the Go tsnet sidecar (cross-platform)
+```
+
+`AGENTS.md` in the repository root carries the operating guide for coding agents: hard constraints, known traps, and file map. Read it before changing this project.
+
+## Documentation map
+
+- `AGENTS.md` — agent operating guide, constraints, traps (English)
+- `README.en.md` — short English quickstart (English)
+- `DESIGN.md` — design rationale, trade-offs and post-mortems (Chinese)
+- `README.md` — full documentation, Chinese, includes design rationale and post-mortems
+- `Placement设计.md` — placement design and implementation record (Chinese)
+- `设备身份与多通道设计.md` — identity and multi-channel design (Chinese)
+- `docs/index.html` — user-facing showcase, Chinese (GitHub Pages)
+
+## Contact
+
+geekstartup@163.com · https://github.com/peng456/dsh-plugin-mesh/issues · npm: `dsh-plugin-mesh`

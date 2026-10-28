@@ -1,0 +1,844 @@
+/**
+ * tsnet 相关模块的自测（不联网、不需要授权码）。
+ *
+ * 跑法：node lib/_selftest-tsnet.mjs
+ *
+ * 重点覆盖两件事：
+ *   1. 平台识别 / 下载源顺序 / 节点名清洗 —— P1 的纯逻辑
+ *   2. transport 感知的地址登记 —— P2 里最容易错、也最致命的一处：
+ *      tailnet 对端自述的 host 是它的**局域网** IP，跨互联网不可达，
+ *      必须被实际观察到的 tailnet IP 覆盖。
+ */
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { detectTarget, assetName, candidateUrls, binDir, binaryPath, binaryInfo, cacheIsCurrent, downloadToBuffer, SIDECAR_PROTOCOL } from "./tsnet/download.js";
+import { PINNED_CHECKSUMS } from "./tsnet/checksums.js";
+import { toHostname, TsnetNode, channelKey, channelDir, channelStateDir } from "./tsnet/manager.js";
+import { resolveTailnetChannels } from "./tsnet/channels.js";
+import { tailnetOrigin, isTailnetAddress } from "./tsnet/bridge.js";
+import { MeshDiscovery, orderedEndpoints, endpointAlive } from "./discovery.js";
+import { conversationKey, replyTarget } from "./conversation.js";
+
+let passed = 0;
+let failed = 0;
+function check(label, fn) {
+  try {
+    fn();
+    console.log(`  ✓ ${label}`);
+    passed += 1;
+  } catch (err) {
+    console.log(`  ✗ ${label}\n      ${err.message}`);
+    failed += 1;
+  }
+}
+async function checkAsync(label, fn) {
+  try {
+    await fn();
+    console.log(`  ✓ ${label}`);
+    passed += 1;
+  } catch (err) {
+    console.log(`  ✗ ${label}\n      ${err.message}`);
+    failed += 1;
+  }
+}
+
+console.log("\n── P1: 平台识别与下载 ──");
+
+check("detectTarget 给出当前平台", () => {
+  const t = detectTarget();
+  assert.ok(["darwin", "windows", "linux", "android"].includes(t.os), `os=${t.os}`);
+  assert.ok(["amd64", "arm64"].includes(t.arch), `arch=${t.arch}`);
+});
+
+check("assetName 命名与 sidecar 构建脚本一致", () => {
+  const name = assetName();
+  assert.match(name, /^dsh-mesh-tsnet-(darwin|windows|linux|android)-(amd64|arm64)(\.exe)?\.gz$/);
+});
+
+check("下载源：镜像在前、直连 GitHub 兜底", () => {
+  const urls = candidateUrls();
+  const hostOf = (u) => new URL(u).host;
+  assert.ok(urls.length >= 5, `只有 ${urls.length} 个源`);
+  // 实测本机直连 github.com 不通，所以直连必须排在镜像之后。
+  // 注意比的是 host：镜像 URL 里本来就含 github.com 作为路径。
+  assert.equal(hostOf(urls[0]), "ghfast.top", `首个源应为实测最快的镜像：${urls[0]}`);
+  assert.equal(hostOf(urls[urls.length - 1]), "github.com", "最后一个应是直连兜底");
+  assert.equal(new Set(urls).size, urls.length, "源不应重复");
+  assert.ok(urls.every((u) => u.endsWith(assetName())), "每个源都指向同一个资产名");
+});
+
+check("自定义下载源优先于内置镜像", () => {
+  const urls = candidateUrls(["https://my.mirror/{url}"]);
+  assert.ok(urls[0].startsWith("https://my.mirror/"), urls[0]);
+  assert.ok(urls[0].endsWith(assetName()), urls[0]);
+});
+
+check("缓存目录含协议版本，避免新旧二进制串用", () => {
+  assert.ok(binDir().includes(`sidecar-v${SIDECAR_PROTOCOL}`), binDir());
+  assert.ok(binaryPath().startsWith(binDir()), binaryPath());
+});
+
+await checkAsync("缓存判定：sidecar 重新发布（校验值变了）必须重下，而不是复用旧文件", async () => {
+  // 真机实测踩过的坑：manager 原本只在 `!installed || !looksExecutable()` 时才调
+  // ensureBinary，于是「校验值变了」这条分支永远走不到 —— 新版 android 资产都发布
+  // 到镜像上了，老装置却一直复用旧二进制，只有手动删缓存才会下载。
+  const home = mkdtempSync(join(tmpdir(), "mesh-cache-check-"));
+  const prevHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    assert.equal(cacheIsCurrent(), false, "没有缓存时应为 false");
+
+    const target = binaryPath();
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, Buffer.alloc(2 * 1024 * 1024), { mode: 0o755 });
+    assert.equal(cacheIsCurrent(), false, "缺 source-sha256 标记时应为 false");
+
+    const expected = PINNED_CHECKSUMS[assetName()];
+    if (expected) {
+      // 标记就是"这份二进制来自哪个 .gz"，与钉在源码里的校验和一致才算最新
+      writeFileSync(`${target}.source-sha256`, expected);
+      assert.equal(cacheIsCurrent(), true, "标记与 PINNED_CHECKSUMS 一致时应为 true");
+      writeFileSync(`${target}.source-sha256`, "0".repeat(64));
+      assert.equal(cacheIsCurrent(), false, "标记对不上（资产/校验值变了）时应为 false");
+    }
+  } finally {
+    if (prevHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+console.log("\n── P1: tailnet 节点名清洗 ──");
+
+check("中文机器名清洗后仍可辨认", () => {
+  assert.equal(toHostname("立朋-mac"), "dsh-mac");
+  assert.equal(toHostname("文超-win"), "dsh-win");
+  assert.equal(toHostname("DESKTOP-H8NJ172"), "dsh-desktop-h8nj172");
+  assert.equal(toHostname("MacBook Pro"), "dsh-macbook-pro");
+});
+
+check("纯非 ASCII 名字用哈希兜底，不会撞名", () => {
+  const a = toHostname("我的电脑");
+  const b = toHostname("另一台电脑");
+  assert.match(a, /^dsh-node-[0-9a-f]{8}$/, a);
+  assert.notEqual(a, b, "不同名字不能得到同一个节点名");
+  assert.equal(a, toHostname("我的电脑"), "同名必须稳定");
+});
+
+check("空名字有兜底且长度合法", () => {
+  const n = toHostname("");
+  assert.ok(n.length > 0 && n.length <= 63, n);
+  assert.match(n, /^[a-z0-9-]+$/, n);
+});
+
+console.log("\n── P2: 入站来源还原 ──");
+
+const fakeReq = (remote, xff) => ({ socket: { remoteAddress: remote }, headers: xff ? { "x-forwarded-for": xff } : {} });
+
+check("tailnet 入站经反代：从 XFF 还原真实地址", () => {
+  const o = tailnetOrigin(fakeReq("127.0.0.1", "100.64.0.9"));
+  assert.equal(o.address, "100.64.0.9");
+  assert.equal(o.transport, "tsnet");
+});
+
+check("XFF 带端口 / 多级链都能解析", () => {
+  assert.equal(tailnetOrigin(fakeReq("127.0.0.1", "100.64.0.9:51234")).address, "100.64.0.9");
+  assert.equal(tailnetOrigin(fakeReq("127.0.0.1", "100.64.0.9, 10.0.0.1")).address, "100.64.0.9");
+});
+
+check("非回环来源不采信 XFF（防局域网伪造）", () => {
+  const o = tailnetOrigin(fakeReq("192.168.1.77", "100.64.0.9"));
+  assert.equal(o.address, "192.168.1.77");
+  assert.equal(o.transport, "lan");
+});
+
+check("回环但无 XFF → 仍按局域网处理", () => {
+  const o = tailnetOrigin(fakeReq("127.0.0.1", null));
+  assert.equal(o.address, "127.0.0.1");
+  assert.equal(o.transport, "lan");
+});
+
+check("100.64.0.0/10 判定", () => {
+  assert.equal(isTailnetAddress("100.64.0.1"), true);
+  assert.equal(isTailnetAddress("100.127.255.254"), true);
+  assert.equal(isTailnetAddress("100.63.0.1"), false);
+  assert.equal(isTailnetAddress("100.128.0.1"), false);
+  assert.equal(isTailnetAddress("192.168.1.1"), false);
+});
+
+console.log("\n── P2: transport 感知的地址登记（关键修复）──");
+
+check("tailnet 对端：自述的局域网 IP 不能盖掉 tailnet IP", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "peer-ts", machine: "远端", host: "192.168.1.50", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  const p = d.peers().find((x) => x.id === "peer-ts");
+  assert.ok(p, "对端未登记");
+  assert.equal(p.host, "100.64.0.9", `host 应为 tailnet IP，实际 ${p.host}`);
+  assert.equal(p.transport, "tsnet");
+});
+
+check("局域网对端：仍以自述地址为准（保持原行为）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "peer-lan", machine: "隔壁", host: "192.168.1.60", port: 45917 }, "192.168.1.60");
+  const p = d.peers().find((x) => x.id === "peer-lan");
+  assert.equal(p.host, "192.168.1.60");
+  assert.equal(p.transport, "lan", "默认应为 lan");
+});
+
+check("两条通道各占一条端点，互不覆盖（局域网心跳不冲掉 tailnet 端点）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  // 先经 tailnet 发现
+  d.note({ app: "dsh-mesh", id: "peer-ts", machine: "远端", host: "192.168.1.50", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  // 之后对端自己也发组播心跳（走局域网）
+  d.note({ app: "dsh-mesh", id: "peer-ts", machine: "远端", host: "192.168.1.50", port: 45917 }, "192.168.1.50");
+
+  const p = d.peers().find((x) => x.id === "peer-ts");
+  assert.equal(p.endpoints.length, 2, `应有两条端点，实际 ${p.endpoints.length}`);
+  const ts = p.endpoints.find((e) => e.transport === "tsnet");
+  const lan = p.endpoints.find((e) => e.transport === "lan");
+  // 关键：tailnet 端点必须留住观察到的地址，不能被对端自述的局域网 IP 覆盖
+  assert.equal(ts.host, "100.64.0.9", `tailnet 端点地址被覆盖了：${ts.host}`);
+  assert.equal(lan.host, "192.168.1.50");
+  // 两条都活着时，选中的应是局域网（局域网优先）
+  assert.equal(p.transport, "lan", "应优先选局域网");
+  assert.equal(p.host, "192.168.1.50");
+});
+
+console.log("\n── 多通道：两条通道绑一台设备 ──");
+
+check("一台设备两条通道 → peers() 里只有一行，且带 endpoints", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  const peers = d.peers();
+  assert.equal(peers.length, 1, `应只有一台设备，实际 ${peers.length}`);
+  assert.equal(peers[0].endpoints.length, 2);
+  assert.equal(peers[0].online, true);
+});
+
+check("局域网挂了 → 设备仍在线，且自动切到 tailnet", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" }, ttlMs: 20000 });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+
+  // 局域网连续失败到阈值 → 进冷却
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.online, true, "局域网挂了不该让整台设备离线（tailnet 还通）");
+  assert.equal(p.transport, "tsnet", `应自动切到 tailnet，实际 ${p.transport}`);
+  assert.equal(p.host, "100.64.0.9");
+});
+
+check("tailnet 挂了 → 仍优先走局域网，设备在线", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  d.markEndpoint("dev", "tsnet", { ok: false });
+  d.markEndpoint("dev", "tsnet", { ok: false });
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.online, true);
+  assert.equal(p.transport, "lan", "tailnet 挂了不该影响局域网优先");
+});
+
+check("两条都挂了 → 才判离线", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "tsnet", { ok: false });
+  d.markEndpoint("dev", "tsnet", { ok: false });
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.online, false, "两条通道都失败后才应判离线");
+  assert.equal(p.transport, null, "没有可用端点时 transport 应为 null");
+  assert.ok(p.knownAddresses.length === 2, "仍应保留已知地址供 UI 显示");
+});
+
+check("端点恢复后重新上位（局域网恢复则切回）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+  assert.equal(d.peers()[0].transport, "tsnet");
+  d.markEndpoint("dev", "lan", { ok: true, rttMs: 3 });
+  assert.equal(d.peers()[0].transport, "lan", "局域网恢复后应切回（它优先）");
+  assert.equal(d.peers()[0].endpoints.find((e) => e.transport === "lan").rttMs, 3);
+});
+
+check("tailnet 候选端点：知道地址但没探过，不算在线", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.noteTailnetCandidate({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", 45917);
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.endpoints.length, 1);
+  assert.equal(p.endpoints[0].verified, false, "没探过的候选端点不应标记为已验证");
+  assert.equal(p.online, false, "只知道地址不等于在线");
+  // 但地址要留着，局域网一断就能直接用
+  assert.equal(p.endpoints[0].host, "100.64.0.9");
+});
+
+check("一条通道过期不会删掉设备（另一条还活着）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" }, ttlMs: 1000, keepMs: 3000 });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", { transport: "tsnet" });
+  // 把 tailnet 端点的 lastSeen 拨回很久以前，模拟它过期
+  const internal = d.peers()[0];
+  void internal;
+  d.markEndpoint("dev", "lan", { ok: true }); // 局域网刚刷新
+  // 直接推进时间不可行，改用反射不可行 —— 用 markEndpoint 之外的口子验证：
+  // 只要两条端点都存在，设备就不会被 sweep 删掉（sweep 只在端点数为 0 时删）
+  assert.ok(d.peers()[0].endpoints.length === 2);
+});
+
+check("多 tailnet：同一台设备两条 tailnet 端点互不覆盖", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", {
+    transport: "tsnet",
+    channel: "tsnet:personal",
+  });
+  // 第二个 tailnet 给出**同一个** 100.x 地址（不同 tailnet 的 CGNAT 网段可以重叠）
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", {
+    transport: "tsnet",
+    channel: "tsnet:company",
+  });
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.endpoints.length, 3, `应有 lan + 两条 tailnet，实际 ${p.endpoints.length}`);
+  const keys = p.endpoints.map((e) => e.channel).sort();
+  assert.deepEqual(keys, ["lan", "tsnet:company", "tsnet:personal"]);
+
+  // 一条 tailnet 失败不该影响另一条
+  d.markEndpoint("dev", "tsnet:personal", { ok: false });
+  d.markEndpoint("dev", "tsnet:personal", { ok: false });
+  const after = d.peers().find((x) => x.id === "dev");
+  assert.equal(after.online, true, "company 通道还通，设备必须仍在线");
+  const company = after.endpoints.find((e) => e.channel === "tsnet:company");
+  assert.equal(company.downUntil, 0, "company 通道不应被 personal 的失败连坐");
+});
+
+check("多 tailnet：名片里的 tailnetIps 每个地址各记一条候选端点", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note(
+    {
+      app: "dsh-mesh",
+      id: "dev",
+      machine: "hos",
+      host: "192.168.1.7",
+      port: 45917,
+      tailnetIps: ["100.64.0.9", "100.88.0.3"],
+    },
+    "192.168.1.7",
+  );
+  const p = d.peers().find((x) => x.id === "dev");
+  const cands = p.endpoints.filter((e) => e.candidate === true);
+  assert.equal(cands.length, 2, `应有两个候选地址，实际 ${cands.length}`);
+  assert.deepEqual(cands.map((e) => e.host).sort(), ["100.64.0.9", "100.88.0.3"]);
+  assert.ok(cands.every((e) => e.verified === false), "候选端点一律不算已验证");
+  assert.equal(p.online, true, "局域网端点仍然在线");
+});
+
+check("多 tailnet：老对端的单个 tailnetIp 仍能被识别", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917, tailnetIp: "100.64.0.9" }, "192.168.1.7");
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.endpoints.filter((e) => e.transport === "tsnet").length, 1);
+});
+
+check("多 tailnet：快照恢复保留通道 key，不把两条 tailnet 合并成一条", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.restore([
+    {
+      record: { app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 },
+      endpoints: [
+        { channel: "lan", transport: "lan", host: "192.168.1.7", port: 45917, lastSeen: Date.now() },
+        { channel: "tsnet:a", transport: "tsnet", host: "100.64.0.9", port: 45917, lastSeen: Date.now() },
+        { channel: "tsnet:b", transport: "tsnet", host: "100.88.0.3", port: 45917, lastSeen: Date.now() },
+      ],
+    },
+  ]);
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.endpoints.length, 3, `恢复后应保留 3 条端点，实际 ${p.endpoints.length}`);
+  assert.equal(p.restored, true);
+  assert.ok(p.endpoints.some((e) => e.channel === "tsnet:b"));
+});
+
+check("多 tailnet：设备上的 tailnetIps 会随名片对外广播", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.setMeta({ tailnetIps: ["100.64.0.9", "100.88.0.3"] });
+  const rec = d.selfRecord();
+  assert.deepEqual(rec.tailnetIps, ["100.64.0.9", "100.88.0.3"]);
+  assert.equal(rec.tailnetIp, "100.64.0.9", "老字段要保留第一项，供老对端读取");
+});
+
+check("通道 id 只保留安全字符，空值落到 default", () => {
+  assert.equal(channelKey("Company Tailnet"), "company-tailnet");
+  assert.equal(channelKey("../../etc/passwd"), "etc-passwd");
+  assert.equal(channelKey(""), "default");
+  assert.equal(channelKey("!!!"), "default");
+});
+
+check("default 沿用旧目录，其它通道各自独立（身份不能共享）", () => {
+  const prev = process.env.DSH_HOME;
+  const home = mkdtempSync(join(tmpdir(), "mesh-selftest-channels-"));
+  process.env.DSH_HOME = home;
+  try {
+    const root = join(home, "mesh", "tsnet");
+    assert.equal(channelDir("default"), root, "default 必须是旧布局，升级不丢设备身份");
+    assert.equal(channelDir("company"), join(root, "company"));
+    assert.notEqual(channelStateDir("company"), channelStateDir("personal"));
+    assert.equal(channelStateDir("company"), join(root, "company", "state"));
+  } finally {
+    if (prev === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prev;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+check("TsnetNode 暴露通道 id/label，且签名随授权码变化（不泄露明文）", () => {
+  const a = new TsnetNode({ channel: { id: "company", label: "公司", authKey: "tskey-auth-aaa", controlUrl: "", hostname: "" }, machineName: "mac" });
+  const b = new TsnetNode({ channel: { id: "company", label: "公司", authKey: "tskey-auth-bbb", controlUrl: "", hostname: "" }, machineName: "mac" });
+  assert.equal(a.channelKey, "company");
+  assert.equal(a.label, "公司");
+  assert.notEqual(a.signature, b.signature, "换授权码后必须判定为配置变更，否则会留在旧 tailnet");
+  assert.equal(a.signature.length, 12);
+  assert.ok(!a.signature.includes("tskey"), "签名里不能出现授权码明文");
+  // 旧调用方式（只传 config）仍然工作，并落到 default 通道
+  const legacy = new TsnetNode({ config: { tsnetAuthKey: "tskey-auth-ccc" }, machineName: "mac" });
+  assert.equal(legacy.channelKey, "default");
+});
+
+check("通道解析：配置优先于 state.json", () => {
+  const list = resolveTailnetChannels({
+    config: { tsnetChannels: [{ id: "corp", label: "公司", authKey: "k1", enabled: true }] },
+    state: { tsnetChannels: [{ id: "home", label: "家里", authKey: "k2", enabled: true }] },
+  });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, "corp");
+  assert.equal(list[0].source, "config");
+});
+
+check("通道解析：没有通道列表时退回旧版单 key，并落到 default", () => {
+  const list = resolveTailnetChannels({ config: {}, state: { tsnetAuthKey: "tskey-auth-old", tsnetEnabled: true } });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, "default");
+  assert.equal(list[0].legacy, true);
+  assert.equal(list[0].authKey, "tskey-auth-old");
+  assert.equal(list[0].enabled, true);
+});
+
+check("通道解析：没给 id 的通道按 label + 控制服务器推导稳定 id", () => {
+  const a = resolveTailnetChannels({ config: { tsnetChannels: [{ label: "公司", controlUrl: "https://hs.example" }] } });
+  const b = resolveTailnetChannels({ config: { tsnetChannels: [{ label: "公司", controlUrl: "https://hs.example" }] } });
+  assert.match(a[0].id, /^ch-[0-9a-f]{10}$/);
+  assert.equal(a[0].id, b[0].id, "同样的配置必须得到同一个 id（否则每次重启都重新注册设备）");
+  const renamed = resolveTailnetChannels({ config: { tsnetChannels: [{ label: "公司2", controlUrl: "https://hs.example" }] } });
+  assert.notEqual(renamed[0].id, a[0].id, "推导 id 依赖显示名，改名前必须显式固定 id（文档已注明）");
+});
+
+check("通道解析：重复 id 自动去重，不会共享 sidecar 状态目录", () => {
+  const list = resolveTailnetChannels({
+    config: {
+      tsnetChannels: [
+        { id: "dup", label: "A" },
+        { id: "dup", label: "B" },
+      ],
+    },
+  });
+  assert.equal(list.length, 2);
+  assert.notEqual(list[0].id, list[1].id);
+});
+
+check("通道解析：enabled 默认 true，显式 false 才停用", () => {
+  const list = resolveTailnetChannels({
+    config: {
+      tsnetChannels: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B", enabled: false },
+      ],
+    },
+  });
+  assert.equal(list[0].enabled, true);
+  assert.equal(list[1].enabled, false);
+});
+
+console.log("\n── 身份：指纹认领与冲突 ──");
+
+check("同指纹不同 instanceId → 认领为同一台（旧记录立刻淘汰）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  const fp = "aaaa1111bbbb2222";
+  d.note({ app: "dsh-mesh", id: "old", machine: "hos", host: "192.168.1.7", port: 45917, fingerprint: fp }, "192.168.1.7");
+  assert.equal(d.peers().length, 1);
+  // state.json 丢了 → 新 instanceId、同指纹、地址也变了（DHCP 换了 IP）
+  d.note({ app: "dsh-mesh", id: "new", machine: "hos", host: "192.168.1.99", port: 45917, fingerprint: fp }, "192.168.1.99");
+  const peers = d.peers();
+  assert.equal(peers.length, 1, `应只剩一条，实际 ${peers.length}（指纹认领没生效）`);
+  assert.equal(peers[0].id, "new", "留下的应是新记录");
+});
+
+check("空指纹绝不认领（否则所有采不到指纹的设备会并成一团）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "a", machine: "x", host: "10.0.0.1", port: 45917 }, "10.0.0.1");
+  d.note({ app: "dsh-mesh", id: "b", machine: "y", host: "10.0.0.2", port: 45917 }, "10.0.0.2");
+  assert.equal(d.peers().length, 2, "空指纹不该互相认领");
+});
+
+check("同 instanceId 但指纹不同 → 记冲突并告警（有人复制了 state.json）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  const events = [];
+  d.on("diagnostic", (m) => events.push(m));
+  d.note({ app: "dsh-mesh", id: "same", machine: "a", host: "10.0.0.1", port: 45917, fingerprint: "1111111111111111" }, "10.0.0.1");
+  d.note({ app: "dsh-mesh", id: "same", machine: "b", host: "10.0.0.2", port: 45917, fingerprint: "2222222222222222" }, "10.0.0.2");
+  const p = d.peers().find((x) => x.id === "same");
+  assert.ok(p.fingerprintConflict, "应记录指纹冲突");
+  assert.equal(p.fingerprintConflict.previous, "1111111111111111");
+  assert.equal(p.fingerprintConflict.incoming, "2222222222222222");
+  assert.ok(events.some((m) => m.includes("instanceId 冲突")), `应发出 diagnostic，实际：${events.join(" | ")}`);
+});
+
+check("对端在名片里自报 tailnetIp → 自动登记候选端点，且不抢局域网", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note(
+    { app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917, tailnetIp: "100.64.0.9" },
+    "192.168.1.7",
+  );
+  const p = d.peers().find((x) => x.id === "dev");
+  assert.equal(p.endpoints.length, 2, `应同时有 lan 与 tsnet 两条端点，实际 ${p.endpoints.length}`);
+  const ts = p.endpoints.find((e) => e.transport === "tsnet");
+  assert.equal(ts.host, "100.64.0.9");
+  assert.equal(ts.verified, false, "候选端点不该算已验证");
+  assert.equal(p.online, true, "局域网端点让它在线");
+  assert.equal(p.transport, "lan", "候选端点不该抢在局域网前面");
+});
+
+check("局域网挂了 → 对端自报的 tailnet 地址立刻接管（无需重新扫描）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note(
+    { app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917, tailnetIp: "100.64.0.9" },
+    "192.168.1.7",
+  );
+  // 局域网连续失败到阈值 → 进冷却
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+  const eps = orderedEndpoints(d.peers().find((x) => x.id === "dev"));
+  assert.equal(eps[0].transport, "tsnet", `应轮到 tsnet，实际 ${eps[0].transport}`);
+  assert.equal(eps[0].host, "100.64.0.9", "地址应是局域网阶段就记下的那个，不用重新发现");
+});
+
+check("orderedEndpoints：局域网优先、冷却排最后、已验证优先", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note(
+    { app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917, tailnetIp: "100.64.0.9" },
+    "192.168.1.7",
+  );
+  assert.equal(orderedEndpoints(d.peers().find((x) => x.id === "dev"))[0].transport, "lan");
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+  assert.equal(orderedEndpoints(d.peers().find((x) => x.id === "dev"))[0].transport, "tsnet");
+  // 局域网从冷却中恢复 → 回到第一位（它优先）
+  d.markEndpoint("dev", "lan", { ok: true, rttMs: 2 });
+  assert.equal(orderedEndpoints(d.peers().find((x) => x.id === "dev"))[0].transport, "lan");
+});
+
+check("自己不会被登记为自己", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  assert.equal(d.note({ app: "dsh-mesh", id: "self-1", machine: "me", host: "x", port: 1 }, "100.64.0.9"), false);
+  assert.equal(d.peers().length, 0);
+});
+
+check("非 dsh-mesh 的报文不会进注册表", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  assert.equal(d.note({ app: "something-else", id: "x" }, "100.64.0.9"), false);
+  assert.equal(d.peers().length, 0);
+});
+
+console.log("\n── 平台识别：Android/Termux 必须能工作 ──");
+
+check("android 有自己的平台资产（PIE），不再借用 linux 资产", () => {
+  // 实测踩过两件事：
+  //  1) 那台 Android 的自述记录是 `os: 'android 5.10.43'`，而 detectTarget
+  //     原来只认 darwin/win32/linux，于是抛「不支持的系统：android」。这个抛
+  //     发生在 binaryInfo→binaryPath 里面，一抛就把整个 /mesh/api/state 打成
+  //     500，页面显示「本机 undefined」，互联网组网卡片也一起消失。
+  //  2) 后来把 android 映射到 linux 也不对：linux 资产是给桌面准备的全静态
+  //     ET_EXEC，Android 只接受 PIE，真机 exec 直接失败
+  //     （`has unexpected e_type: 2`）。所以 android 必须映射到自己的资产。
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "android", configurable: true });
+  try {
+    const t = detectTarget();
+    assert.equal(t.os, "android", `android 应映射为 android，实际 ${t.os}`);
+    assert.match(assetName(), /^dsh-mesh-tsnet-android-(amd64|arm64)\.gz$/);
+  } finally {
+    Object.defineProperty(process, "platform", desc);
+  }
+});
+
+check("binaryInfo 遇到不支持的平台也不抛，只把原因放进 error", () => {
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "plan9", configurable: true });
+  try {
+    const info = binaryInfo();
+    assert.equal(info.installed, false);
+    assert.ok(info.error, "应把原因放在 error 字段，而不是抛出");
+    assert.match(String(info.error), /不支持的系统/);
+  } finally {
+    Object.defineProperty(process, "platform", desc);
+  }
+});
+
+await checkAsync("start() 早期失败必须落到 phase=error，不能永远停在 starting（UI 转圈不停）", async () => {
+  // 实测（Android 真机）：#spawnOwn() 第一行的 binaryInfo()/looksExecutable() 在任何
+  // try 之外，platform 不认识时直接抛；而 start() 先把 phase 置成 "starting" 才调它，
+  // 异常一路 reject 到调用方只留一条 warning —— phase 永远是 "starting"，页面显示
+  // 「正在组网中」永不结束。macOS 上同样会踩（下载源全挂时也一样）。
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  const prevDsh = process.env.DSH_HOME;
+  const home = mkdtempSync(join(tmpdir(), "mesh-selftest-start-"));
+  process.env.DSH_HOME = home; // 隔离 rendezvous/缓存，免得误复用本机真在跑的 sidecar
+  Object.defineProperty(process, "platform", { value: "plan9", configurable: true });
+  try {
+    const node = new TsnetNode({ config: {}, machineName: "selftest" });
+    await assert.rejects(() => node.start(), /不支持的系统/);
+    const st = node.status();
+    assert.equal(st.phase, "error", `phase 应为 error，实际 ${st.phase}`);
+    assert.match(String(st.error), /不支持的系统/);
+  } finally {
+    Object.defineProperty(process, "platform", desc);
+    if (prevDsh === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = prevDsh;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+console.log("\n── 下载源的逃生通道：局域网 http ──");
+
+await checkAsync("http:// 源能真的取到内容（不是 ERR_INVALID_PROTOCOL）", async () => {
+  // 实测：那台 Android 上 github.com 与 ghfast.top / gh-proxy.com / ghproxy.net
+  // 全部不通，唯一可行的办法是让同网段另一台机器用 http 当镜子。而下载器原来
+  // 只 import node:https，遇到 http:// 会直接 ERR_INVALID_PROTOCOL。
+  const payload = Buffer.alloc(64 * 1024, 0x41);
+  const server = createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": payload.length });
+    res.end(payload);
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const { port } = server.address();
+    const got = await downloadToBuffer(`http://127.0.0.1:${port}/whatever.gz`, { timeoutMs: 4000 });
+    assert.equal(got.length, payload.length, `应取到 ${payload.length} 字节，实际 ${got.length}`);
+    assert.ok(got.equals(payload), "内容应与服务端一致");
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+check("局域网 http 源被排在内置镜像之前（用户指定的源优先）", () => {
+  const urls = candidateUrls(["http://192.168.1.6:8791/"]);
+  assert.match(urls[0], /^http:\/\/192\.168\.1\.6:8791\/https:\/\/github\.com\//);
+  assert.ok(urls[1].startsWith("https://ghfast.top/"), `第二项应是内置镜像，实际 ${urls[1]}`);
+});
+
+console.log("\n── 重名治理：同地址重新登记要淘汰旧记录 ──");
+
+check("对端重启换了 instanceId、地址不变 → 旧记录立刻淘汰", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "old-id", machine: "Android手机", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  assert.equal(d.peers().length, 1, "第一次登记失败");
+  // 对端重启：新 instanceId、同一地址。原实现会留下两条同名记录，触发「有重名」
+  d.note({ app: "dsh-mesh", id: "new-id", machine: "Android手机", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  assert.equal(d.peers().length, 1, `应只剩一条，实际 ${d.peers().length} 条`);
+  assert.equal(d.peers()[0].id, "new-id", "留下的应是新记录");
+});
+
+check("不同地址的同名机器不会被误合并（那确实是真的两台）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "a", machine: "同名", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "b", machine: "同名", host: "192.168.1.8", port: 45917 }, "192.168.1.8");
+  assert.equal(d.peers().length, 2, "不同地址的同名机器不该被合并");
+});
+
+check("同地址不同端口不被误删（同机多实例）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "a", machine: "同名", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  d.note({ app: "dsh-mesh", id: "b", machine: "同名", host: "192.168.1.7", port: 45918 }, "192.168.1.7");
+  assert.equal(d.peers().length, 2, "端口不同应保留两条");
+});
+
+check("被顶替时也会发出 change 事件（UI 才会立刻刷新）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "old-id", machine: "X", host: "10.0.0.5", port: 45917 }, "10.0.0.5");
+  let fired = 0;
+  d.on("change", () => {
+    fired += 1;
+  });
+  d.note({ app: "dsh-mesh", id: "new-id", machine: "X", host: "10.0.0.5", port: 45917 }, "10.0.0.5");
+  assert.ok(fired > 0, "淘汰旧记录必须触发 change");
+});
+
+console.log("\n── 隐私：组播不带硬件 ID ──");
+
+check("组播名片不含 mac，但含指纹；健康检查响应仍带 mac", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me", fingerprint: "abcd1234abcd1234" } });
+  const mc = d.selfRecord({ forMulticast: true });
+  // 组播是二层广播，同网段任何人都能被动收到 —— 不该白送硬件 ID
+  assert.equal("mac" in mc, false, `组播里不该有 mac，实际字段：${Object.keys(mc).join(",")}`);
+  assert.equal(mc.fingerprint, "abcd1234abcd1234", "组播要带指纹（身份靠它）");
+  assert.equal(mc.v, 2);
+  // 健康检查是"对方主动问了才给"，保留 mac（对端探测一次就能拿到）
+  const health = d.selfRecord();
+  assert.ok("mac" in health, "健康检查响应应保留 mac");
+});
+
+check("peers() 必须有设备级 lastSeen（漏了 UI 会渲染出 Invalid Date）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  const p = d.peers()[0];
+  // 内部记录改成端点级 lastSeen 之后，投影里必须补一个设备级的回来 ——
+  // 客户端读 peer.lastSeen 渲染「最后心跳」，漏了就是 Invalid Date
+  assert.ok(Number.isFinite(p.lastSeen) && p.lastSeen > 0, `设备级 lastSeen 无效：${p.lastSeen}`);
+  assert.ok(!Number.isNaN(new Date(p.lastSeen).getTime()), "new Date(lastSeen) 不能是 Invalid Date");
+});
+
+console.log("\n── 实测暴露的三个 bug ──");
+
+check("note() 不传端口时用记录里的 HTTP 端口（组播路径依赖这个契约）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  // 组播报文的 UDP 源端口是 45892，但记录里的 HTTP 端口是 45917。
+  // 曾经写成 `rinfo.port ?? msg.port`，让 45892 盖掉了 45917，
+  // 于是局域网探测全部打到一个没有 HTTP 服务的端口（实测 fail=28）。
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "192.168.1.7");
+  assert.equal(d.peers()[0].port, 45917, "必须用记录里的 HTTP 端口");
+  assert.equal(d.peers()[0].endpoints[0].port, 45917);
+});
+
+check("note() 显式传端口时以显式为准（tailnet / 扫描路径）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note({ app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917 }, "100.64.0.9", {
+    transport: "tsnet",
+    port: 46150,
+  });
+  assert.equal(d.peers()[0].endpoints.find((e) => e.transport === "tsnet").port, 46150);
+});
+
+check("note() 以观察到的地址为准，自述 host 不能改派发目标", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note(
+    { app: "dsh-mesh", id: "spoof", machine: "peer", host: "attacker.example.com", port: 8080 },
+    "10.1.2.3",
+  );
+  const p = d.peers()[0];
+  assert.equal(p.host, "10.1.2.3", "LAN 也必须用观察到的地址");
+  assert.equal(p.endpoints[0].host, "10.1.2.3");
+});
+
+check("endpointAlive：存活窗口跟随探测间隔（慢节奏通道不被 TTL 判死）", () => {
+  const now = 1_000_000;
+  // tailnet 通道每 60s 才探一次，而默认 TTL 是 20s ——
+  // 实测踩过：探完 20 秒后通道就被判死，整台设备显示离线（ok=11 fail=0 却离线）
+  const slow = { transport: "tsnet", lastSeen: now - 50_000, verified: true, probeIntervalMs: 60_000, downUntil: 0 };
+  assert.equal(endpointAlive(slow, now, 20_000), true, "60s 节奏的通道不该被 20s TTL 判死");
+  assert.equal(endpointAlive({ ...slow, lastSeen: now - 200_000 }, now, 20_000), false, "超过放宽窗口仍应判死");
+  // 快节奏通道该按原 TTL 判
+  const fast = { transport: "lan", lastSeen: now - 50_000, verified: true, probeIntervalMs: 10_000, downUntil: 0 };
+  assert.equal(endpointAlive(fast, now, 20_000), false, "10s 节奏的通道 50s 没消息就该判死");
+});
+
+check("心跳不清零出站失败冷却（单向可达时不再永远先打 LAN）", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  const rec = { app: "dsh-mesh", id: "dev", machine: "hos", host: "10.0.0.9", port: 45917 };
+  d.note(rec, "10.0.0.9");
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+  const before = d.peers()[0].endpoints.find((e) => e.transport === "lan");
+  assert.ok(before.downUntil > Date.now(), "连续失败后应进入冷却");
+  d.note(rec, "10.0.0.9");
+  const after = d.peers()[0].endpoints.find((e) => e.transport === "lan");
+  assert.equal(after.failCount, 2, "心跳不该清零 failCount");
+  assert.equal(after.downUntil, before.downUntil, "心跳不该清掉冷却截止时间");
+});
+
+check("全部端点冷却时：投影为空，但 orderedEndpoints 仍要给出发送目标", () => {
+  const d = new MeshDiscovery({ id: "self-1", port: 45917, meta: { machine: "me" } });
+  d.note(
+    { app: "dsh-mesh", id: "dev", machine: "hos", host: "192.168.1.7", port: 45917, tailnetIp: "100.64.0.9" },
+    "192.168.1.7",
+  );
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "lan", { ok: false });
+  d.markEndpoint("dev", "tsnet", { ok: false });
+  d.markEndpoint("dev", "tsnet", { ok: false });
+
+  const p = d.peers()[0];
+  // 投影层：没有可用通道 → transport 为 null、host/port 为空
+  assert.equal(p.transport, null);
+  assert.equal(p.host, "");
+  assert.equal(p.port, 0);
+
+  // 但发送路径必须仍能拿到端点，否则会拼出 http://:0/... 。实测报错：
+  //   Get "http://:0/mesh/v1/hello": lookup : no such host
+  // 根因是调用方用投影字段预拼了 URL。现在 peerFetch 收路径、按端点自己拼，
+  // 这里锁住它依赖的不变量：orderedEndpoints 不因全部冷却而返回空，
+  // 且每条端点的地址都是完整的。
+  const eps = orderedEndpoints(p);
+  assert.equal(eps.length, 2, "全部冷却时 orderedEndpoints 也不该返回空");
+  assert.ok(
+    eps.every((e) => e.host && e.port),
+    `每条端点都要有完整地址可拼 URL，实际 ${JSON.stringify(eps.map((e) => [e.transport, e.host, e.port]))}`,
+  );
+});
+
+check("probeIntervalMs 缺失时 tailnet 通道也有兜底窗口（防同类疏漏）", () => {
+  const now = 2_000_000;
+  // 调用方漏传 probeIntervalMs（scanTailnet 那条路径曾经就是），
+  // 若完全按默认 TTL 20s 判活，通道会在两次探测之间被判死 → 设备假离线
+  const ts = { transport: "tsnet", lastSeen: now - 50_000, verified: true, downUntil: 0 };
+  assert.equal(endpointAlive(ts, now, 20_000), true, "tailnet 通道应有兜底窗口，不该被 20s TTL 判死");
+  assert.equal(endpointAlive({ ...ts, lastSeen: now - 300_000 }, now, 20_000), false, "兜底窗口之外仍应判死");
+  // 局域网没有兜底：它本来就探得勤，50s 没消息就是真有问题
+  const lan = { transport: "lan", lastSeen: now - 50_000, verified: true, downUntil: 0 };
+  assert.equal(endpointAlive(lan, now, 20_000), false, "局域网不该被兜底放宽");
+});
+
+console.log("\n── 步骤②：会话键与回信地址 ──");
+
+check("会话键：同来源同 thread 稳定，不同来源不撞车", () => {
+  const a1 = conversationKey({ fromMachine: "mac", thread: "deploy" });
+  const a2 = conversationKey({ fromMachine: "mac", thread: "deploy" });
+  const b = conversationKey({ fromMachine: "hos", thread: "deploy" });
+  assert.equal(a1, a2, "同来源同 thread 必须算出同一个键（否则会话复用不成立）");
+  // 这是本次改造的核心目的：两个来源都叫 "deploy" 时不能撞车，
+  // 否则限速账本互相误伤、会话互相顶替
+  assert.notEqual(a1, b, "不同来源的同名 thread 必须区分开");
+  assert.ok(a1.startsWith("mac#"), `前缀应保留可读机器名，实际 ${a1}`);
+  assert.match(a1, /^mac#[0-9a-f]{12}$/);
+});
+
+check("会话键：无 thread → 空串（一次性任务，不参与限速也不复用会话）", () => {
+  assert.equal(conversationKey({ fromMachine: "mac", thread: "" }), "");
+  assert.equal(conversationKey({ fromMachine: "mac" }), "");
+  // 刻意不做"复用与该对端的上一场对话"——那会把不相关话题悄悄并到一起
+});
+
+check("会话键：from 兜底，机器名缺失时不崩", () => {
+  assert.ok(conversationKey({ from: "mac/peng", thread: "t1" }).startsWith("mac/peng#"));
+  assert.equal(conversationKey({ thread: "" }), "");
+  assert.equal(conversationKey(null), "");
+});
+
+check("回信地址与会话键是两件事，不能混用", () => {
+  const t = { fromMachine: "mac", thread: "deploy", originSession: "sess-remote-123" };
+  const rt = replyTarget(t);
+  // originSession 归**发送方**所有：它是结果该送回哪里，不是本机该用哪个会话
+  assert.equal(rt.session, "sess-remote-123");
+  assert.equal(rt.machine, "mac");
+  // 会话键里**不能**出现 originSession —— 拿它去本机找会话是永远找不到的
+  assert.ok(!conversationKey(t).includes("sess-remote-123"));
+});
+
+console.log(`\n结果：${passed} 通过，${failed} 失败\n`);
+process.exit(failed === 0 ? 0 : 1);

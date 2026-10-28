@@ -1,0 +1,81 @@
+# dsh-plugin-mesh 的 bundle patch
+#
+# 只插入**一行**：本插件自己。
+#
+# 为什么不需要别的：入站唤醒（收到对端任务 → 建会话跑起来）用的是官方
+# ctx.agents / agentPresets / permissionPresets / sessionTitle / workspaceRegistry
+# / agentDefaultModel 这几个基础服务，桌面 profile 本来就全都有。
+# 早期版本曾额外插入 @deepseek-ai/dsh-webhook，现已去掉 ——
+# 那会让"装一个插件"变成两行，而且万一它已被启用还会因 cordis 的
+# provide 重名检查导致启动报错。
+#
+# 想改配置，在你自己 profile 的 cordis.patch.yml 里按 id 覆盖：
+#   - id: mesh
+#     config:
+#       requirePairing: true
+
+- insert:
+    - id: mesh
+      name: 'dsh-plugin-mesh'
+      config:
+        enabled: true
+
+        # 对端列表里显示的名字；留空则用主机名（首次启动 UI 会问你一次）
+        machineName: ''
+
+        # 固定端口 —— 内网里"扫这个端口 + ping 一下"就能建立连接，零配置。
+        # 同机跑多个实例时会被占用，此时自动退回随机端口。
+        port: 45917
+
+        # ── 发现方式（两条互补，默认都开）──
+        # 组播：零配置、即时，但会被部分路由器/防火墙挡住
+        useMulticast: true
+        # 主动扫描：启动时扫一遍本网段，组播被挡时靠它兜底
+        scanOnStart: true
+        # 周期性重扫（毫秒）；0 = 关闭。默认 60s，一次约 1~2 秒
+        scanIntervalMs: 60000
+        # 额外要扫的网段，如 ["192.168.1.0/24"]；留空扫本机所在 /24
+        scanRanges: []
+        # 除本机端口外额外要扫的端口（同机多实例时用）
+        scanPorts: []
+        scanConcurrency: 64
+        scanTimeoutMs: 800
+        # 定期 ping 已知对端保活（毫秒）；0 = 关闭
+        pingIntervalMs: 10000
+
+        # 心跳与离线判定
+        announceIntervalMs: 5000
+        peerTtlMs: 20000
+        requestTimeoutMs: 20000
+
+        # ── 访问控制 ──
+        # 默认 false：内网发现即可互相派发任务，不需要配对码。
+        # 若网络不完全可信（合租/公司/有访客设备），改成 true 再对齐配对码。
+        requirePairing: false
+
+        # 对端任务在本机新建会话时的选项
+        agentPreset: standard
+        # 对端派来的是外部不可信输入，默认不给 danger-full-access
+        permissionPreset: workspace-write
+        # 对端任务新建会话的工作目录。
+        # 留空会回退到用户主目录 —— 那意味着对端任务在整个家目录里跑，建议指定。
+        workspaceRoot: ''
+
+        # ── 循环限速 ──
+        #
+        # 入站任务会自动新建会话并让 agent 开跑，而每条消息都由远端决定。
+        # 两个 agent 互相回执时会形成自持的 ping-pong：实测一个互回执线程在
+        # 2.5 小时内自动开了 54 个会话、约 800 万 token。下面三道闸门就是刹车，
+        # 任何一道触发都只入箱、不唤醒；撞到上限时 Mesh 页面会问你是否放宽。
+        #
+        # 注意：限速只让循环变慢，不会让它停。若循环的自然节奏低于上限，
+        # 窗口永远填不满，就永不触发 —— 要真正止住请把上限设在循环节奏之下。
+        # 同一 thread 在 threadWindowMs 内最多自动唤醒多少次；0 = 不限制
+        maxWakesPerThread: 30
+        # 上面那个计数的滑动窗口长度（毫秒）。3600000 = 1 小时
+        threadWindowMs: 3600000
+        # 两次自动唤醒之间的最小间隔（毫秒），管突发；0 = 不限制
+        threadCooldownMs: 5000
+        # 单条任务正文短于此长度就只入箱不唤醒（挡 ping/ack 这类寒暄）。
+        # 8 = 只当地板值；中文 24 字太苛刻，真实短任务会被吞（真机反馈）。
+        minTaskChars: 8

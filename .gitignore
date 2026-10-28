@@ -1,0 +1,8 @@
+# 忽略临时产物
+.tmp/
+dist/
+*.log
+*.png
+*.webp
+*.ab
+node_modules/
