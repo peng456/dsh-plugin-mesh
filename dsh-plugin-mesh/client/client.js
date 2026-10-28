@@ -1143,8 +1143,8 @@ window.__ModuleLoader__.load({
   display: block;
 }
 .mesh-avatar .mesh-dot, .mesh-detail-avatar .mesh-dot { z-index: 2; }
-.mesh-avatar-os { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px; border-radius: 5px; background: var(--mesh-surface); display: grid; place-items: center; box-shadow: 0 0 0 2px var(--mesh-bg); z-index: 3; }
-.mesh-detail-avatar .mesh-avatar-os { width: 19px; height: 19px; border-radius: 6px; }
+.mesh-os-inline { display: inline-flex; align-items: center; gap: 4px; }
+.mesh-os-inline svg { flex: 0 0 auto; vertical-align: -2px; }
 .mesh-row-main { flex: 1; min-width: 0; }
 .mesh-row-name {
   display: flex; align-items: center; gap: 6px;
@@ -4174,9 +4174,6 @@ function CapabilityChips({ caps, peer }) {
           Avatar,
           { name, avatar: peer.avatar, className: "mesh-avatar", platform: peerPlatform(peer) },
           h(Dot, { kind: online ? "ok" : "idle" }),
-          platformBrand(peerPlatform(peer))
-            ? h("span", { className: "mesh-avatar-os", title: `系统：${osLabel(peer.os)}` }, h(PlatformLogo, { brand: platformBrand(peerPlatform(peer)), size: 11 }))
-            : null,
         ),
         h(
           "span",
@@ -4187,7 +4184,14 @@ function CapabilityChips({ caps, peer }) {
             { className: "mesh-row-sub" },
             h("span", null, online ? "在线" : "离线"),
             h("span", { className: "mesh-dot-sep" }, "·"),
-            h("span", null, osLabel(peer.os)),
+            h(
+              "span",
+              { className: "mesh-os-inline" },
+              platformBrand(peerPlatform(peer))
+                ? h(PlatformLogo, { brand: platformBrand(peerPlatform(peer)), size: 11 })
+                : null,
+              h("span", null, osLabel(peer.os)),
+            ),
             h("span", { className: "mesh-dot-sep" }, "·"),
             h("span", null, isSelf ? "现在" : ago(peer.lastSeen, now)),
           ),
@@ -4327,14 +4331,7 @@ function CapabilityChips({ caps, peer }) {
           h(
             "header",
             { className: "mesh-detail-head" },
-            h(
-              Avatar,
-              { name: peer.machine, avatar: peer.avatar, className: "mesh-detail-avatar", platform: peerPlatform(peer) },
-              h(Dot, { kind: online ? "ok" : "idle" }),
-              platformBrand(peerPlatform(peer))
-                ? h("span", { className: "mesh-avatar-os", title: `系统：${osLabel(peer.os)}` }, h(PlatformLogo, { brand: platformBrand(peerPlatform(peer)), size: 12 }))
-                : null,
-            ),
+            h(Avatar, { name: peer.machine, avatar: peer.avatar, className: "mesh-detail-avatar", platform: peerPlatform(peer) }, h(Dot, { kind: online ? "ok" : "idle" })),
             h(
               "div",
               { className: "mesh-detail-copy" },
@@ -4344,7 +4341,14 @@ function CapabilityChips({ caps, peer }) {
                 "div",
                 { className: "mesh-meta" },
                 h(Status, { kind: online ? "ok" : "idle" }, isSelf ? "运行中" : online ? "在线" : "离线"),
-                h("span", null, osInfoLabel(peer)),
+                h(
+                  "span",
+                  { className: "mesh-os-inline" },
+                  platformBrand(peerPlatform(peer))
+                    ? h(PlatformLogo, { brand: platformBrand(peerPlatform(peer)), size: 13 })
+                    : null,
+                  h("span", null, osInfoLabel(peer)),
+                ),
                 h("span", { className: "mesh-address" }, address),
                 isSelf ? null : h("span", null, `最后心跳 ${ago(peer.lastSeen, now)}`),
                 peer.capabilitiesStale ? h(Badge, { kind: "warn" }, "能力可能过期") : null,
