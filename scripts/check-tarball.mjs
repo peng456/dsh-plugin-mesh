@@ -31,6 +31,7 @@ const REQUIRED = [
   "lib/index.js", // 入口
   "lib/capabilities.js",
   "lib/prompt.js",
+  "lib/switch.js", // 一键关闭的判定（安全相关），漏了就是装上即坏
   "lib/discovery.js",
   "lib/conversation.js",
   "lib/identity.js",

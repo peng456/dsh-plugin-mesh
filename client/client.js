@@ -1248,6 +1248,43 @@ window.__ModuleLoader__.load({
 .mesh-actions-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .mesh-divider { height: 1px; background: var(--mesh-line); margin: 14px 0; }
 
+/* ── 一键关闭（kill switch）── */
+.mesh-switch-list {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 12px;
+}
+.mesh-switch-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--mesh-line); border-radius: 11px;
+  background: var(--mesh-surface);
+  transition: border-color var(--mesh-dur-fast) ease, background var(--mesh-dur-fast) ease;
+}
+/* 关闭中的一行用左侧警示条标出来：列表里三行很像，必须一眼看出哪条关了 */
+.mesh-switch-row.is-off { border-left: 2px solid var(--mesh-warn); }
+.mesh-switch-row-icon {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 8px;
+  display: grid; place-items: center;
+  color: var(--mesh-accent);
+  background: color-mix(in srgb, var(--mesh-accent) 8%, transparent);
+}
+.mesh-switch-row.is-off .mesh-switch-row-icon { color: var(--mesh-warn); background: color-mix(in srgb, var(--mesh-warn) 10%, transparent); }
+.mesh-switch-row-main { flex: 1; min-width: 0; }
+.mesh-switch-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mesh-switch-row-title { font-size: 12.5px; font-weight: 600; }
+.mesh-switch-row-desc { margin-top: 3px; font-size: 11px; line-height: 1.6; color: var(--mesh-muted); }
+.mesh-switch-row-meta {
+  margin-top: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px; color: var(--mesh-muted);
+  word-break: break-word;
+}
+.mesh-switch-row-action { flex: 0 0 auto; align-self: center; }
+@media (max-width: 560px) {
+  .mesh-switch-row { flex-wrap: wrap; }
+  .mesh-switch-row-action { width: 100%; }
+  .mesh-switch-row-action .mesh-btn { width: 100%; }
+}
+
 /* ── 主页（卡片工作台） ── */
 .mesh-home { flex: 1; min-height: 0; overflow-y: auto; }
 .mesh-home-inner { max-width: 1040px; margin: 0 auto; padding: 26px 30px 60px; }
@@ -1303,6 +1340,35 @@ window.__ModuleLoader__.load({
 .mesh-hero-stat { display: flex; flex-direction: column; gap: 2px; min-width: 54px; }
 .mesh-hero-stat-value { font-size: 17px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .mesh-hero-stat-label { font-size: 10px; color: var(--mesh-muted); }
+
+/* ── 概览卡上的一键关闭快捷条 ── */
+.mesh-home-switch {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-top: 14px; padding-top: 11px;
+  border-top: 1px dashed var(--mesh-line);
+}
+.mesh-home-switch-label {
+  font-size: 10px; color: var(--mesh-muted); letter-spacing: .02em;
+  margin-right: 2px;
+}
+.mesh-home-switch-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--mesh-line); border-radius: 999px;
+  background: var(--mesh-surface-2); color: var(--mesh-fg);
+  font-size: 11px; line-height: 1.5; cursor: pointer;
+  transition: border-color var(--mesh-dur-fast) ease, background var(--mesh-dur-fast) ease,
+    transform var(--mesh-dur-press) var(--mesh-ease-out);
+}
+.mesh-home-switch-pill:hover { border-color: var(--mesh-accent); }
+.mesh-home-switch-pill:active { transform: scale(0.97); }
+.mesh-home-switch-pill:disabled { cursor: progress; opacity: .7; }
+.mesh-home-switch-pill.is-off { border-color: var(--mesh-warn); }
+.mesh-home-switch-pill.is-off .mesh-home-switch-name { color: var(--mesh-warn); }
+.mesh-home-switch-pill.is-stalled { border-color: var(--mesh-warn); }
+.mesh-home-switch-name { font-weight: 600; }
+.mesh-home-switch-state { color: var(--mesh-muted); font-variant-numeric: tabular-nums; }
+.mesh-home.is-dense .mesh-home-switch { margin-top: 9px; padding-top: 8px; gap: 4px; }
 .mesh-mini-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--mesh-line); font-size: 11.5px; min-width: 0; }
 .mesh-mini-row:first-child { border-top: 0; padding-top: 0; }
 .mesh-mini-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2265,6 +2331,11 @@ window.__ModuleLoader__.load({
             h("path", { key: "a", d: "M5 12.5a10 10 0 0 1 14 0" }),
             h("path", { key: "b", d: "M8.5 16a5 5 0 0 1 7 0" }),
             h("path", { key: "c", d: "M12 19h.01" }),
+          ];
+        case "power":
+          return [
+            h("path", { key: "a", d: "M12 3v9" }),
+            h("path", { key: "b", d: "M6.3 6.8a8 8 0 1 0 11.4 0" }),
           ];
         case "key":
           return [
@@ -3966,6 +4037,158 @@ window.__ModuleLoader__.load({
 
     // ─────────────────────── 连接 / 设置 ───────────────────────
 
+    /**
+     * 一键关闭（kill switch）。
+     *
+     * 三个范围与宿主 lib/switch.js 一致：all / lan / internet。
+     * 刻意**不做二次确认**：这个功能最需要的时刻是"我怀疑有人能连上我"，
+     * 那一刻要的是快；误点的代价只是再点一次打开（配置、会话都不丢）。
+     * 牙口留给别处：按钮文案写清楚会发生什么，关闭后顶部横幅常驻提示。
+     */
+    const MESH_SWITCH_ROWS = [
+      {
+        scope: "all",
+        title: "全部 Mesh",
+        icon: "power",
+        desc: "局域网 + 互联网一起关。关掉后这台机器不再被任何设备发现，也不再接受任务。",
+      },
+      {
+        scope: "lan",
+        title: "局域网 Mesh",
+        icon: "wifi",
+        desc: "停发组播、停止扫描与 ping，对端端口从局域网收回（只绑本机回环）。",
+      },
+      {
+        scope: "internet",
+        title: "互联网 Mesh",
+        icon: "tailscale",
+        desc: "停掉全部 tailnet sidecar。通道与授权码保留，打开即恢复，不用重新登录。",
+      },
+    ];
+
+    function SwitchRow({ row, off, badge, meta, note, busy, onToggle }) {
+      return h(
+        "div",
+        { className: cls("mesh-switch-row", off && "is-off"), "data-mesh-switch": row.scope },
+        h("span", { className: "mesh-switch-row-icon" }, h(Icon, { name: row.icon, size: 15 })),
+        h(
+          "div",
+          { className: "mesh-switch-row-main" },
+          h(
+            "div",
+            { className: "mesh-switch-row-top" },
+            h("span", { className: "mesh-switch-row-title" }, row.title),
+            h(Badge, { kind: off ? "warn" : "ok" }, badge),
+          ),
+          h("div", { className: "mesh-switch-row-desc" }, row.desc),
+          meta ? h("div", { className: "mesh-switch-row-meta" }, meta) : null,
+          note ? h("div", { className: "mesh-note is-warn", style: { marginTop: 8 } }, h(Icon, { name: "alert", size: 13 }), h("span", null, note)) : null,
+        ),
+        h(
+          "div",
+          { className: "mesh-switch-row-action" },
+          h(
+            Button,
+            {
+              variant: off ? "secondary" : "danger",
+              size: "sm",
+              icon: off ? "check" : "power",
+              loading: busy,
+              onClick: () => onToggle(row.scope, !off),
+            },
+            off ? "打开" : `一键关闭${row.scope === "all" ? " Mesh" : ""}`,
+          ),
+        ),
+      );
+    }
+
+    function SwitchBody({ sw, push, reload }) {
+      const st = sw || {};
+      const lan = st.lan || {};
+      const net = st.internet || {};
+      const [busy, setBusy] = react.useState("");
+      const [error, setError] = react.useState("");
+
+      const apply = async (scope, off) => {
+        setBusy(scope);
+        setError("");
+        try {
+          const r = await api("/switch", { scope, off });
+          if (r && r.ok) {
+            const label = scope === "all" ? "Mesh" : scope === "lan" ? "局域网 Mesh" : "互联网 Mesh";
+            push(
+              "success",
+              `${label}已${off ? "关闭" : "打开"}${r.changed === false ? "（本来就是这个状态）" : ""}`,
+              // 误点一键关闭时，"撤销"要在一处就能点回来，而不是去翻三个开关
+              { label: "撤销", onClick: () => apply(scope, !off) },
+            );
+            await reload();
+          } else {
+            setError(apiErr(r));
+          }
+        } catch (e) {
+          setError(String((e && e.message) || e));
+        } finally {
+          setBusy("");
+        }
+      };
+
+      const LAN_META = () =>
+        lan.off
+          ? `对端端口${lan.port ? ` ${lan.bind || "回环"}:${lan.port}` : "已停"} · 组播已停`
+          : `监听 ${lan.bind || "—"}:${lan.port || "—"} · 组播 ${lan.multicast ? "开" : "关"}`;
+      const NET_META = () =>
+        `运行中 ${net.running || 0} / 已启用 ${net.configured || 0} 条通道` + (net.off ? " · sidecar 已停" : "");
+
+      // 「全部」这一行不能复用单条的 active：两条都开着才叫全部开启，
+      // 只关了一条要显示「部分关闭」而不是含糊的「开启」。
+      const partial = !st.all && (!!lan.off || !!net.off);
+      const values = {
+        all: {
+          off: !!st.all,
+          badge: st.all ? "已关闭" : partial ? "部分关闭" : "全部开启",
+          meta: `${lan.off ? "局域网已关" : "局域网开着"} · ${net.off ? "互联网已关" : "互联网开着"}`,
+        },
+        lan: { off: !!lan.off, badge: lan.off ? "已关闭" : lan.active ? "运行中" : "开启（未监听）", meta: LAN_META(), note: lan.note || "" },
+        internet: {
+          off: !!net.off,
+          badge: net.off ? "已关闭" : net.active ? "运行中" : net.stalled ? "启动受阻" : "开启（未连接）",
+          meta: NET_META(),
+          note: net.note || "",
+        },
+      };
+
+      return h(
+        "div",
+        null,
+        h(
+          "p",
+          { className: "mesh-p", style: { marginBottom: 4 } },
+          "关闭立即生效，并写入本机状态 —— 重启 DSH 后仍保持关闭，直到在这里打开。面板本身始终可用。",
+        ),
+        error ? h("div", { className: "mesh-note is-err", style: { marginTop: 10 } }, h(Icon, { name: "alert", size: 13 }), h("span", null, error)) : null,
+        h(
+          "div",
+          { className: "mesh-switch-list" },
+          MESH_SWITCH_ROWS.map((row) =>
+            h(SwitchRow, {
+              key: row.scope,
+              row,
+              off: values[row.scope].off,
+              badge: values[row.scope].badge,
+              meta: values[row.scope].meta,
+              note: values[row.scope].note,
+              busy: busy === row.scope,
+              onToggle: apply,
+            }),
+          ),
+        ),
+        st.by
+          ? h("p", { className: "mesh-hint", style: { marginTop: 10 } }, `最近一次操作：${st.at ? new Date(st.at).toLocaleString() : "—"}（${st.by === "tool" ? "agent 调用" : st.by === "ui" ? "界面" : st.by}）`)
+          : null,
+      );
+    }
+
     function SettingsSection({ id, icon, title, subtitle, status, open, onToggle, children }) {
       return h(
         "section",
@@ -4222,18 +4445,23 @@ window.__ModuleLoader__.load({
     /** 单条通道的阶段 → 文案/颜色。 */
     function channelPhase(ch) {
       const p = ch && ch.node && ch.node.phase ? ch.node.phase : ch && ch.enabled ? "idle" : "off";
+      // 卡在控制面上时 phase 仍然会是 starting —— 光看 phase 会一直显示「正在启动」。
+      // node.stalled 是宿主按时间+证据给的结论，优先级更高（真机反馈 2026-10-29）。
+      const stalled = !!(ch && ch.node && ch.node.stalled);
       const map = {
         off: ["未启用", "idle"],
         idle: ["未连接", "idle"],
         starting: ["正在启动", "warn"],
         downloading: ["正在下载组件", "warn"],
         "needs-login": ["需要授权", "warn"],
+        stalled: ["启动受阻", "err"],
         running: ["已连接", "ok"],
         exited: ["已停止", "idle"],
         error: ["出错", "err"],
       };
-      const m = map[p] || [p, "idle"];
-      return { phase: p, label: m[0], kind: m[1] };
+      const key = stalled && p !== "running" ? "stalled" : p;
+      const m = map[key] || [p, "idle"];
+      return { phase: key, label: m[0], kind: m[1] };
     }
 
     /**
@@ -4264,6 +4492,7 @@ window.__ModuleLoader__.load({
       if (running > 0) phase = "running";
       else if (phases.includes("needs-login")) phase = "needs-login";
       else if (phases.includes("downloading")) phase = "downloading";
+      else if (phases.includes("stalled")) phase = "stalled";
       else if (phases.includes("starting")) phase = "starting";
       else if (phases.includes("error")) phase = "error";
       else if (phases.includes("exited")) phase = "exited";
@@ -4275,6 +4504,7 @@ window.__ModuleLoader__.load({
         starting: ["正在启动", "warn"],
         downloading: ["正在下载组件", "warn"],
         "needs-login": ["需要授权", "warn"],
+        stalled: ["启动受阻", "err"],
         running: ["已连接", "ok"],
         exited: ["已停止", "idle"],
         error: ["出错", "err"],
@@ -4488,7 +4718,7 @@ window.__ModuleLoader__.load({
                       disabled: isBusy && busy !== `/tsnet/start:${ch.id}`,
                       onClick: () => run("/tsnet/start", { id: ch.id }, `通道「${ch.label || ch.id}」已启动`),
                     },
-                    "连接",
+                    cp.phase === "stalled" ? "重试连接" : "连接",
                   ),
             ),
             node && node.authUrl
@@ -4499,6 +4729,19 @@ window.__ModuleLoader__.load({
                   h("span", null,
                     "这条通道需要你授权加入 tailnet：",
                     h("a", { href: node.authUrl, target: "_blank", rel: "noreferrer", style: { marginLeft: 4, wordBreak: "break-all" } }, "打开授权页"),
+                  ),
+                )
+              : null,
+            node && node.stalled
+              ? h(
+                  "div",
+                  { className: "mesh-note is-err" },
+                  h(Icon, { name: "alert", size: 13 }),
+                  h(
+                    "span",
+                    null,
+                    `启动受阻：${node.stalledReason || "控制面一直没有回应"}`,
+                    node.stalledHint ? h("div", { className: "mesh-hint", style: { marginTop: 4 } }, node.stalledHint) : null,
                   ),
                 )
               : null,
@@ -4680,8 +4923,20 @@ window.__ModuleLoader__.load({
       const self = (state && state.self) || {};
       const cfg = (state && state.config) || {};
       const tsnet = state && state.tsnet;
+      const sw = state && state.switch;
       const phase = tsnetPhase(tsnet);
       const toggle = (id) => onOpen(open === id ? null : id);
+      // 关闭状态的摘要要能一眼看出"哪一条被关了"，而不是只说"有东西关了"
+      const swOff = Boolean(sw && (sw.lan.off || sw.internet.off));
+      const swSubtitle = !sw
+        ? "本机 mesh 开关"
+        : sw.all
+          ? "全部已关闭 · 不广播、不监听、不接受任务"
+          : sw.lan.off
+            ? "局域网已关闭 · 互联网仍可用"
+            : sw.internet.off
+              ? "互联网已关闭 · 局域网仍可用"
+              : "全部开启 · 局域网 + 互联网";
 
       return h(
         "div",
@@ -4695,6 +4950,21 @@ window.__ModuleLoader__.load({
             // tab 已经叫「连接」了，标题再写一遍是重复；这里只留一句说明。
             h("p", null, "本机身份、配对码与跨网络互联。改动立即生效，不需要重启。"),
           ),
+          sw
+            ? h(
+                SettingsSection,
+                {
+                  id: "switch",
+                  icon: "power",
+                  title: "一键关闭",
+                  subtitle: swSubtitle,
+                  status: h(Badge, { kind: swOff ? "warn" : "ok" }, sw.all ? "全部关闭" : swOff ? "部分关闭" : "全部开启"),
+                  open: open === "switch",
+                  onToggle: () => toggle("switch"),
+                },
+                h(SwitchBody, { sw, push, reload }),
+              )
+            : null,
           h(
             SettingsSection,
             {
@@ -4770,6 +5040,69 @@ window.__ModuleLoader__.load({
         { className: "mesh-hero-stat" },
         h("span", { className: "mesh-hero-stat-value" }, value),
         h("span", { className: "mesh-hero-stat-label" }, label),
+      );
+    }
+
+    /**
+     * 概览卡上的「一键关闭」快捷条。
+     *
+     * 为什么放主页概览：用户想关 mesh 的时候通常就在主页，不在设置页 ——
+     * 要的是"一眼看见状态、一下点掉"，而不是先找到连接页再展开折叠。
+     * 设置页里那份保留：那里有端口/组播/受阻原因等细节。
+     *
+     * 三个胶囊都**没有二次确认**：这是紧急动作，误点的成本只是再点一次。
+     */
+    function HomeSwitchBar({ sw, push, reload }) {
+      const [busy, setBusy] = react.useState("");
+      if (!sw) return null; // 老宿主没有这个能力：不占位、也不显示一个点了没用的按钮
+      const lan = sw.lan || {};
+      const net = sw.internet || {};
+      const rows = [
+        { scope: "all", label: "全部", off: !!sw.all },
+        { scope: "lan", label: "局域网", off: !!lan.off },
+        { scope: "internet", label: "互联网", off: !!net.off, stalled: !net.off && !!net.stalled },
+      ];
+      const toggle = async (scope, off) => {
+        setBusy(scope);
+        try {
+          const r = await api("/switch", { scope, off });
+          if (r && r.ok) {
+            const name = scope === "all" ? "Mesh" : scope === "lan" ? "局域网 Mesh" : "互联网 Mesh";
+            push("success", `${name}已${off ? "关闭" : "打开"}`, {
+              label: "撤销",
+              onClick: () => toggle(scope, !off),
+            });
+            await reload();
+          } else {
+            push("error", apiErr(r));
+          }
+        } catch (e) {
+          push("error", String((e && e.message) || e));
+        } finally {
+          setBusy("");
+        }
+      };
+      return h(
+        "div",
+        { className: "mesh-home-switch", "data-mesh-home-switch": "1" },
+        h("span", { className: "mesh-home-switch-label" }, "一键关闭"),
+        rows.map((r) => {
+          const stateText = r.off ? "已关" : r.stalled ? "受阻" : "开";
+          return h(
+            "button",
+            {
+              key: r.scope,
+              type: "button",
+              className: cls("mesh-home-switch-pill", r.off && "is-off", r.stalled && "is-stalled", busy === r.scope && "is-busy"),
+              disabled: !!busy,
+              title: `${r.off ? "打开" : "关闭"}${r.scope === "all" ? " Mesh（局域网 + 互联网）" : r.scope === "lan" ? "局域网 Mesh" : "互联网 Mesh"}`,
+              onClick: () => toggle(r.scope, !r.off),
+            },
+            h(Dot, { kind: r.off ? "idle" : r.stalled ? "warn" : "ok" }),
+            h("span", { className: "mesh-home-switch-name" }, r.label),
+            h("span", { className: "mesh-home-switch-state" }, busy === r.scope ? "…" : stateText),
+          );
+        }),
       );
     }
 
@@ -5579,6 +5912,8 @@ window.__ModuleLoader__.load({
       firstRun,
       hostDown,
       onDispatched,
+      push,
+      reload,
     }) {
       const [editing, setEditing] = react.useState(false);
       const [drag, setDrag] = react.useState({ draggingId: null, dropId: null, resizingId: null });
@@ -5852,6 +6187,7 @@ window.__ModuleLoader__.load({
                 h(HomeStat, { label: "跨网络", value: tsnet ? phase.label : "未启用" }),
                 h(HomeStat, { label: "更新", value: ago(lastOk, now) }),
               ),
+              h(HomeSwitchBar, { sw: state && state.switch, push, reload }),
             ),
             footer: h(
               react.Fragment,
@@ -6256,6 +6592,7 @@ window.__ModuleLoader__.load({
       const self = state && state.self ? state.self : null;
       const peers = state && Array.isArray(state.peers) ? state.peers : [];
       const online = peers.filter((p) => p && p.online).length;
+      const sw = state && state.switch ? state.switch : null;
       const tasks = react.useMemo(() => taskList(state), [state]);
       const sortedPeers = react.useMemo(
         () =>
@@ -6654,6 +6991,25 @@ window.__ModuleLoader__.load({
               action: { label: "重试", onClick: reload },
             })
           : null,
+        sw && (sw.lan.off || sw.internet.off)
+          ? h(Banner, {
+              kind: "warn",
+              title: sw.all
+                ? "Mesh 已全部关闭"
+                : sw.lan.off
+                  ? "局域网 Mesh 已关闭"
+                  : "互联网 Mesh 已关闭",
+              // 关掉之后"没有设备"是正常的，不是故障 —— 这一句把两者区分开
+              detail: `${sw.summary || ""} · 关闭期间不广播、不接受任务；重启后仍保持`.trim(),
+              action: {
+                label: "去打开",
+                onClick: () => {
+                  setView("connect");
+                  setSettingsOpen("switch");
+                },
+              },
+            })
+          : null,
         state.duplicateNames && state.duplicateNames.length
           ? h(Banner, {
               kind: "warn",
@@ -6698,6 +7054,8 @@ window.__ModuleLoader__.load({
                 firstRun: firstRunNode,
                 hostDown,
                 onDispatched: (peer, r) => notifyDispatched((peer && peer.machine) || "", r),
+                push,
+                reload,
               })
             : view === "devices"
             ? h(DeviceView, {
@@ -6857,6 +7215,9 @@ window.__ModuleLoader__.load({
       sendToAgent,
       PairingBody,
       TsnetBody,
+      SwitchBody,
+      SwitchRow,
+      HomeSwitchBar,
     };
     return module.exports;
   },

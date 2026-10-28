@@ -100,6 +100,7 @@ lib/identity.js       persistent UUID + OS machine fingerprint (claim only)
 lib/conversation.js   conversation key + reply target (both sides compute independently)
 lib/capabilities.js   runtime/GPU/capability collection, sanitising, staleness
 lib/prompt.js         task prompt text generation (pure, unit-tested)
+lib/switch.js         one-click shutdown resolver (pure, unit-tested): state.json `shutdown`
 lib/tsnet/            sidecar download/verify, per-channel process manager, tailnet HTTP bridge,
                       channel-list resolution (channels.js, pure and unit-tested)
 client/client.js      renderer: sidebar icon + Mesh panel, hand-written bundle
@@ -117,10 +118,11 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 
 | Suite | Command | Covers |
 |---|---|---|
-| Core / tsnet | `npm run selftest` | discovery, multi-channel endpoints, channel resolution, conversation keys (67) |
+| Core / tsnet | `npm run selftest` | discovery, multi-channel endpoints, channel resolution, conversation keys, stall detection (76) |
 | Capabilities | `npm run selftest:caps` | sanitising, GPU parsing, retry-on-timeout, claim rules (72) |
-| Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output (42) |
+| Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output, kill-switch rows + overview bar (60) |
 | Prompt | `npm run selftest:prompt` | reply target must be a machine name, not `machine/user` (10) |
+| Kill switch | `npm run selftest:switch` | shutdown merge rules: `off` defaults to true, `all` closes both scopes, strict booleans only (15) |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host
 running; it is deliberately not part of `npm test` because it creates real agent

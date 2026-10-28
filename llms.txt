@@ -39,12 +39,51 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 | `mesh_scan` | none | Actively scan the local subnet for mesh peers. Use when multicast is blocked. |
 | `mesh_run` | `peer: string` (required), `task: string` (required), `thread?: string`, `noWake?: boolean`, `newSession?: boolean`, `workspace?: string` | Dispatch a task to another machine. Asynchronous — a successful call means "accepted", not "done". |
 | `mesh_tasks` | none | Show recently received and sent mesh tasks. |
+| `mesh_switch` | `scope: "all" \| "lan" \| "internet"` (required), `action?: "off" \| "on"` | One-click kill switch. `off` is the default action. |
 
 `peer` accepts a machine name, an instance id, or `ip:port`. **Do not pass `machine/user`** — `from` fields look like `machine/user`, but the peer key is the machine name only.
 
 Reuse the same `thread` value for the same piece of work: the receiving side reuses one session per `thread`, which saves tokens and keeps context. Use `noWake: true` for pure acknowledgements — otherwise a task wakes an agent session on the peer.
 
 `newSession: true` forces a fresh session while keeping the same conversation key (i.e. it is still the same conversation, with a clean context).
+
+## Kill switch (one-click shutdown)
+
+Three scopes, available as the **一键关闭** pills on the home overview card, as the
+detailed **连接 → 一键关闭** section of the Mesh panel, and as the `mesh_switch` tool
+(`POST /mesh/api/switch` with `{scope, off}`):
+
+| Scope | Effect |
+|---|---|
+| `all` | LAN and internet both off: no multicast, no subnet scan, no inbound tasks, all tailnet sidecars stopped |
+| `lan` | Stops multicast announcements, subnet scan and keepalive pings; the peer HTTP port is rebound from `0.0.0.0` to `127.0.0.1` so nothing on the LAN can connect. Internet channels keep working |
+| `internet` | Stops every tailnet sidecar. Channel config and auth keys are kept and resume on reopen |
+
+- **Immediate, and it survives a restart.** The desired state lives in
+  `<profile>/mesh/state.json` under `shutdown` (`{lan, internet, at, by}`, `true` = off),
+  not in the plugin config. `enabled: false` in config is a different thing: it removes
+  the plugin at load time, including the panel, so it cannot be undone from the UI.
+- The Mesh panel and `/mesh/api/*` stay available while everything is off — otherwise
+  "one-click off" would lock you out of turning it back on.
+- `/mesh/api/state` reports `switch.lan|internet.{off, active, bind, port, note}`:
+  `off` is the requested state, `active` the real one. A failed rebind shows up as a
+  non-empty `note` instead of silently looking closed.
+- While closed, outbound dispatch, `mesh_scan`, and the peer HTTP API (including
+  `/mesh/v1/health`) answer with an explicit "closed" error (HTTP 503/409), never with
+  a generic "unreachable" — "no answer" must not be mistaken for "not there".
+
+## Tailnet stalls are reported, not hidden
+
+A sidecar that cannot reach the control plane keeps retrying, and `srv.Up()` never
+returns. Rather than showing "starting" forever, the host marks the channel as
+**启动受阻** (`node.stalled`, `node.stalledReason`, `node.stalledHint`) once
+`TSNET_STALL_MS` (75 s) passes with no tailnet address and no auth URL, taking the
+reason from the sidecar's own `health(warnable=login-state)` / `Received error`
+diagnostics. The panel shows the reason plus an actionable hint and turns the
+button into 重试连接; `switch.internet.stalled` and a `note` carry the same fact to
+the kill-switch section. Most common cause on a machine with a local proxy: the
+sidecar dials raw TCP/UDP, so an "HTTP clients only" proxy setting does not cover
+it (`register request: … context deadline exceeded`).
 
 ## Configuration
 
@@ -126,7 +165,7 @@ Outbound dispatch tries LAN first, then each tailnet channel in order.
 
 ```bash
 npm run check            # version consistency + TDZ scan + syntax + loadability
-npm test                 # = check + regression suites (~280 assertions, network-free)
+npm test                 # = check + regression suites (~310 assertions, network-free)
 npm run selftest:caps    # capability collection: sanitising, GPU parsing, retries, claim rules
 npm run selftest:client  # client bundle rendering without a browser
 npm run selftest:prompt  # task prompt generation
