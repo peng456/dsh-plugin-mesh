@@ -1,55 +1,69 @@
-# mesh → dsh-go 迁移报告（进行中，2026-10-29 01:45）
-
-> 目标：把 `dsh-plugin-mesh` 完全适配 **dsh-go**（Android 15 手机 App，proot Ubuntu 24.04 里跑 DSH 0.2.1-rc.2 + Node 24.22.1），做到「桌面派任务到手机自动执行、不需要人当中间人」。
-> 工作区：`E:\mesh`；设备：Xiaomi 15 Ultra（`1441e87a`，Android 15 / arm64，dsh-go 0.9.7，profile=`web`）。
-
-## 1. 结论先说（已达成）
-
-| 能力 | 状态 | 证据 |
+﻿# mesh 鈫?dsh-go 杩佺Щ鎶ュ憡锛堣繘琛屼腑锛?026-10-29 01:45锛?
+> 鐩爣锛氭妸 `dsh-plugin-mesh` 瀹屽叏閫傞厤 **dsh-go**锛圓ndroid 15 鎵嬫満 App锛宲root Ubuntu 24.04 閲岃窇 DSH 0.2.1-rc.2 + Node 24.22.1锛夛紝鍋氬埌銆屾闈㈡淳浠诲姟鍒版墜鏈鸿嚜鍔ㄦ墽琛屻€佷笉闇€瑕佷汉褰撲腑闂翠汉銆嶃€?> 宸ヤ綔鍖猴細`E:\mesh`锛涜澶囷細Xiaomi 15 Ultra锛坄1441e87a`锛孉ndroid 15 / arm64锛宒sh-go 0.9.7锛宲rofile=`web`锛夈€?
+## 1. 缁撹鍏堣锛堝凡杈炬垚锛?
+| 鑳藉姏 | 鐘舵€?| 璇佹嵁 |
 |---|---|---|
-| dsh-go 里跑通 mesh 节点 | ✅ | `/mesh/v1/health` 200：`version 0.5.4`、`host 192.168.1.19` |
-| dsh-go 环境识别（Android 宿主 + proot runtime） | ✅ | health：`os: "android 15 (6.6.30-android15…)"`；`diag.dshGo.isDshGo=true`（7 项证据）；`diag.sidecarTarget.asset=dsh-mesh-tsnet-android-arm64.gz` |
-| **入站任务自动执行（消灭中间人）** | ✅ | health：`diag.inboundPermissionPreset=danger-full-access`、`source=dsh-go`；实测派发升级任务后**手机无人工确认**直接执行（01:37:47 手机从 `127.0.0.1:8792` 拉取 tarball 200） |
-| 网卡/地址采集兜底 | ✅ | health：`diag.net.source=os`、`macsAvailable=false` + `MAC_UNAVAILABLE`（SELinux 拒 SIOCGIFHWADDR 的显式表达，不再伪装成"没有网卡"） |
-| 桌面 ↔ 手机发现 | ✅ | 桌面 `/mesh/v1/peers` 看到 `localhost 192.168.1.19:45917 online=true`；手机 peers 看到桌面 |
-| **上游 bug 修复（真机事故）** | ✅ | 0.5.4 的 package.json 缺 `@deepseek-ai/dsh-brand` peer，而 `lib/index.js` import 它 → dsh-go 加载器不拦截 → `ERR_MODULE_NOT_FOUND` → **整个插件 import 失败**。已补 peer + `scripts/check-peerdeps.mjs` 门禁（防回归） |
-| USB/adb 传输适配（桌面经 adb forward 直连手机 mesh） | ✅ 模块级（真机冒烟通过） | `lib/usb.js` 24 离线用例全绿；真机冒烟：识别 `1441e87a` → 复用 forward → `GET /mesh/v1/health` → endpoint `usb:1441e87a`；`stop()` 保留复用映射。接线已进 `lib/index.js`/`diagnostics`（`diag.usb`），桌面侧需装新插件后生效 |
+| dsh-go 閲岃窇閫?mesh 鑺傜偣 | 鉁?| `/mesh/v1/health` 200锛歚version 0.5.4`銆乣host 192.168.1.19` |
+| dsh-go 鐜璇嗗埆锛圓ndroid 瀹夸富 + proot runtime锛?| 鉁?| health锛歚os: "android 15 (6.6.30-android15鈥?"`锛沗diag.dshGo.isDshGo=true`锛? 椤硅瘉鎹級锛沗diag.sidecarTarget.asset=dsh-mesh-tsnet-android-arm64.gz` |
+| **鍏ョ珯浠诲姟鑷姩鎵ц锛堟秷鐏腑闂翠汉锛?* | 鉁?| health锛歚diag.inboundPermissionPreset=danger-full-access`銆乣source=dsh-go`锛涘疄娴嬫淳鍙戝崌绾т换鍔″悗**鎵嬫満鏃犱汉宸ョ‘璁?*鐩存帴鎵ц锛?1:37:47 鎵嬫満浠?`127.0.0.1:8792` 鎷夊彇 tarball 200锛?|
+| 缃戝崱/鍦板潃閲囬泦鍏滃簳 | 鉁?| health锛歚diag.net.source=os`銆乣macsAvailable=false` + `MAC_UNAVAILABLE`锛圫ELinux 鎷?SIOCGIFHWADDR 鐨勬樉寮忚〃杈撅紝涓嶅啀浼鎴?娌℃湁缃戝崱"锛?|
+| 妗岄潰 鈫?鎵嬫満鍙戠幇 | 鉁?| 妗岄潰 `/mesh/v1/peers` 鐪嬪埌 `localhost 192.168.1.19:45917 online=true`锛涙墜鏈?peers 鐪嬪埌妗岄潰 |
+| **涓婃父 bug 淇锛堢湡鏈轰簨鏁咃級** | 鉁?| 0.5.4 鐨?package.json 缂?`@deepseek-ai/dsh-brand` peer锛岃€?`lib/index.js` import 瀹?鈫?dsh-go 鍔犺浇鍣ㄤ笉鎷︽埅 鈫?`ERR_MODULE_NOT_FOUND` 鈫?**鏁翠釜鎻掍欢 import 澶辫触**銆傚凡琛?peer + `scripts/check-peerdeps.mjs` 闂ㄧ锛堥槻鍥炲綊锛?|
+| USB/adb 浼犺緭閫傞厤锛堟闈㈢粡 adb forward 鐩磋繛鎵嬫満 mesh锛?| 鉁?妯″潡绾э紙鐪熸満鍐掔儫閫氳繃锛?| `lib/usb.js` 24 绂荤嚎鐢ㄤ緥鍏ㄧ豢锛涚湡鏈哄啋鐑燂細璇嗗埆 `1441e87a` 鈫?澶嶇敤 forward 鈫?`GET /mesh/v1/health` 鈫?endpoint `usb:1441e87a`锛沗stop()` 淇濈暀澶嶇敤鏄犲皠銆傛帴绾垮凡杩?`lib/index.js`/`diagnostics`锛坄diag.usb`锛夛紝妗岄潰渚ч渶瑁呮柊鎻掍欢鍚庣敓鏁?|
 
-## 2. 代码（git，`E:\mesh`）
-
-| commit | 内容 |
+## 2. 浠ｇ爜锛坓it锛宍E:\mesh`锛?
+| commit | 鍐呭 |
 |---|---|
-| `da528da` | baseline：dsh-plugin-mesh 0.5.4 + 分析/部署脚本 |
-| `6855343` | **P0**：`lib/netinfo.js`（四级地址兜底、永不抛、source/errors 可观察）、scan 兜底、`staticPeers` / `advertiseAddress` / `sidecarPlatform` 配置 |
-| `383b7c8` | **P1**：`lib/dshgo.js` 环境探测；osinfo=Android 宿主+proot runtime；identity/cpuCores 兜底；tsnet 资产选择（linux+dshGo→android/arm64）；`permissionPresetOnDshGo` + `lib/inbound-preset.js` |
-| `9aa8359` | **P1.5**：`lib/usb.js`（USB/adb 传输，24 自测）+ 设计文档 |
-| `8ff25a2` | **P1.5 接线**：`index.js` schema/apply/health diag + diagnostics（`selftest:usb-integration` 17/17） |
-| `9e6816b` | dsh-go 上**默认** `danger-full-access`（无需改配置；桌面零变化）+ 版本 `0.5.4-dshgo.1` |
-| `e2e4cd4` | **修复 peer 缺失**（dsh-brand）+ `check-peerdeps` 门禁 + 版本 `0.5.4-dshgo.2` |
+| `da528da` | baseline锛歞sh-plugin-mesh 0.5.4 + 鍒嗘瀽/閮ㄧ讲鑴氭湰 |
+| `6855343` | **P0**锛歚lib/netinfo.js`锛堝洓绾у湴鍧€鍏滃簳銆佹案涓嶆姏銆乻ource/errors 鍙瀵燂級銆乻can 鍏滃簳銆乣staticPeers` / `advertiseAddress` / `sidecarPlatform` 閰嶇疆 |
+| `383b7c8` | **P1**锛歚lib/dshgo.js` 鐜鎺㈡祴锛沷sinfo=Android 瀹夸富+proot runtime锛沬dentity/cpuCores 鍏滃簳锛泃snet 璧勪骇閫夋嫨锛坙inux+dshGo鈫抋ndroid/arm64锛夛紱`permissionPresetOnDshGo` + `lib/inbound-preset.js` |
+| `9aa8359` | **P1.5**锛歚lib/usb.js`锛圲SB/adb 浼犺緭锛?4 鑷祴锛? 璁捐鏂囨。 |
+| `8ff25a2` | **P1.5 鎺ョ嚎**锛歚index.js` schema/apply/health diag + diagnostics锛坄selftest:usb-integration` 17/17锛?|
+| `9e6816b` | dsh-go 涓?*榛樿** `danger-full-access`锛堟棤闇€鏀归厤缃紱妗岄潰闆跺彉鍖栵級+ 鐗堟湰 `0.5.4-dshgo.1` |
+| `e2e4cd4` | **淇 peer 缂哄け**锛坉sh-brand锛? `check-peerdeps` 闂ㄧ + 鐗堟湰 `0.5.4-dshgo.2` |
 
-测试：`npm test` 全绿（netinfo 28 / dshgo 22 / inbound-preset 13 / usb 24 / usb-integration 17 / tsnet 74 / caps 78 / osinfo 26 / …），`npm run check` 含新 peer 门禁全绿。
+娴嬭瘯锛歚npm test` 鍏ㄧ豢锛坣etinfo 28 / dshgo 22 / inbound-preset 13 / usb 24 / usb-integration 17 / tsnet 74 / caps 78 / osinfo 26 / 鈥︼級锛宍npm run check` 鍚柊 peer 闂ㄧ鍏ㄧ豢銆?
+浜х墿锛歚E:\mesh\dist\dsh-plugin-mesh-0.5.4-dshgo.2.tgz`锛?66,959 B锛夈€?
+## 3. 閮ㄧ讲/鍥炴粴
 
-产物：`E:\mesh\dist\dsh-plugin-mesh-0.5.4-dshgo.2.tgz`（566,959 B）。
+- 涓€閿儴缃诧紙鎵嬫満 guest 鍐?bash锛夛細`E:\mesh\scripts\deploy-task-v2.txt`锛堝惈澶囦唤銆乴oadable 鑷銆乧url 鍏滃簳锛?- 閫氶亾锛歚adb reverse tcp:8792 tcp:8792` + PC `E:\mesh\dist` 闈欐€佹湇鍔★紙`scripts/serve-dist.ps1`锛?- 閲嶅惎寮曟搸锛歚adb shell am force-stop io.github.ccch1mneyyy.dsh_app && am start -n 鈥?.LauncherMist`锛堟棤闇€鐐瑰嚮锛屽凡楠岃瘉锛?- 鍥炴粴锛氭崲鍥?`${PLUGIN}.bak-*` / `${PLUGIN}.bak2-*`锛宲rofile patch 鎹㈠洖 `.bak-*`锛岄噸鍚紩鎿?- 閰嶇疆锛?*鏃犻渶浠讳綍閰嶇疆**锛?.5.4-dshgo.2 鍦?dsh-go 涓婅嚜鍔?`danger-full-access`锛屾闈㈣涓轰笉鍙橈級
 
-## 3. 部署/回滚
+## 4. 鍏抽敭浜嬪疄锛堢湡鏈猴級
 
-- 一键部署（手机 guest 内 bash）：`E:\mesh\scripts\deploy-task-v2.txt`（含备份、loadable 自检、curl 兜底）
-- 通道：`adb reverse tcp:8792 tcp:8792` + PC `E:\mesh\dist` 静态服务（`scripts/serve-dist.ps1`）
-- 重启引擎：`adb shell am force-stop io.github.ccch1mneyyy.dsh_app && am start -n …/.LauncherMist`（无需点击，已验证）
-- 回滚：换回 `${PLUGIN}.bak-*` / `${PLUGIN}.bak2-*`，profile patch 换回 `.bak-*`，重启引擎
-- 配置：**无需任何配置**（0.5.4-dshgo.2 在 dsh-go 上自动 `danger-full-access`，桌面行为不变）
+- dsh-go锛歚process.platform==="linux"`銆乣os.release()` 鍚?`android15`銆乣hostname=localhost`銆乣/etc/machine-id` 绌恒€乣/system/build.prop` 瀛樺湪銆乣getprop` 涓嶅湪 PATH锛堢敤 `/system/bin/getprop`锛?- `os.networkInterfaces()` **姝ｅ父**锛坵lan0 绛?7 涓綉鍗★紝MAC 鍏?0 鍥?SELinux 鎷?`SIOCGIFHWADDR`锛夛紱`os.cpus().length=0` 浣?`availableParallelism=8`锛堝凡鍦?P1 淇級
+- DSH 鎻掍欢鍔犺浇鍣細鍙嫤鎴彃浠?package.json 閲?*澹版槑杩囩殑 peer**锛涙紡澹版槑 鈫?鍘熺敓瑙ｆ瀽 鈫?缂哄寘 鈫?鏁翠釜鎻掍欢 import 澶辫触锛堟湰娆′簨鏁呮牴鍥狅級
+- 鍏ョ珯浼氳瘽鏉冮檺锛歮esh 鍘熸潵鎭掑畾 `workspace-write`锛沝sh-go 鐨?proot 鏃犳矙绠卞悗绔?鈫?`sandbox+approval:ask` 鈫?姣忎釜浠诲姟鍗°€屽緟纭銆嶏紱`danger-full-access` 鎵嶆嬁鍒?`approval:"never"`
 
-## 4. 关键事实（真机）
+## 5. 寰呮敹灏撅紙闃诲鍦ㄨ澶囪繛閫氭€э級
 
-- dsh-go：`process.platform==="linux"`、`os.release()` 含 `android15`、`hostname=localhost`、`/etc/machine-id` 空、`/system/build.prop` 存在、`getprop` 不在 PATH（用 `/system/bin/getprop`）
-- `os.networkInterfaces()` **正常**（wlan0 等 7 个网卡，MAC 全 0 因 SELinux 拒 `SIOCGIFHWADDR`）；`os.cpus().length=0` 但 `availableParallelism=8`（已在 P1 修）
-- DSH 插件加载器：只拦截插件 package.json 里**声明过的 peer**；漏声明 → 原生解析 → 缺包 → 整个插件 import 失败（本次事故根因）
-- 入站会话权限：mesh 原来恒定 `workspace-write`；dsh-go 的 proot 无沙箱后端 → `sandbox+approval:ask` → 每个任务卡「待确认」；`danger-full-access` 才拿到 `approval:"never"`
+- [ ] 鎵嬫満閲嶈繛锛圲SB 绋冲畾 + 涓?PC 鍚岀綉娈碉級鈫?閲嶅惎寮曟搸 鈫?纭 `version=0.5.4-dshgo.2`銆乨iag 淇濇寔銆佷换鍔¤嚜鍔ㄦ墽琛屼笉琚‘璁ゆ墦鏂?- [ ] 鍙屽悜 `mesh_run` 鍚勪竴娆★紙妗岄潰鈫掓墜鏈恒€佹墜鏈衡啋妗岄潰锛夌暀璇佹嵁
+- [ ] 鍏?Wi-Fi 鍚?USB 閫氶亾娲惧彂锛堟渶寮洪獙鏀讹紝闇€瑕佹闈晶瑁呮柊鎻掍欢锛?- [ ] ui.json island 闆朵唬鐮佸祵鍏ワ紙闇€瑕?guest 鍐欏叆 `/root/.dsh/dsh-go/ui.json`锛?- [ ] 妗岄潰渚у畨瑁呴€傞厤鐗堟彃浠讹紙鍙€夛細闇€閲嶅惎妗岄潰 DSH锛屼細鏂紑褰撳墠浼氳瘽锛?
 
-## 5. 待收尾（阻塞在设备连通性）
+## 6. 最终验证证据（2026-10-29 02:0x，真机）
 
-- [ ] 手机重连（USB 稳定 + 与 PC 同网段）→ 重启引擎 → 确认 `version=0.5.4-dshgo.2`、diag 保持、任务自动执行不被确认打断
-- [ ] 双向 `mesh_run` 各一次（桌面→手机、手机→桌面）留证据
-- [ ] 关 Wi-Fi 后 USB 通道派发（最强验收，需要桌面侧装新插件）
-- [ ] ui.json island 零代码嵌入（需要 guest 写入 `/root/.dsh/dsh-go/ui.json`）
-- [ ] 桌面侧安装适配版插件（可选：需重启桌面 DSH，会断开当前会话）
+### 6.1 版本与能力（手机 /mesh/v1/health）
+- `version: 0.5.4-dshgo.2`
+- `os: "android 15 (6.6.30-android15-8-g8a843ce91753-abogki383952401-4k)"`（Android 宿主已识别）
+- `diag.dshGo.isDshGo=true`，7 项证据（env /opt/dsh-go /etc/dsh-app 内核串 build.prop getprop /dev/__properties__）
+- `diag.sidecarTarget = android/arm64`（`dsh-mesh-tsnet-android-arm64.gz`）
+- `diag.net.source="os"`、`macsAvailable=false` + `MAC_UNAVAILABLE`（显式表达，不是"没网卡"）
+- `capabilities.cpuCores=8`（修好 0）
+- `diag.inboundPermissionPreset="danger-full-access"`、`source="dsh-go"`
+- 桌面 `/mesh/v1/peers`：`localhost 192.168.1.19:45917 online=true transport=lan`，版本 `0.5.4-dshgo.2`
+- 手机 `/mesh/v1/peers`：`Rosmontis喵 192.168.1.6:45917 online=true transport=lan`
+
+### 6.2 双向派发 E2E（无人工确认）
+- 桌面 → 手机：`mesh_run(phone, ...)` → 手机 agent **自动执行**（无「待确认」）：
+  - `E2E_OK 1793210436656`
+  - `Linux localhost 6.6.30-android15… aarch64`（proot Ubuntu）
+  - `PLUGIN 0.5.4-dshgo.2`
+  - 回执回到桌面（task `t-4ec24aa23354`, status noted-only）
+- 手机 → 桌面：手机 agent 调 `mesh_run(Rosmontis喵, thread=e2e-reverse)` → 桌面收到入站任务 `t-83633c66cdef`（status dispatched）
+
+### 6.3 关键排障记录（供复现）
+- 0.5.4 上游 bug：`package.json` 漏 `@deepseek-ai/dsh-brand` peer → dsh-go 加载器不拦截未声明 peer → `ERR_MODULE_NOT_FOUND` → 整个插件 import 失败（fiberPhase=null、health 404）。修复：补 peer + `scripts/check-peerdeps.mjs` 门禁（已进 `npm run check`）。
+- 手机 Wi-Fi 节电会让 mesh 探测 RTT 涨到 2~2.5s、超过探测超时 → 对端显示离线（endpoints 记录实际还在，`downUntil` 冷却）。缓解：`adb shell svc power stayon true` / 保持充电亮屏；后续可用 USB 传输绕过 Wi-Fi。
+- 部署后若 mesh 不激活：先 `adb shell am force-stop … && am start -n …/.LauncherMist` 重启引擎（无需手点），再看 health。
+
+### 6.4 可选 UI 增强（零代码，验证中）
+- `/root/.dsh/dsh-go/ui.json` 写 `plugins.seats["sidebar.panellist"]={"dsh-plugin-mesh":"island"}` → mesh Web 面板嵌入 dsh-go 原生侧栏（1~2 秒生效、免重启，回滚删文件）。
