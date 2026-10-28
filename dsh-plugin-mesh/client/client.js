@@ -174,13 +174,54 @@ window.__ModuleLoader__.load({
      * 头像：有图用图，没图/加载失败回退首字母。
      * 图片来自 host 自述的 data URL，不额外请求文件服务。
      */
-    function Avatar({ name, avatar, className, children }) {
+    /** 设备没设头像时的默认 logo：按系统给品牌图标（Windows 用自绘四格窗，避免商标素材依赖）。 */
+    function platformBrand(platform) {
+      const p = String(platform || "").toLowerCase();
+      if (!p) return "";
+      if (p.includes("android")) return "android";
+      if (p.startsWith("win") || p.includes("windows")) return "windows";
+      if (p.includes("darwin") || p.includes("mac") || p.includes("ios")) return "apple";
+      if (p.includes("linux") || p.includes("ubuntu")) return "linux";
+      return "";
+    }
+
+    /** Windows 四格窗：自绘，形状简单、任何尺寸都清晰。 */
+    const WINDOW_BRAND = {
+      color: "#0078D4",
+      path: "M2.6 4.4 10.5 3.2v7.6H2.6V4.4zm9.1-1.3L21.4 1.6v9.2h-9.7V3.1zM2.6 12.4h7.9v7.6l-7.9-1.2v-6.4zm9.1 0h9.7v9.2l-9.7-1.5v-7.7z",
+    };
+
+    function PlatformLogo({ brand, size }) {
+      const icon = brand === "windows" ? WINDOW_BRAND : BRAND_ICONS[brand];
+      if (!icon) return null;
+      return h(
+        "svg",
+        { width: size || 16, height: size || 16, viewBox: "0 0 24 24", fill: icon.color, "aria-hidden": "true", focusable: "false" },
+        h("path", { d: icon.path }),
+      );
+    }
+
+    /** 对端平台：osInfo.platform 优先，其次 systems[0].platform。 */
+    function peerPlatform(p) {
+      const info = p && p.osInfo;
+      if (info && info.platform) return String(info.platform);
+      const sys = p && Array.isArray(p.systems) && p.systems.length ? p.systems[0] : null;
+      if (sys && sys.platform) return String(sys.platform);
+      return "";
+    }
+
+    /**
+     * 头像：有 image 就显图；没设定就按系统显默认 logo（安卓机器人 / Windows / 苹果 / Linux）；
+     * 平台认不出来才回退到首字母。
+     */
+    function Avatar({ name, avatar, className, children, platform }) {
       const [failed, setFailed] = react.useState(false);
       react.useEffect(() => setFailed(false), [avatar]);
       const image = typeof avatar === "string" && avatar.startsWith("data:image/") && !failed;
+      const brand = image ? "" : platformBrand(platform);
       return h(
         "span",
-        { className: `${className || "mesh-avatar"}${image ? " has-image" : ""}` },
+        { className: `${className || "mesh-avatar"}${image ? " has-image" : ""}${brand ? " has-brand" : ""}` },
         image
           ? h("img", {
               src: avatar,
@@ -188,12 +229,13 @@ window.__ModuleLoader__.load({
               draggable: false,
               onError: () => setFailed(true),
             })
-          : initial(name),
+          : brand
+            ? h("span", { className: "mesh-avatar-glyph" }, h(PlatformLogo, { brand, size: 17 }))
+            : initial(name),
         children,
       );
     }
 
-    /** 把用户选的图片压成 96×96 JPEG data URL；太大再降一次质量。 */
     function imageFileToAvatar(file) {
       return new Promise((resolve, reject) => {
         const url = URL.createObjectURL(file);
@@ -1076,6 +1118,8 @@ window.__ModuleLoader__.load({
   animation: mesh-bar-in var(--mesh-dur-base) var(--mesh-ease-out) both;
 }
 .mesh-row.is-offline .mesh-row-name, .mesh-row.is-offline .mesh-avatar { opacity: .62; }
+.mesh-avatar-glyph { display: grid; place-items: center; }
+.mesh-avatar.has-brand { background: color-mix(in srgb, var(--mesh-fg) 6%, transparent); color: var(--mesh-muted); }
 .mesh-row-name { transition: opacity .35s var(--mesh-ease-out); }
 .mesh-avatar {
   position: relative; flex: 0 0 auto;
@@ -1729,8 +1773,10 @@ textarea.mesh-setting-input { min-height: 54px; resize: vertical; }
 /* 卡片标题图标 = 真实头像：概览显示本机头像；设备显示设备头像栈（悬停向右展开，点击直达该设备）。 */
 .mesh-card-logo.has-avatar { padding: 0; background: transparent; overflow: visible; }
 .mesh-card-avatar { width: 100%; height: 100%; border-radius: inherit; }
-.mesh-card-stack { display: flex; align-items: center; gap: 5px; }
-.mesh-card-stack-item { width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; }
+.mesh-card-stack { display: flex; align-items: center; gap: 5px; width: 100%; height: 100%; }
+.mesh-card-stack-item { width: 34px; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; flex: 0 0 auto; }
+.mesh-card-stack-item.is-primary { width: 100%; }
+.mesh-card-logo.is-expanded .mesh-card-stack { width: max-content; }
 .mesh-card-stack-item .mesh-avatar { width: 100%; height: 100%; border-radius: 10px; }
 .mesh-card-stack-item:not(.is-primary) {
   width: 0; opacity: 0; transform: translateX(-5px); pointer-events: none; overflow: hidden;
@@ -4124,7 +4170,7 @@ function CapabilityChips({ caps, peer }) {
         },
         h(
           Avatar,
-          { name, avatar: peer.avatar, className: "mesh-avatar" },
+          { name, avatar: peer.avatar, className: "mesh-avatar", platform: peerPlatform(peer) },
           h(Dot, { kind: online ? "ok" : "idle" }),
         ),
         h(
@@ -4276,7 +4322,7 @@ function CapabilityChips({ caps, peer }) {
           h(
             "header",
             { className: "mesh-detail-head" },
-            h(Avatar, { name: peer.machine, avatar: peer.avatar, className: "mesh-detail-avatar" }, h(Dot, { kind: online ? "ok" : "idle" })),
+            h(Avatar, { name: peer.machine, avatar: peer.avatar, className: "mesh-detail-avatar", platform: peerPlatform(peer) }, h(Dot, { kind: online ? "ok" : "idle" })),
             h(
               "div",
               { className: "mesh-detail-copy" },
@@ -4507,7 +4553,7 @@ function CapabilityChips({ caps, peer }) {
           h(
             "div",
             { className: "mesh-sheet-head" },
-            h(Avatar, { name: target.machine, avatar: target.avatar, className: "mesh-detail-avatar" }, h(Dot, { kind: online ? "ok" : "idle" })),
+            h(Avatar, { name: target.machine, avatar: target.avatar, className: "mesh-detail-avatar", platform: peerPlatform(target) }, h(Dot, { kind: online ? "ok" : "idle" })),
             h(
               "div",
               { className: "mesh-sheet-title" },
@@ -5683,7 +5729,7 @@ function CapabilityChips({ caps, peer }) {
         h(
           "div",
           { className: "mesh-me" },
-          h(Avatar, { name: self && self.machine, avatar: self && self.avatar, className: "mesh-avatar mesh-me-avatar" }),
+          h(Avatar, { name: self && self.machine, avatar: self && self.avatar, className: "mesh-avatar mesh-me-avatar", platform: (self && self.platform) || "" }),
           h("span", { className: "mesh-me-name" }, (self && self.machine) || "未命名"),
           self && self.needsName ? h(Badge, { kind: "warn" }, "待命名") : null,
           h(
@@ -6678,7 +6724,7 @@ function CapabilityChips({ caps, peer }) {
       const isStack = stackPeers.length > 0;
       const stackExpanded = isStack && logoOpen;
       const logoNode = selfAvatar
-        ? h(Avatar, { name: (self && self.machine) || "", avatar: selfAvatar, className: "mesh-avatar mesh-card-avatar" })
+        ? h(Avatar, { name: (self && self.machine) || "", avatar: selfAvatar, className: "mesh-avatar mesh-card-avatar", platform: (self && self.platform) || "" })
         : isStack
           ? h(
               "span",
@@ -6703,7 +6749,7 @@ function CapabilityChips({ caps, peer }) {
                       }
                     },
                   },
-                  h(Avatar, { name: p.machine, avatar: p.avatar, className: "mesh-avatar" }),
+                  h(Avatar, { name: p.machine, avatar: p.avatar, className: "mesh-avatar", platform: peerPlatform(p) }),
                 ),
               ),
             )
@@ -7226,6 +7272,7 @@ function CapabilityChips({ caps, peer }) {
       logoAvatar,
       logoPeers,
       logoName,
+      logoPlatform,
       onOpenPeer,
     }) {
       const wide = size && size.w === 2;
@@ -7243,7 +7290,7 @@ function CapabilityChips({ caps, peer }) {
       const logoNode = !hasAvatar
         ? null
         : avatarSrc
-          ? h(Avatar, { name: logoName || "", avatar: avatarSrc, className: "mesh-avatar mesh-card-avatar" })
+          ? h(Avatar, { name: logoName || "", avatar: avatarSrc, className: "mesh-avatar mesh-card-avatar", platform: logoPlatform || "" })
           : h(
               "span",
               { className: "mesh-card-stack" },
@@ -7267,7 +7314,7 @@ function CapabilityChips({ caps, peer }) {
                       }
                     },
                   },
-                  h(Avatar, { name: p.machine, avatar: p.avatar, className: "mesh-avatar" }),
+                  h(Avatar, { name: p.machine, avatar: p.avatar, className: "mesh-avatar", platform: peerPlatform(p) }),
                 ),
               ),
             );
@@ -7745,7 +7792,7 @@ function CapabilityChips({ caps, peer }) {
             ? h(
                 "div",
                 { key: "self", className: "mesh-mini-row is-self" },
-                h(Avatar, { name: self.machine, avatar: self.avatar, className: "mesh-avatar mesh-mini-avatar" }),
+                h(Avatar, { name: self.machine, avatar: self.avatar, className: "mesh-avatar mesh-mini-avatar", platform: (self && self.platform) || "" }),
                 h("span", { className: "mesh-mini-name" }, self.machine || "本机"),
                 h("span", { className: "mesh-mini-meta" }, `在线 · ${osLabel(self.platform)} · 本机`),
               )
@@ -7846,6 +7893,7 @@ function CapabilityChips({ caps, peer }) {
                 ].concat(peers.filter((p) => p && p.online))
               : null,
           logoName: (self && self.machine) || "",
+          logoPlatform: (self && self.platform) || "",
           onOpenPeer,
         };
 

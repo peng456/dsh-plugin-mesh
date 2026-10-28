@@ -79,7 +79,7 @@ export const name = "dsh-plugin-mesh";
 export const inject = ["tools", "webServer"];
 
 // 本地 fork：在 0.5.4 之上做 dsh-go 适配（P0/P1/P1.5/P2 手机原生 UI + 头像化主页）。预发布后缀便于真机 /mesh/v1/health 一眼确认装的是适配版。
-const VERSION = "0.5.4-dshgo.6";
+const VERSION = "0.5.4-dshgo.7";
 // 诊断用：进程启动时间、入口真实路径、**磁盘上** package.json 的版本。
 // 这三样放一起才能回答"现在跑的到底是哪份代码" —— 只看 state.json 或重启日志
 // 都答不了（真踩过：磁盘升到 0.5.1，进程还在 0.5.0，界面显示 0.5.0）。
