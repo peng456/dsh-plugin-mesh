@@ -24,6 +24,7 @@ import { gunzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { PINNED_CHECKSUMS } from "./checksums.js";
+import { dshGoInfo } from "../dshgo.js";
 
 /** Sidecar 控制协议版本；与 sidecar/main.go 的 ProtocolVersion 必须一致。 */
 export const SIDECAR_PROTOCOL = 1;
@@ -46,6 +47,48 @@ const MAX_REDIRECTS = 5;
 const CONNECT_TIMEOUT_MS = 4000;
 const IDLE_TIMEOUT_MS = 30000;
 
+/**
+ * `sidecarPlatform` 配置的生效值：`"linux" | "android"`（空 = auto）。
+ * 由 index.js 的 apply 在启动时写入（`configureSidecarPlatform(config.sidecarPlatform)`）。
+ */
+let sidecarPlatformOverride = "";
+
+/** 写入 `sidecarPlatform` 覆盖（auto/非法值 = 清空，走自动判断）。 */
+export function configureSidecarPlatform(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  sidecarPlatformOverride = v === "linux" || v === "android" ? v : "";
+}
+
+/** 当前 sidecar 平台配置的生效值（`auto` 表示未覆盖）。 */
+export function sidecarPlatformSettingValue() {
+  return sidecarPlatformOverride || "auto";
+}
+
+/**
+ * 解析"当前环境该用哪一族的 sidecar 资产"。
+ *
+ * 规则（P1-3）：
+ *   1. `sidecarPlatform` 显式配置（linux/android）优先 —— 逃生通道，真机出问题
+ *      时可以一键换风味，不用等发版；
+ *   2. 否则 `platform === "linux"` 且探测到 dsh-go/Android proot → **android**：
+ *      dsh-go 的 proot 里 `/system` 已挂载、`/dev/__properties__` 存在，所以
+ *      tailscale androidbin 的 `onAndroid()` 为真、net.Interfaces 的回退会生效；
+ *      而 linux 静态资产（GOOS=linux 全静态 ET_EXEC）会死在 `netns` 的
+ *      controlC（它会读 `/proc/net/route`，Android app UID 上是 EACCES）；
+ *   3. 其余保持原映射（darwin/windows/linux 桌面不变）。
+ */
+function resolveTargetOs(baseOs) {
+  if (sidecarPlatformOverride) return sidecarPlatformOverride;
+  if (baseOs === "linux") {
+    try {
+      if (dshGoInfo().isDshGo === true) return "android";
+    } catch {
+      /* 探测失败就用默认映射 */
+    }
+  }
+  return baseOs;
+}
+
 /** 把 Node 的 platform/arch 映射成 sidecar 的资产命名。 */
 export function detectTarget() {
   // Termux 下 os.platform() 返回的是 "android"，不是 "linux"（实测那台 Android 的
@@ -56,11 +99,43 @@ export function detectTarget() {
   // 通吃），真机上 exec 会直接被 bionic 拒掉 —— 原话是
   //     error: "…/dsh-mesh-tsnet" has unexpected e_type: 2
   // 所以 build-sidecar.sh 为 android 单独出一份 PIE + bionic 解释器的产物。
-  const os = { darwin: "darwin", win32: "windows", linux: "linux", android: "android" }[process.platform];
-  if (!os) throw new Error(`不支持的系统：${process.platform}`);
+  const baseOs = { darwin: "darwin", win32: "windows", linux: "linux", android: "android" }[process.platform];
+  if (!baseOs) throw new Error(`不支持的系统：${process.platform}`);
   const arch = { x64: "amd64", arm64: "arm64" }[process.arch];
   if (!arch) throw new Error(`不支持的架构：${process.arch}（已发布 amd64 / arm64，见 sidecar-v1 release）`);
-  return { os, arch };
+  return { os: resolveTargetOs(baseOs), arch };
+}
+
+/**
+ * 诊断用：当前会选哪个资产、为什么（不下载、不联网、**不抛**）。
+ * 健康检查/诊断卡片读它，排障时一眼看出"是不是选错风味了"。
+ */
+export function describeSidecarTarget() {
+  try {
+    const target = detectTarget();
+    let dshGo = false;
+    try {
+      dshGo = dshGoInfo().isDshGo === true;
+    } catch {
+      /* 探测不可用就按 false */
+    }
+    return {
+      os: target.os,
+      arch: target.arch,
+      asset: assetName(),
+      platform: process.platform,
+      executableArch: process.arch,
+      configured: sidecarPlatformSettingValue(),
+      dshGo,
+    };
+  } catch (err) {
+    return {
+      error: String(err?.message ?? err),
+      platform: process.platform,
+      executableArch: process.arch,
+      configured: sidecarPlatformSettingValue(),
+    };
+  }
 }
 
 /** 本平台对应的资产名，例如 dsh-mesh-tsnet-darwin-amd64.gz */

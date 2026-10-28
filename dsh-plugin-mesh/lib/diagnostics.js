@@ -71,6 +71,7 @@ export function buildDiagnostics({
     "requirePairing",
     "agentPreset",
     "permissionPreset",
+    "permissionPresetOnDshGo",
     "workspaceRoot",
     "tsnetEnabled",
   ]) {

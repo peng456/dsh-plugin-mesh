@@ -14,13 +14,14 @@ import { createServer } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { detectTarget, assetName, candidateUrls, binDir, binaryPath, binaryInfo, cacheIsCurrent, downloadToBuffer, SIDECAR_PROTOCOL } from "./tsnet/download.js";
+import { detectTarget, assetName, candidateUrls, binDir, binaryPath, binaryInfo, cacheIsCurrent, downloadToBuffer, SIDECAR_PROTOCOL, configureSidecarPlatform, sidecarPlatformSettingValue, describeSidecarTarget } from "./tsnet/download.js";
 import { PINNED_CHECKSUMS } from "./tsnet/checksums.js";
 import { toHostname, TsnetNode, channelKey, channelDir, channelStateDir } from "./tsnet/manager.js";
 import { resolveTailnetChannels } from "./tsnet/channels.js";
 import { tailnetOrigin, isTailnetAddress } from "./tsnet/bridge.js";
 import { MeshDiscovery, orderedEndpoints, endpointAlive } from "./discovery.js";
 import { conversationKey, replyTarget } from "./conversation.js";
+import { __setDshGoForTest, __resetDshGoCacheForTest } from "./dshgo.js";
 
 let passed = 0;
 let failed = 0;
@@ -589,6 +590,82 @@ check("binaryInfo 遇到不支持的平台也不抛，只把原因放进 error",
   } finally {
     Object.defineProperty(process, "platform", desc);
   }
+});
+
+console.log("\n── P1-3：dsh-go 上的 sidecar 资产选择（linux → android）──");
+
+/** 在指定 platform 下跑，结束后恢复（与上面 android 用例同一套手法）。 */
+function withPlatform(value, fn) {
+  const desc = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value, configurable: true });
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(process, "platform", desc);
+    configureSidecarPlatform("");
+    __resetDshGoCacheForTest();
+  }
+}
+
+check("普通 linux：仍是 linux 资产（桌面零变化）", () => {
+  withPlatform("linux", () => {
+    assert.equal(detectTarget().os, "linux");
+    assert.match(assetName(), /^dsh-mesh-tsnet-linux-(amd64|arm64)\.gz$/);
+  });
+});
+
+check("linux + dsh-go 检测 → android/arm64 资产（避开 netns controlC 坑）", () => {
+  withPlatform("linux", () => {
+    __setDshGoForTest({ isDshGo: true, runtime: "proot", deviceModel: "Xiaomi 15 Ultra", androidVersion: "15" });
+    const t = detectTarget();
+    assert.equal(t.os, "android");
+    assert.match(assetName(), /^dsh-mesh-tsnet-android-(amd64|arm64)\.gz$/);
+  });
+});
+
+check("sidecarPlatform=linux 覆盖：dsh-go 上也强制 linux 资产（逃生通道）", () => {
+  withPlatform("linux", () => {
+    __setDshGoForTest({ isDshGo: true, runtime: "proot" });
+    configureSidecarPlatform("linux");
+    assert.equal(sidecarPlatformSettingValue(), "linux");
+    assert.equal(detectTarget().os, "linux");
+    assert.match(assetName(), /^dsh-mesh-tsnet-linux-(amd64|arm64)\.gz$/);
+  });
+});
+
+check("sidecarPlatform=android 覆盖：非 Android 平台也按 android 资产", () => {
+  withPlatform("linux", () => {
+    configureSidecarPlatform("android");
+    assert.equal(detectTarget().os, "android");
+    assert.match(assetName(), /^dsh-mesh-tsnet-android-(amd64|arm64)\.gz$/);
+  });
+});
+
+check("非法 sidecarPlatform 按 auto 处理（不炸、不改变默认）", () => {
+  withPlatform("linux", () => {
+    configureSidecarPlatform("solaris");
+    assert.equal(sidecarPlatformSettingValue(), "auto");
+    assert.equal(detectTarget().os, "linux");
+  });
+});
+
+check("describeSidecarTarget：诊断里能看到选中资产/配置/dsh-go 判定，且不抛", () => {
+  withPlatform("linux", () => {
+    __setDshGoForTest({ isDshGo: true, runtime: "proot" });
+    const d = describeSidecarTarget();
+    assert.equal(d.os, "android");
+    assert.match(String(d.asset), /^dsh-mesh-tsnet-android-/);
+    assert.equal(d.configured, "auto");
+    assert.equal(d.dshGo, true);
+  });
+});
+
+check("describeSidecarTarget：不支持的平台上只返回 error 字段（不得抛，健康检查会用它）", () => {
+  withPlatform("plan9", () => {
+    const bad = describeSidecarTarget();
+    assert.ok(bad.error, "不支持平台应返回 error 字段");
+    assert.equal(bad.platform, "plan9");
+  });
 });
 
 await checkAsync("start() 早期失败必须落到 phase=error，不能永远停在 starting（UI 转圈不停）", async () => {

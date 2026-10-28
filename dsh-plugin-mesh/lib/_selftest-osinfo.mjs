@@ -296,6 +296,75 @@ check("sanitizeSystems：去重、kind 白名单、最多 4 项、宿主机排�
   assert.ok(!list.some((s) => s.name === "Other"), "第 5 个及以后的系统应被截断");
 });
 
+console.log("\n── dsh-go：Android 是宿主、Ubuntu 是 proot 运行时（P1）──");
+
+/** dsh-go 真机形状（release 是 Android 内核串；/etc/os-release 是 Ubuntu）。 */
+const DSHGO_FACTS = { isDshGo: true, runtime: "proot", deviceModel: "Xiaomi 15 Ultra", androidVersion: "15" };
+const UBUNTU_OS_RELEASE = [
+  'PRETTY_NAME="Ubuntu 24.04.5 LTS"',
+  'NAME="Ubuntu"',
+  'VERSION_ID="24.04"',
+  "ID=ubuntu",
+  "",
+].join("\n");
+const dshGoOpts = () => ({
+  platform: "linux",
+  release: "6.6.30-android15-8-g1a2b3c4d",
+  arch: "arm64",
+  dshGo: DSHGO_FACTS,
+  env: {},
+  readFile: (path) => {
+    if (path === "/etc/os-release") return UBUNTU_OS_RELEASE;
+    throw Object.assign(new Error("ENOENT: " + path), { code: "ENOENT" });
+  },
+});
+
+check("detectOsInfo：dsh-go → platform=android、名称带 dsh-go proot、内核仍是 Android 串", () => {
+  const info = detectOsInfo(dshGoOpts());
+  assert.equal(info.platform, "android");
+  assert.equal(info.version, "15");
+  assert.match(info.name, /dsh-go proot/);
+  assert.equal(info.kernel, "6.6.30-android15-8-g1a2b3c4d");
+  assert.equal(info.desktop, "proot");
+});
+
+check("detectOsInfo：dshGo=false 时 linux 分支完全不变（桌面零变化）", () => {
+  const info = detectOsInfo({ ...dshGoOpts(), dshGo: false });
+  assert.equal(info.platform, "linux");
+  assert.equal(info.name, "Ubuntu");
+  assert.equal(info.version, "24.04");
+  assert.equal(info.distro, "ubuntu");
+  assert.equal(info.desktop, "");
+});
+
+check("detectSystems：host=Android 机型，runtime=Ubuntu proot，顺序 host 在前", () => {
+  const list = detectSystems(dshGoOpts());
+  assert.equal(list.length, 2, `应有 host+runtime 两条，实际 ${JSON.stringify(list)}`);
+  assert.equal(list[0].kind, "host");
+  assert.equal(list[0].platform, "android");
+  assert.equal(list[0].name, "Xiaomi 15 Ultra");
+  assert.equal(list[0].version, "15");
+  assert.equal(list[1].kind, "runtime");
+  assert.equal(list[1].platform, "linux");
+  assert.equal(list[1].name, "Ubuntu");
+  assert.equal(list[1].version, "24.04");
+  assert.equal(list[1].distro, "ubuntu");
+  assert.equal(list[1].desktop, "proot");
+});
+
+check("sanitizeSystems 认识 kind=runtime（老对端收到未知 kind 也不会丢条目）", () => {
+  const list = sanitizeSystems([
+    { kind: "runtime", platform: "linux", name: "Ubuntu", version: "24.04" },
+    { kind: "host", platform: "android", name: "Phone", version: "15" },
+    { kind: "weird", platform: "linux", name: "Other", version: "1" },
+  ]);
+  assert.ok(list.some((s) => s.kind === "runtime"), "runtime 是合法 kind");
+  assert.equal(list[0].kind, "host");
+  const weird = list.find((s) => s.name === "Other");
+  assert.ok(weird, "未知 kind 的条目仍保留（kind 清空）");
+  assert.equal(weird.kind, "");
+});
+
 console.log("\n── 名片收发：selfRecord 带 osInfo，对端 osInfo 会被清洗 ──");
 
 check("selfRecord 带本机 osInfo", () => {

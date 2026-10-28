@@ -26,6 +26,8 @@ import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { MeshDiscovery, preferredAddress, lanIPv4Addresses, macForAddress, orderedEndpoints } from "./discovery.js";
 import { collectNetInfo, configureNetInfo, peerHostsFromSpecs, peerPortsFromSpecs } from "./netinfo.js";
+import { dshGoInfo, dshGoSummary, isDshGo } from "./dshgo.js";
+import { resolveInboundPermissionPreset, describeInboundPermissionPreset } from "./inbound-preset.js";
 import { candidateAddresses, scanForPeers } from "./scan.js";
 import { machineFingerprint } from "./identity.js";
 import {
@@ -57,6 +59,7 @@ import {
   savePeerSnapshot,
 } from "./persist.js";
 import { TsnetNode, channelKey, channelSignature } from "./tsnet/manager.js";
+import { configureSidecarPlatform, describeSidecarTarget } from "./tsnet/download.js";
 import { resolveTailnetChannels } from "./tsnet/channels.js";
 import { tailnetFetch, tailnetOrigin } from "./tsnet/bridge.js";
 import { createWebProxy } from "./web-proxy.js";
@@ -288,6 +291,22 @@ export const Config = z.object({
   agentPreset: z.string().default("standard"),
   /** 对端任务在本机新建会话时的权限；默认不给 danger-full-access */
   permissionPreset: z.string().default("workspace-write"),
+  /**
+   * dsh-go（Android App + proot）上的入站会话权限 preset；**留空 = 不覆盖**
+   * （完全保持 permissionPreset 的现有语义，桌面端零变化）。
+   *
+   * 为什么需要这个键（真机阻塞项，见 analysis/DSHGO-BRIDGE-INTEGRATION.md §7）：
+   * 手机 proot 里没有可用沙箱后端（bubblewrap/Landlock 都没有），
+   * `workspace-write` 会解析成 sandbox(workspace-write) + approval:ask；
+   * 后台会话没有 answerer，于是**每个入站任务都停在「待确认」**，
+   * 桌面派任务要手机用户手工点确认 —— 无人值守不可能。
+   * 填 `danger-full-access` 才会得到 approval:"never"，任务自动跑完。
+   *
+   * 生效条件：只在本机被探测为 dsh-go/Android proot 环境（lib/dshgo.js）时生效；
+   * 桌面上配这个键不产生任何行为变化。dsh-go 上**推荐**显式配成
+   * `danger-full-access`（入站内容来自外部，安全性靠 requirePairing/局域网可信度兜底）。
+   */
+  permissionPresetOnDshGo: z.string().default(""),
   /** 对端任务新建会话的工作目录；留空用用户主目录 */
   workspaceRoot: z.string().default(""),
 
@@ -812,12 +831,26 @@ function applyUnsafe(ctx, config) {
   // 地址采集的配置必须在任何 selfRecord()/公告/健康检查之前生效：这些路径都会
   // 同步读 netinfo 的模块级配置（advertiseAddress 是最高优先级来源）。
   configureNetInfo({ advertiseAddress: config.advertiseAddress ?? "" });
+  // dsh-go/Android proot 探测（只读、进程内缓存一次）。它决定三件事：
+  //   ① 入站权限默认值（permissionPresetOnDshGo）；
+  //   ② tsnet sidecar 资产风味（auto → android/arm64）；
+  //   ③ 平台身份/CPU 核数（osinfo/identity/capabilities）。
+  const dshGo = dshGoInfo();
+  // sidecar 资产选择也读这个配置（auto 时 dsh-go→android/arm64）。
+  configureSidecarPlatform(config.sidecarPlatform ?? "");
   const resolved = resolveMachineName(config);
   const identity = { name: resolved.name, source: resolved.source };
   ensureSecret();
   const instanceId = resolveInstanceId();
   const log = (m) => ctx.logger?.info?.(`mesh: ${m}`);
   const warn = (m) => ctx.logger?.warn?.(`mesh: ${m}`);
+
+  if (dshGo.isDshGo) {
+    log(
+      `检测到 dsh-go/Android proot 环境：${dshGo.deviceModel || "未知机型"} Android ${dshGo.androidVersion || "?"}` +
+        `（证据 ${dshGo.evidence.join(", ")}）`,
+    );
+  }
 
   const inbound = [];
   const outbound = [];
@@ -977,7 +1010,17 @@ function applyUnsafe(ctx, config) {
     }),
     // P0：地址与 MAC 的探测过程必须可查（source/errors），不能只给一个结论。
     net: netSummary(collectNetInfo()),
+    // P1：dsh-go 环境识别 / sidecar 资产选择 / 入站权限来源，全部可查。
+    dshGo: dshGoSummary(),
     sidecarPlatform: sidecarPlatformValue(config),
+    sidecarTarget: describeSidecarTarget(),
+    inboundPermissionPreset: (() => {
+      try {
+        return describeInboundPermissionPreset({ config, task: { transport: "lan" }, dshGo: isDshGo() });
+      } catch {
+        return { value: "", source: "none" };
+      }
+    })(),
   });
 
   // 1) 先起对端 HTTP（拿到真实端口），再开始发现
@@ -1182,13 +1225,15 @@ const WAKE_SERVICES = [
 /**
  * 入站任务该用哪个权限 preset。
  *
- * 默认两者完全一致（tailnet 与局域网功能同等级）。留出这个开关是因为信任
+ * 解析逻辑抽到 `lib/inbound-preset.js`（纯函数，可离线单测）：dsh-go 覆盖 >
+ * tailnet 收紧 > 默认。这里只负责把"本机是不是 dsh-go"喂进去。
+ *
+ * 默认两者完全一致（tailnet 与局域网功能同等级）。留出 tailnet 开关是因为信任
  * 边界不同 —— 进局域网要物理接入，进 tailnet 只要拿到授权码；而一旦进网，
  * 对方就能对你所有机器下 mesh_run。只想收紧互联网那一侧就填它。
  */
 function permissionPresetFor(config, task) {
-  if (task?.transport === "tsnet") return config.tsnetPermissionPreset || config.permissionPreset;
-  return config.permissionPreset;
+  return resolveInboundPermissionPreset({ config, task, dshGo: isDshGo() });
 }
 
 /** 实验性远程控制（对端 Web / SSH）开关；所有远程入口都必须先过这里。 */
@@ -1211,19 +1256,30 @@ function setupInbound(ctx, config, log, warn, waker) {
     }
     waker.ready = true;
     waker.ctx = scoped;
-    // 提前校验 preset，配错了在启动时就能看到，而不是等收到任务才失败
+    // 提前校验**生效值**（而不是只校验 config.permissionPreset）：dsh-go 上可能
+    // 走 permissionPresetOnDshGo，校验错对象等于没校验，要等收到任务才炸。
     try {
-      scoped.permissionPresets.resolve(config.permissionPreset);
-      const tsnetPreset = config.tsnetPermissionPreset || config.permissionPreset;
-      if (tsnetPreset !== config.permissionPreset) scoped.permissionPresets.resolve(tsnetPreset);
+      const inbound = describeInboundPermissionPreset({ config, task: { transport: "lan" }, dshGo: isDshGo() });
+      const tsnet = describeInboundPermissionPreset({ config, task: { transport: "tsnet" }, dshGo: isDshGo() });
+      scoped.permissionPresets.resolve(inbound.value);
+      if (tsnet.value !== inbound.value) scoped.permissionPresets.resolve(tsnet.value);
+      const dshGoNote = [];
+      if (isDshGo()) {
+        dshGoNote.push(
+          config.permissionPresetOnDshGo
+            ? "dsh-go 环境，已启用 permissionPresetOnDshGo 覆盖"
+            : "dsh-go 环境但未设 permissionPresetOnDshGo —— workspace-write 会停在「待确认」",
+        );
+      }
       log(
-        `入站唤醒已就绪（自包含实现，权限 preset=${config.permissionPreset}` +
-          (tsnetPreset !== config.permissionPreset ? `，tailnet=${tsnetPreset}` : "，tailnet 同局域网") +
+        `入站唤醒已就绪（自包含实现，权限 preset=${inbound.value}（来源 ${inbound.source}）` +
+          (tsnet.value !== inbound.value ? `，tailnet=${tsnet.value}（来源 ${tsnet.source}）` : "，tailnet 同局域网") +
+          (dshGoNote.length > 0 ? `；${dshGoNote.join("；")}` : "") +
           "）",
       );
     } catch (err) {
       waker.ready = false;
-      warn(`permissionPreset "${config.permissionPreset}" 无效，入站唤醒已停用：${err?.message ?? err}`);
+      warn(`入站权限 preset 无效，入站唤醒已停用：${err?.message ?? err}`);
     }
   });
 }
@@ -2143,15 +2199,31 @@ function startPeerServer(ctx, { config, discovery, inbound, outbound, log, warn,
     const path = url.pathname;
     const self = { ...discovery.selfRecord(), instanceId: discovery.instanceId };
 
-    // 地址/MAC 探测的可观察摘要。免鉴权接口只给"来源与是否可用"，不给地址列表。
+    // 地址/MAC 探测 + dsh-go 环境 + sidecar 资产的可观察摘要。免鉴权接口只给
+    // "来源与是否可用"，不给地址列表 / 不执行会写盘的动作。
     // 为什么放在这里：Android/proot 上"没有地址"与"地址探不到"在数据上一样，
     // 不把 source/errors 带出来就只能靠猜（AGENTS.md 硬约束 1）。
     const netDiag = () => {
       try {
         const info = typeof discovery.netInfo === "function" ? discovery.netInfo() : null;
-        return { net: netSummary(info), sidecarPlatform: sidecarPlatformValue(config) };
+        const inbound = describeInboundPermissionPreset({ config, task: { transport: "lan" }, dshGo: isDshGo() });
+        return {
+          net: netSummary(info),
+          sidecarPlatform: sidecarPlatformValue(config),
+          sidecarTarget: describeSidecarTarget(),
+          dshGo: dshGoSummary(),
+          inboundPermissionPreset: inbound.value,
+          inboundPermissionPresetSource: inbound.source,
+        };
       } catch {
-        return { net: { source: "error", macsAvailable: false, errors: [{ source: "netinfo", code: "THROW" }] }, sidecarPlatform: sidecarPlatformValue(config) };
+        return {
+          net: { source: "error", macsAvailable: false, errors: [{ source: "netinfo", code: "THROW" }] },
+          sidecarPlatform: sidecarPlatformValue(config),
+          sidecarTarget: { error: "diag-failed" },
+          dshGo: dshGoSummary(),
+          inboundPermissionPreset: "",
+          inboundPermissionPresetSource: "none",
+        };
       }
     };
 
@@ -2630,6 +2702,8 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
     const channelViews = tailnetChannels.map((c) => tailnetChannelView(c, tailnetNodes.get(c.id) ?? null));
     // 兼容旧界面：node / hostname / authKeySaved 取"第一条启用的通道"
     const primary = channelViews.find((c) => c.enabled) ?? channelViews[0] ?? null;
+    // 入站权限生效值只算一次（页面轮询时被 self/config/诊断多处读）。
+    const inboundPreset = describeInboundPermissionPreset({ config, task: { transport: "lan" }, dshGo: isDshGo() });
     return {
       ok: true,
       self: {
@@ -2646,6 +2720,11 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
         // 地址从哪来 / MAC 能不能用。Android/proot 上这两个结论经常是"探测失败"
         // 而不是"设备没有"，必须让排障的人一眼看见（P0）。
         net: netSummary(discovery.netInfo()),
+        // dsh-go/Android proot 环境识别结果（P1）：机型/Android 版本/证据。
+        dshGo: dshGoSummary(),
+        // 入站任务实际会用的权限 preset 及来源（dsh-go 覆盖 / tailnet / 默认）。
+        // 真机「待确认」问题的第一现场就这里 —— 让 UI/排障能直接看到。
+        inboundPermissionPreset: inboundPreset,
         platform: platform(),
         version: VERSION,
         // 磁盘上的版本 vs 本进程加载的版本。两者不一致 = 升级了但没重启，
@@ -2666,6 +2745,10 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
       config: {
         agentPreset: config.agentPreset,
         permissionPreset: config.permissionPreset,
+        // P1：UI 要能看到"入站任务实际会用什么权限"（dsh-go 上可能被覆盖）。
+        // 直接给生效值+来源，避免界面自己再算一遍规则（两处规则必然漂移）。
+        permissionPresetEffective: inboundPreset.value,
+        permissionPresetSource: inboundPreset.source,
         workspaceRoot: config.workspaceRoot,
         desktopWebPort: config.desktopWebPort,
         experimentalRemoteControl: config.experimentalRemoteControl === true,
@@ -2685,6 +2768,9 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
         staticPeers: config.staticPeers ?? [],
         advertiseAddress: config.advertiseAddress ?? "",
         sidecarPlatform: sidecarPlatformValue(config),
+        // P1：dsh-go 上的入站权限覆盖（空 = 不覆盖）。UI 只读展示，
+        // 生效值见 self.inboundPermissionPreset。
+        permissionPresetOnDshGo: config.permissionPresetOnDshGo ?? "",
         // 对端能力名片超过这个年龄就按"未知"处理（UI 用它渲染"能力信息已过期"）
         capabilityStaleMs: CAPABILITY_STALE_MS,
       },
@@ -2703,6 +2789,9 @@ function registerUiRoutes(ctx, { discovery, config, identity, inbound, outbound,
         permissionPresetEffective: config.tsnetPermissionPreset || config.permissionPreset,
         node: primary?.node ?? null,
         recentEvents: primary?.recentEvents ?? [],
+        // P1：按当前环境/配置会选哪个 sidecar 资产（dsh-go → android/arm64）。
+        // 只是"会选哪个"，不代表已下载/已启动。
+        target: describeSidecarTarget(),
       },
       peers: discovery.peers(),
       duplicateNames: duplicateNames(),

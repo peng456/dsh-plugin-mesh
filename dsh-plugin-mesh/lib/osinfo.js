@@ -17,6 +17,7 @@
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { dshGoInfo } from "./dshgo.js";
 
 const FIELD_MAX = {
   name: 48,
@@ -28,7 +29,14 @@ const FIELD_MAX = {
 };
 
 const PLATFORMS = new Set(["win32", "darwin", "linux", "android"]);
-const KINDS = new Set(["host", "wsl", "vm", "container"]);
+/**
+ * systems[] 里允许的 `kind`。
+ *
+ * `runtime` 是 P1 加的：dsh-go 里"物理设备＝Android"，而 Ubuntu 只是 proot
+ * 运行时；两者都值得列出（宿主机不再被一个假的 Linux 身份顶掉）。
+ * 老对端不认识这个 kind 时会把它当普通系统显示，不会丢。
+ */
+const KINDS = new Set(["host", "wsl", "vm", "container", "runtime"]);
 /** 一台机器的名片最多列几个系统（宿主机 + 3 个额外环境），避免名片无限膨胀。 */
 const MAX_SYSTEMS = 4;
 /** Docker/Rancher/Podman 的 WSL 发行版不是用户系统，不列。 */
@@ -85,6 +93,26 @@ function defaultRun(cmd, args) {
 }
 
 /**
+ * 取出 dsh-go 探测结果；测试可注入（`opts.dshGo === false` 强制关闭这条分支）。
+ *
+ * 默认走 `lib/dshgo.js` 的进程级缓存（只读探测，不耗时）。
+ */
+function resolveDshGo(opts = {}) {
+  if (opts.dshGo !== undefined) return opts.dshGo;
+  try {
+    return dshGoInfo();
+  } catch {
+    return null;
+  }
+}
+
+/** 一台机器"物理宿主"的展示名：dsh-go 上用机型，拿不到再退回通用名。 */
+function androidHostName(dshGo, fallback = "Android") {
+  const model = clean(dshGo?.deviceModel ?? "", FIELD_MAX.name);
+  return model || fallback;
+}
+
+/**
  * 探测宿主机系统身份。所有参数都可注入，方便在非目标平台上用 fixture 单测。
  *
  * 失败一律降级为空字段 / 平台通用名，**绝不抛**：名片的缺失不能拖垮启动，
@@ -96,6 +124,8 @@ export function detectOsInfo(opts = {}) {
   const release = clean(opts.release ?? os.release(), FIELD_MAX.kernel);
   const arch = clean(opts.arch ?? os.arch(), FIELD_MAX.arch);
   const env = opts.env ?? process.env;
+  const dshGo = resolveDshGo(opts);
+  const isDshGoEnv = !!(dshGo && dshGo.isDshGo === true);
   const osVersion =
     opts.osVersion ??
     (() => {
@@ -129,6 +159,15 @@ export function detectOsInfo(opts = {}) {
       version = "";
     }
     name = name || "macOS";
+  } else if (platformRaw === "linux" && isDshGoEnv) {
+    // dsh-go：物理设备是 Android，Ubuntu 只是 proot 运行时。对外要报 Android
+    // 身份（否则对端 UI/Placement 会把手机当一台"Ubuntu 服务器"）。
+    // 纯增量：platform 从 linux 改成 android，其余字段语义不变。
+    const ver = clean(dshGo.androidVersion ?? "", FIELD_MAX.version);
+    version = ver;
+    name = clean(`Android${ver ? ` ${ver}` : ""} · dsh-go proot`, FIELD_MAX.name);
+    // 运行时发行版（Ubuntu）留给 systems[] 的 runtime 条目表达，这里不混写。
+    desktop = "proot";
   } else if (platformRaw === "linux") {
     try {
       const rel = parseOsRelease(readFile("/etc/os-release"));
@@ -152,8 +191,11 @@ export function detectOsInfo(opts = {}) {
     version = release;
   }
 
+  // dsh-go 的 platform 字段要报 android（上面的分支只改了 name/version）。
+  const effectivePlatform = platformRaw === "linux" && isDshGoEnv ? "android" : platform;
+
   return sanitizeOsInfo({
-    platform,
+    platform: effectivePlatform,
     name,
     version,
     distro,
@@ -161,6 +203,28 @@ export function detectOsInfo(opts = {}) {
     desktop,
     arch,
   });
+}
+
+/**
+ * 兼容旧字段的 `os` 字符串（对端/老 UI 读它）。
+ *
+ * 格式与 0.5.4 保持一致（`<platform> <kernel>`），只有 dsh-go 上额外带上
+ * Android 版本：`android 15 (6.6.30-android15-…)`。老对端解析 `os` 只是展示，
+ * 不认识括号也不影响。
+ */
+export function osString(info = null) {
+  try {
+    const value = info ?? osInfo();
+    if (!value) return `${os.platform()} ${os.release()}`;
+    if (value.platform === "android") {
+      const ver = String(value.version ?? "").trim();
+      const kernel = String(value.kernel ?? "").trim();
+      return `android${ver ? ` ${ver}` : ""}${kernel ? ` (${kernel})` : ""}`;
+    }
+    return `${value.platform || os.platform()} ${value.kernel || os.release()}`;
+  } catch {
+    return `${os.platform()} ${os.release()}`;
+  }
 }
 
 /**
@@ -283,12 +347,52 @@ function detectWsl(opts = {}) {
   return out;
 }
 
-/** 本机系统列表：宿主机第一，后面是 WSL 等额外环境。 */
+/**
+ * dsh-go 里的 proot 运行时（Ubuntu）作为 `systems[{kind:"runtime"}]` 保留。
+ *
+ * 为什么需要：dsh-go 的物理设备是 Android，Ubuntu 只是 proot 里的运行时。
+ * 把 Ubuntu 从"宿主机身份"降级成运行时，既纠正了平台徽章，又不丢信息
+ * （对端仍能看到"Docker/运行时是什么发行版"，Placement 也能据此判断工具链）。
+ */
+function detectProotRuntime(opts = {}) {
+  const readFile = opts.readFile ?? ((path) => readFileSync(path, "utf8"));
+  let name = "Linux";
+  let version = "";
+  let distro = "";
+  try {
+    const rel = parseOsRelease(readFile("/etc/os-release"));
+    name = clean(rel.NAME || rel.PRETTY_NAME || rel.ID || "Linux", FIELD_MAX.name);
+    version = clean(rel.VERSION_ID || "", FIELD_MAX.version);
+    distro = clean(rel.ID || "", FIELD_MAX.distro).toLowerCase();
+  } catch {
+    /* 读不到就只报 "Linux" */
+  }
+  return {
+    kind: "runtime",
+    platform: "linux",
+    name,
+    version,
+    distro,
+    // 运行时不是内核，也不是桌面环境；`proot` 放在 desktop 字段里当"运行方式"标记。
+    kernel: "",
+    desktop: "proot",
+    arch: "",
+  };
+}
+
+/** 本机系统列表：宿主机第一，后面是 WSL / dsh-go proot 运行时等额外环境。 */
 export function detectSystems(opts = {}) {
+  const dshGo = resolveDshGo(opts);
+  const isDshGoEnv = !!(dshGo && dshGo.isDshGo === true);
   const host = detectOsInfo(opts);
   const platform = String(opts.platform ?? process.platform);
   const extra = platform === "win32" ? detectWsl(opts) : [];
-  return sanitizeSystems([{ kind: "host", ...host }, ...extra]) ?? [];
+  if (isDshGoEnv) extra.unshift(detectProotRuntime(opts));
+  // dsh-go 的宿主机条目用机型当名字（osInfo 里是 "Android 15 · dsh-go proot"，
+  // 那是"平台身份"；systems[] 里更该看到具体机型）。
+  const hostEntry = { kind: "host", ...host };
+  if (isDshGoEnv) hostEntry.name = androidHostName(dshGo, host?.name || "Android");
+  return sanitizeSystems([hostEntry, ...extra]) ?? [];
 }
 
 /**
@@ -331,13 +435,18 @@ export function osInfo() {
   return cached;
 }
 
-/** 本机系统列表（宿主机 + WSL），进程内只探测一次。 */
+/** 本机系统列表（宿主机 + WSL / dsh-go proot 运行时），进程内只探测一次。 */
 export function systems() {
   if (cachedSystems === undefined) {
     try {
+      const dshGo = resolveDshGo({});
+      const isDshGoEnv = !!(dshGo && dshGo.isDshGo === true);
       const host = osInfo();
       const extra = process.platform === "win32" ? detectWsl() : [];
-      cachedSystems = sanitizeSystems(host ? [{ kind: "host", ...host }, ...extra] : extra);
+      if (isDshGoEnv) extra.unshift(detectProotRuntime());
+      const hostEntry = host ? { kind: "host", ...host } : null;
+      if (hostEntry && isDshGoEnv) hostEntry.name = androidHostName(dshGo, hostEntry.name);
+      cachedSystems = sanitizeSystems(hostEntry ? [hostEntry, ...extra] : extra);
     } catch {
       cachedSystems = null;
     }

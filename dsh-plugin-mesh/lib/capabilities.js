@@ -24,8 +24,8 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync } from "node:fs";
-import { homedir, release, totalmem, cpus, platform, arch } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir, release, totalmem, cpus, availableParallelism, platform, arch } from "node:os";
 import { join, delimiter } from "node:path";
 import { wslTargets } from "./osinfo.js";
 
@@ -542,6 +542,8 @@ export const __probeGpu = probeGpu;
 export const __isUncertain = isUncertain;
 /** 只为自测导出：GPU 探测的候选链 —— 靠它钉住「Windows 先问 nvidia-smi」这个顺序。 */
 export const __gpuProbeSpecs = gpuProbeSpecs;
+/** 只为自测导出：CPU 核数的三级兜底（真机 cpus() 为空在开发机上复现不了）。 */
+export const __cpuCoreCount = cpuCoreCount;
 /** 只为自测导出：Store 别名目录的排除规则（Mac 上没有该目录，无法端到端复现）。 */
 export const __storeAliasDir = STORE_ALIAS_DIR;
 /** 只为自测导出：让自测能按判据反推 runtimesIncomplete 的期望值，而不是写死。 */
@@ -777,6 +779,50 @@ export function setCapabilitiesForTest(value) {
 }
 
 /**
+ * CPU 核数：三个来源依次退，**绝不因为一个来源失败就报 0**。
+ *
+ * 为什么需要（dsh-go 真机实测）：proot 里 `os.cpus()` 返回**空数组**
+ * （Node 的 libuv 在 Android app UID 上读不到 cpuinfo 的某些字段），而
+ * `os.availableParallelism()` 正常返回 8。原实现只取 `cpus().length`，
+ * 于是手机的的能力名片里 `cpuCores: 0` —— 对端 Placement 会把它当成
+ * "没有算力的机器"，属于"看起来正常的错误事实"。
+ *
+ * 顺序（与 task-5 要求一致）：
+ *   1. `os.availableParallelism()`（Node ≥18.14；容器里还会考虑 cgroup 配额）
+ *   2. `os.cpus().length`
+ *   3. 读 `/proc/cpuinfo` 数 `processor` 行（最后兜底；Android 上可能 EACCES）
+ * 三者都失败才返回 0。
+ *
+ * 全部依赖可注入，便于离线单测（真实 Android 开发机上复现不了）。
+ */
+export function cpuCoreCount({
+  cpusImpl = cpus,
+  availableParallelismImpl = availableParallelism,
+  readFile = (path) => readFileSync(path, "utf8"),
+} = {}) {
+  try {
+    const n = Number(availableParallelismImpl?.() ?? 0);
+    if (Number.isInteger(n) && n > 0) return n;
+  } catch {
+    /* 旧 Node / 平台不支持：继续退 */
+  }
+  try {
+    const n = Number(cpusImpl?.()?.length ?? 0);
+    if (Number.isInteger(n) && n > 0) return n;
+  } catch {
+    /* 同上 */
+  }
+  try {
+    const text = String(readFile("/proc/cpuinfo") ?? "");
+    const count = (text.match(/^\s*processor\s*:/gm) ?? []).length;
+    if (count > 0) return count;
+  } catch {
+    /* /proc 读不到（Android app UID 常见）：返回 0，调用方按"未知"处理 */
+  }
+  return 0;
+}
+
+/**
  * 采集一次。并发探测所有项，返回完整能力块。
  * 这个函数**不抛**：任何单项失败都降级。
  *
@@ -800,7 +846,8 @@ export async function collectCapabilities({ now = Date.now(), hints = [] } = {})
   return {
     os: `${platform()} ${release()}`,
     arch: arch(),
-    cpuCores: cpus()?.length ?? 0,
+    // Android/proot 上 cpus() 可能为空 → 用 availableParallelism/​/proc 兜底（P1）。
+    cpuCores: cpuCoreCount(),
     memMb: Math.round(totalmem() / 1048576),
     runtimes: rt.runtimes,
     // 命令实际路径：详情页用；对端也能看到（没有路径时整个字段省略）。

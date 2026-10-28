@@ -25,6 +25,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { isDshGo, androidProp } from "./dshgo.js";
 
 /** 采集子进程的超时；这些命令都该秒回，卡住说明环境异常，不值得等。 */
 const CMD_TIMEOUT_MS = 3000;
@@ -44,6 +45,43 @@ function tryExec(cmd, args = []) {
 function tryRead(path) {
   try {
     return readFileSync(path, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * dsh-go（Android proot）上的机器标识兜底链。
+ *
+ * 为什么单独抽出来：真机 `process.platform === "linux"`，如果只按平台分支走，
+ * 会落到 `/etc/machine-id`（真机是**空文件**）→ 再落到 DMI（ARM 手机没有）→
+ * 最终空指纹。这里补上 Android 侧可读的稳定标识，顺序"越稳定越优先"：
+ *
+ *   1. `/system/build.prop` / `/system/bin/getprop` 的 `ro.serialno`、
+ *      `ro.boot.serialno` —— 换机器才变；
+ *   2. `/etc/machine-id`（真机为空，但某些 rootfs 版本可能写）；
+ *   3. hostname + 机型 组合 —— 只在前两者都空时兜底。
+ *      两台同型号手机的 hostname（`localhost`）与 model 都相同，理论上会撞；
+ *      所以它排最后，且 `isSameMachineOtherInstance` 仍要求 instanceId 不同才认领。
+ *      宁可"认领能力弱"，也不要播一个会被误认的假稳定 ID。
+ *
+ * 单独导出只为可离线自测（Windows 开发机上 `rawMachineId()` 会走 win32 分支，
+ * 测不到这段）。**绝不抛**。
+ */
+export function dshGoMachineId() {
+  try {
+    for (const key of ["ro.serialno", "ro.boot.serialno"]) {
+      const v = androidProp(key);
+      if (v && v !== "unknown") return `android:${v}`;
+    }
+    for (const f of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {
+      const v = tryRead(f);
+      if (v) return `linux:${v}`;
+    }
+    const host = tryRead("/proc/sys/kernel/hostname") || tryRead("/etc/hostname");
+    const model = androidProp("ro.product.model");
+    if (host || model) return `dshgo:${host}|${model}`;
+    return "";
   } catch {
     return "";
   }
@@ -88,6 +126,8 @@ export function rawMachineId() {
     }
     return "";
   }
+
+  if (isDshGo()) return dshGoMachineId();
 
   // linux 及其它 unix：machine-id 是安装时生成、换网卡不变的
   for (const f of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {

@@ -7,6 +7,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conversationKey } from "./conversation.js";
+import { __setDshGoForTest, __resetDshGoCacheForTest } from "./dshgo.js";
 
 const root = mkdtempSync(join(tmpdir(), "mesh-reply-test-"));
 const cleanups = [];
@@ -46,7 +47,7 @@ async function makeNode(machine) {
     "@deepseek-ai/dsh-tools": { defineTool: (tool) => tool },
     "@deepseek-ai/dsh-llm": { createUserMessage: (message) => message },
   };
-  const module = new vm.SourceTextModule(entrySource + "\nexport { registerTools, startPeerServer };", {
+  const module = new vm.SourceTextModule(entrySource + "\nexport { registerTools, startPeerServer, permissionPresetFor };", {
     context, identifier: entryUrl.href, initializeImportMeta: (meta) => { meta.url = entryUrl.href; },
   });
   await module.link(async (specifier) => {
@@ -74,6 +75,9 @@ async function makeNode(machine) {
   const options = { ...node, discovery, config: node.config, log: noop, warn: noop, waker, capFor: () => node.config.maxWakesPerThread, capOverrides: new Map(), throttled: new Map() };
   node.port = await module.namespace.startPeerServer(ctx, options);
   module.namespace.registerTools(ctx, options);
+  // P1-0：暴露 index.js 里真正的入站权限选择函数 —— 会话创建时传给
+  // permissionPresets.set() 的就是它的返回值，这里直接断言"传进去的是什么"。
+  node.permissionPresetFor = module.namespace.permissionPresetFor;
   node.peer = { machine, id: machine, online: true, host: "127.0.0.1", port: node.port,
     endpoints: [{ transport: "lan", host: "127.0.0.1", port: node.port, lastSeen: Date.now() }] };
   node.send = (peer, thread, sessionId, extra = {}) => node.tools.get("mesh_run").execute(
@@ -108,6 +112,31 @@ try {
   assert.equal(typeof health.diag?.net?.macsAvailable, "boolean");
   assert.equal(health.diag?.sidecarPlatform, "auto");
   console.log("✓ /mesh/v1/health carries net diag (source/macsAvailable) + sidecarPlatform");
+
+  // P1-0（真机阻塞项）：入站会话用的是 permissionPresetFor() 的返回值 ——
+  // 这里直接断言"会话创建时会传进 permissionPresets.set() 的那个值"。
+  // dsh-go 上没有沙箱后端，默认 workspace-write = approval:ask → 每个入站任务
+  // 停在「待确认」；配了 permissionPresetOnDshGo 必须覆盖成 danger-full-access。
+  const defaultInbound = { ...a.config, permissionPreset: "workspace-write", tsnetPermissionPreset: "", permissionPresetOnDshGo: "danger-full-access" };
+  try {
+    __resetDshGoCacheForTest();
+    assert.equal(a.permissionPresetFor(defaultInbound, { transport: "lan" }), "workspace-write", "非 dsh-go 上不得改变既有语义");
+    __setDshGoForTest({ isDshGo: true, runtime: "proot" });
+    assert.equal(a.permissionPresetFor(defaultInbound, { transport: "lan" }), "danger-full-access", "dsh-go 上必须用覆盖值");
+    assert.equal(
+      a.permissionPresetFor({ ...defaultInbound, permissionPresetOnDshGo: "" }, { transport: "lan" }),
+      "workspace-write",
+      "覆盖值为空时保持原行为",
+    );
+    // health 的 diag 也要能读到"入站会用哪个权限"，排障时不用猜。
+    const health2 = await (await fetch(`http://127.0.0.1:${a.port}/mesh/v1/health`)).json();
+    assert.ok(health2.diag?.dshGo, "health diag 应带 dsh-go 判定");
+    assert.equal(typeof health2.diag?.inboundPermissionPreset, "string");
+    assert.ok(health2.diag?.sidecarTarget, "health diag 应带 sidecar 目标资产");
+  } finally {
+    __resetDshGoCacheForTest();
+  }
+  console.log("✓ inbound permission preset: dsh-go override + diag exposure (P1-0)");
 
   // First dispatch: persistence must be visible before B returns any reply.
   assert.match(await a.send("B", "roundtrip", "original-session"), /已派发/);

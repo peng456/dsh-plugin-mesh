@@ -19,7 +19,7 @@ import os from "node:os";
 import { collectNetInfo, preferredAddressFrom, configureNetInfo, warmNetInfo } from "./netinfo.js";
 import { sanitizeCapabilities, isCapabilityStale, summarizeCapabilities, currentCapabilities } from "./capabilities.js";
 import { sanitizeAvatar } from "./avatar.js";
-import { osInfo, sanitizeOsInfo, systems, sanitizeSystems } from "./osinfo.js";
+import { osInfo, sanitizeOsInfo, systems, sanitizeSystems, osString } from "./osinfo.js";
 
 export const MESH_GROUP = "239.255.42.99";
 export const MESH_PORT = 45892;
@@ -336,7 +336,9 @@ export class MeshDiscovery extends EventEmitter {
       hostname: os.hostname(),
       host: this.#address,
       port: this.#port,
-      os: `${os.platform()} ${os.release()}`,
+      // 兼容旧字段的 `os` 字符串：dsh-go 上是 `android 15 (6.6.30-android15-…)`，
+      // 桌面/其它平台与 0.5.4 完全一致（`<platform> <kernel>`）。
+      os: osString(),
       // 结构化系统身份（平台/系统名/版本/发行版/内核/桌面/架构）。
       // 老对端没有这两个字段；UI 会回退解析 os 字符串，所以是纯增量协议。
       osInfo: osInfo(),

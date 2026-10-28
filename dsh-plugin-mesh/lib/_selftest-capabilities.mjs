@@ -9,7 +9,7 @@
 import { strict as assert } from "node:assert";
 import { homedir, tmpdir } from "node:os";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import {
   augmentedPath,
   capabilityAge,
@@ -38,6 +38,7 @@ import {
   __probeFailCount,
   __isUncertain,
   __gpuProbeSpecs,
+  __cpuCoreCount,
 } from "./capabilities.js";
 import { MeshDiscovery, APP_TAG } from "./discovery.js";
 
@@ -324,14 +325,17 @@ test("按 max 截断", () => {
 console.log("\n── augmentedPath：只许加，绝不许减 ──");
 
 test("原 PATH 的每一项都还在（补全不能把已有路径挤掉）", () => {
-  const before = String(process.env.PATH ?? "").split(":").filter(Boolean);
-  const after = new Set(augmentedPath().split(":").filter(Boolean));
+  // PATH 分隔符跟平台走：Windows 是 ";"，POSIX 是 ":"。写死 ":" 会把
+  // `C:\Windows\...` 从盘符处切开，在 Windows 上假红（真机是 darwin，所以
+  // 这条一直没暴露 —— P1 顺手修成平台中立）。
+  const before = String(process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  const after = new Set(augmentedPath().split(delimiter).filter(Boolean));
   for (const d of before) assert.ok(after.has(d), `补全后丢了 ${d}`);
 });
 
 test("没有重复项", () => {
   // 报出**是哪几个**重复：只报"不该有重复"的话，下次在别人机器上红了还是得猜。
-  const parts = augmentedPath().split(":").filter(Boolean);
+  const parts = augmentedPath().split(delimiter).filter(Boolean);
   const seen = new Set();
   const dup = [];
   for (const d of parts) {
@@ -349,7 +353,7 @@ test("同一个目录换了写法（末尾斜杠）也只能出现一次", () =>
   const spelled = `${existing}/`;
   const out = augmentedPath(spelled, process.platform);
   const norm = (d) => __normPathForCompare(d, process.platform);
-  const keys = out.split(":").filter(Boolean).map(norm);
+  const keys = out.split(delimiter).filter(Boolean).map(norm);
   assert.equal(new Set(keys).size, keys.length, `按目录判重后仍重复：${out}`);
 });
 
@@ -422,7 +426,10 @@ test("自校验式判据：问的是「我们自己的兜底有没有起作用�
     "判据必须精确等价于「补全一个目录都没加进去」（Store 别名目录除外）",
   );
   // 本机 darwin 上 win32 那套 %ProgramFiles% 路径确实都不存在 → 判不可靠（可证）。
-  assert.equal(__pathLookupUnreliable("win32"), true);
+  // ⚠️ 但这是**平台相关**的断言：Windows 开发机上 %ProgramFiles%\nodejs 存在，
+  // 判据会（正确地）返回 false。所以只在"那些候选目录真的一个都不存在"时断言。
+  const win32Dirs = __extraPathDirs("win32").filter((d) => !__storeAliasDir.test(d));
+  if (win32Dirs.length === 0) assert.equal(__pathLookupUnreliable("win32"), true);
 });
 
 test("Store 别名目录（WindowsApps）不算「补全真的生效」的证据", () => {
@@ -737,6 +744,73 @@ test("指纹不同 → 绝不认领（不同物理机）", () => {
   d.note({ app: APP_TAG, id: "m1", machine: "box", host: "10.0.0.5", port: 45917, ts: now, fingerprint: "FP1" }, "10.0.0.5");
   d.note({ app: APP_TAG, id: "m2", machine: "box", host: "10.0.0.6", port: 45917, ts: now, fingerprint: "FP2" }, "10.0.0.6");
   assert.equal(d.peers().length, 2, "不同物理机必须都保留（重名交给 duplicateNames 提示）");
+});
+
+console.log("\n── CPU 核数三级兜底（dsh-go 真机 os.cpus() 为空）──");
+
+test("cpus() 为空 + availableParallelism=8 → 8（真机形状）", () => {
+  assert.equal(
+    __cpuCoreCount({ cpusImpl: () => [], availableParallelismImpl: () => 8, readFile: () => "" }),
+    8,
+    "真机 os.cpus().length=0 时必须退到 availableParallelism",
+  );
+});
+
+test("availableParallelism 优先于 cpus()（容器 cgroup 视角更准）", () => {
+  assert.equal(
+    __cpuCoreCount({ cpusImpl: () => new Array(16).fill({}), availableParallelismImpl: () => 8, readFile: () => "" }),
+    8,
+  );
+});
+
+test("availableParallelism 抛异常 → 退 cpus().length", () => {
+  assert.equal(
+    __cpuCoreCount({
+      cpusImpl: () => new Array(4).fill({}),
+      availableParallelismImpl: () => {
+        throw new Error("not supported");
+      },
+      readFile: () => "",
+    }),
+    4,
+  );
+});
+
+test("前两者都空/抛 → 数 /proc/cpuinfo 的 processor 行", () => {
+  const cpuinfo = ["processor\t: 0", "model name\t: ARMv8", "processor\t: 1", "processor\t: 2", ""].join("\n");
+  assert.equal(
+    __cpuCoreCount({
+      cpusImpl: () => [],
+      availableParallelismImpl: () => {
+        throw new Error("nope");
+      },
+      readFile: (path) => {
+        if (path !== "/proc/cpuinfo") throw new Error("ENOENT");
+        return cpuinfo;
+      },
+    }),
+    3,
+  );
+});
+
+test("全部失败 → 0（「未知」，绝不瞎报）", () => {
+  assert.equal(
+    __cpuCoreCount({
+      cpusImpl: () => [],
+      availableParallelismImpl: () => {
+        throw new Error("nope");
+      },
+      readFile: () => {
+        throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      },
+    }),
+    0,
+  );
+});
+
+await testAsync("真实采集：collectCapabilities().cpuCores 必须是正整数（本机）", async () => {
+  const caps = await collectCapabilities();
+  assert.ok(Number.isInteger(caps.cpuCores) && caps.cpuCores > 0, `cpuCores=${caps.cpuCores}`);
 });
 
 console.log(`\n${failed === 0 ? "全部通过" : "有失败"}：${passed} 通过 / ${failed} 失败\n`);
