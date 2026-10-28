@@ -2275,6 +2275,90 @@ textarea.mesh-setting-input { min-height: 54px; resize: vertical; }
   .mesh-sheet { width: 100%; }
 }
 
+/* ── P2b：窄屏（≤760px）单列设备卡 / 底部派发条 / 大触控 ──
+   只在这里覆盖窄屏表现；宽屏样式完全不动（桌面回归靠 _selftest 断言）。
+   断点必须与 client.js 的 MOBILE_MAX_WIDTH 保持一致。 */
+@media (max-width: 760px) {
+  /* 设备列表：一行一张卡片，单列铺满，触控目标 ≥64px */
+  .mesh-list.is-narrow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 8px 10px 16px;
+  }
+  .mesh-list.is-narrow .mesh-list-heading { margin: 6px 2px 0; }
+  .mesh-list.is-narrow .mesh-list-empty { padding: 12px 4px; font-size: 12.5px; line-height: 1.65; }
+  .mesh-list.is-narrow .mesh-row {
+    min-height: 64px;
+    padding: 12px;
+    border: 1px solid var(--mesh-line);
+    border-radius: 14px;
+    background: var(--mesh-surface);
+  }
+  .mesh-list.is-narrow .mesh-row.is-active {
+    border-color: var(--mesh-accent);
+    background: var(--mesh-surface-2);
+  }
+  .mesh-list.is-narrow .mesh-row-name { font-size: 15px; }
+  .mesh-list.is-narrow .mesh-row-sub { font-size: 11.5px; white-space: normal; }
+  .mesh-list.is-narrow .mesh-list-actions .mesh-btn { min-height: 44px; }
+  /* 小屏上在线状态 + transport(lan/usb) 用徽章明示（不只靠一列小字） */
+  .mesh-row-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .mesh-row-badges .mesh-badge { height: 24px; padding: 0 8px; font-size: 11px; }
+
+  /* 底部固定派发条：flex 子项（不是 absolute），内容区自动让出高度，不遮列表 */
+  .mesh-mobile-bar-wrap {
+    flex: 0 0 auto;
+    position: relative;
+    border-top: 1px solid var(--mesh-line);
+    background: var(--mesh-bg);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .mesh-mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px calc(12px + env(safe-area-inset-right, 0px)) 10px calc(12px + env(safe-area-inset-left, 0px));
+  }
+  .mesh-mobile-bar-meta {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--mesh-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mesh-mobile-bar .mesh-btn { min-height: 48px; border-radius: 12px; font-size: 14px; }
+  .mesh-mobile-bar-panel {
+    max-height: min(62dvh, 520px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--mesh-line);
+    background: var(--mesh-surface);
+  }
+  .mesh-mobile-dispatch .mesh-dispatch { padding: 0; border: 0; background: transparent; }
+  .mesh-mobile-dispatch .mesh-dispatch-text { min-height: 96px; font-size: 16px; }
+
+  /* 设备详情：窄屏加大留白与触控，能力/端点/身份收进「详情」折叠 */
+  .mesh-detail.is-narrow .mesh-h1 { font-size: 20px; }
+  .mesh-detail.is-narrow .mesh-detail-actions { gap: 8px; }
+  .mesh-detail.is-narrow .mesh-detail-actions .mesh-btn { flex: 1 1 0; min-height: 46px; justify-content: center; }
+  .mesh-detail.is-narrow .mesh-fold-head { min-height: 44px; }
+  .mesh-detail.is-narrow .mesh-meta { row-gap: 6px; }
+  .mesh-detail.is-narrow .mesh-badge { height: 24px; padding: 0 8px; font-size: 11px; }
+  .mesh-detail.is-narrow .mesh-section-head { flex-wrap: wrap; row-gap: 4px; }
+
+  /* 空态/错误态：手机上一行放不下，放宽行高、留出底部条的安全距离 */
+  .mesh-empty { padding-left: 16px; padding-right: 16px; }
+  .mesh-error { padding-left: 16px; padding-right: 16px; }
+  .mesh-home.is-narrow .mesh-home-grid { gap: 12px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mesh-root *, .mesh-root *::before, .mesh-root *::after {
     animation-duration: 120ms !important;
@@ -2386,6 +2470,88 @@ textarea.mesh-setting-input { min-height: 54px; resize: vertical; }
       } catch {
         return false;
       }
+    }
+
+    // ── 手机 / 窄屏适配（P2b）──
+    /** 窄屏断点：必须与 CSS 里的 `@media (max-width: 760px)` 保持一致。 */
+    const MOBILE_MAX_WIDTH = 760;
+
+    /**
+     * 当前是否窄屏（同步读取）。
+     * 无 window / 无 matchMedia（SSR、旧宿主、单元测试）时按**宽屏**处理 ——
+     * 桌面渲染必须是默认分支，不能因为探测环境缺失就掉进移动布局。
+     */
+    function isNarrowViewport() {
+      try {
+        if (typeof window === "undefined") return false;
+        if (typeof window.matchMedia === "function") {
+          return window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches === true;
+        }
+        const width = Number(window.innerWidth);
+        return Number.isFinite(width) && width > 0 && width <= MOBILE_MAX_WIDTH;
+      } catch {
+        return false;
+      }
+    }
+
+    /**
+     * 订阅窄屏状态：首次渲染同步取值（桌面不会先闪一下移动布局），之后跟随
+     * matchMedia change / resize 更新。宽屏返回 false，组件走原分支。
+     */
+    function useNarrowViewport() {
+      const [narrow, setNarrow] = react.useState(isNarrowViewport);
+      react.useEffect(() => {
+        if (typeof window === "undefined") return undefined;
+        const sync = () => setNarrow(isNarrowViewport());
+        let mq = null;
+        const onMedia = () => sync();
+        try {
+          if (typeof window.matchMedia === "function") {
+            mq = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`);
+            if (mq && typeof mq.addEventListener === "function") mq.addEventListener("change", onMedia);
+            else if (mq && typeof mq.addListener === "function") mq.addListener(onMedia);
+          }
+          if (typeof window.addEventListener === "function") window.addEventListener("resize", sync);
+        } catch {
+          /* 宿主不支持事件订阅：只保留初始值 */
+        }
+        return () => {
+          try {
+            if (mq && typeof mq.removeEventListener === "function") mq.removeEventListener("change", onMedia);
+            else if (mq && typeof mq.removeListener === "function") mq.removeListener(onMedia);
+            if (typeof window.removeEventListener === "function") window.removeEventListener("resize", sync);
+          } catch {
+            /* ignore */
+          }
+        };
+      }, []);
+      return narrow;
+    }
+
+    /**
+     * 窄屏设备行底部的 transport/状态徽章：把端点通道去重成
+     * USB / 局域网 / 互联网，最多 3 个（小屏不刷屏）。
+     * 宽屏不渲染这些徽章（DeviceRow 里按 narrow 分支），桌面外观不变。
+     */
+    function peerTransportBadges(peer) {
+      const out = [];
+      const push = (label, kind) => {
+        if (!out.some((item) => item.label === label)) out.push({ label, kind });
+      };
+      const endpoints = Array.isArray(peer && peer.endpoints) ? peer.endpoints : [];
+      for (const ep of endpoints) {
+        const transport = String((ep && ep.transport) || "");
+        if (transport === "usb") push("USB", "accent");
+        else if (transport === "tsnet") push("互联网", "warn");
+        else if (transport === "lan") push("局域网", "muted");
+      }
+      if (out.length === 0) {
+        const transport = String((peer && peer.transport) || "");
+        if (transport === "usb") push("USB", "accent");
+        else if (transport === "tsnet") push("互联网", "warn");
+        else if (transport === "lan") push("局域网", "muted");
+      }
+      return out.slice(0, 3);
     }
 
     /** Keep an element mounted long enough to play its exit transition. */
@@ -3913,6 +4079,7 @@ function CapabilityChips({ caps, peer }) {
 
     function DeviceRow({ peer, isSelf, active, onSelect, onWeb, onSsh, now, index }) {
       const online = !!peer.online || !!isSelf;
+      const narrow = useNarrowViewport();
       const name = peer.machine || "未命名设备";
       const webUrl = isSelf ? "" : dshWebUrl(peer);
       const select = () => onSelect(peer.id);
@@ -3921,7 +4088,7 @@ function CapabilityChips({ caps, peer }) {
         {
           role: "button",
           tabIndex: 0,
-          className: cls("mesh-row", active && "is-active", !online && "is-offline"),
+          className: cls("mesh-row", active && "is-active", !online && "is-offline", narrow && "is-narrow"),
           onClick: select,
           onKeyDown: (event) => {
             // 只处理落在行本身上的回车/空格；行内按钮自己处理自己的键盘事件。
@@ -3956,6 +4123,16 @@ function CapabilityChips({ caps, peer }) {
             h("span", { className: "mesh-dot-sep" }, "·"),
             h("span", null, isSelf ? "现在" : ago(peer.lastSeen, now)),
           ),
+          // 窄屏：在线状态 + transport(lan/usb) 用徽章明示，手指一眼能看清。
+          // 宽屏不渲染这一行（桌面外观与 0.5.4 一致）。
+          narrow
+            ? h(
+                "span",
+                { className: "mesh-row-badges" },
+                h(Badge, { kind: online ? "ok" : "muted" }, online ? "在线" : "离线"),
+                peerTransportBadges(peer).map((badge) => h(Badge, { key: badge.label, kind: badge.kind }, badge.label)),
+              )
+            : null,
         ),
         h(
           "span",
@@ -3991,6 +4168,7 @@ function CapabilityChips({ caps, peer }) {
     }
 
     function DeviceList({ selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning }) {
+      const narrow = useNarrowViewport();
       return h(
         "aside",
         { className: "mesh-list-pane" },
@@ -4005,7 +4183,8 @@ function CapabilityChips({ caps, peer }) {
         ),
         h(
           "div",
-          { className: "mesh-list" },
+          // 窄屏：一行一张设备卡片（CSS 里 .mesh-list.is-narrow 负责单列/大触控）
+          { className: cls("mesh-list", narrow && "is-narrow") },
           selfPeer
             ? h(
                 react.Fragment,
@@ -4031,6 +4210,7 @@ function CapabilityChips({ caps, peer }) {
 
     function DeviceDetail({ peer, isSelf, onCompose, onProbe, probe, hostDown, now, onBack, onRename, onScan, recentTasks, onOpenTask, onAllTasks }) {
       const paneRef = react.useRef(null);
+      const narrow = useNarrowViewport();
       react.useEffect(() => {
         const el = paneRef.current;
         if (!el || !el.scrollTo) return;
@@ -4068,7 +4248,8 @@ function CapabilityChips({ caps, peer }) {
         },
         h(
           "div",
-          { className: "mesh-detail", key: peer.id },
+          // 窄屏加 is-narrow：大触控 + 能力/端点/身份收进「详情」折叠（CSS/下方分支）
+          { className: cls("mesh-detail", narrow && "is-narrow"), key: peer.id },
           h(
             "button",
             { type: "button", className: "mesh-back", onClick: onBack },
@@ -4158,10 +4339,24 @@ function CapabilityChips({ caps, peer }) {
                 ),
               )
             : null,
-          h(CapabilitySection, { peer, isSelf }),
-          h(ChannelSection, { peer, isSelf, now }),
           h(RecentTasks, { tasks: recentTasks, now, onOpenTask, onAll: onAllTasks }),
-          h(IdentitySection, { peer, isSelf }),
+          // 窄屏：能力/通道/身份收进一个「详情」折叠（默认收起），首屏只留
+          // 状态 + 主操作；宽屏保持原来的三段直接铺开（桌面外观不变）。
+          ...(narrow
+            ? [
+                h(
+                  Fold,
+                  { title: "详情", right: "能力 · 通道 · 身份" },
+                  h(CapabilitySection, { peer, isSelf }),
+                  h(ChannelSection, { peer, isSelf, now }),
+                  h(IdentitySection, { peer, isSelf }),
+                ),
+              ]
+            : [
+                h(CapabilitySection, { peer, isSelf }),
+                h(ChannelSection, { peer, isSelf, now }),
+                h(IdentitySection, { peer, isSelf }),
+              ]),
         ),
       );
     }
@@ -7274,6 +7469,8 @@ function CapabilityChips({ caps, peer }) {
       const dragRef = react.useRef({ draggingId: null, dropId: null, resizingId: null });
       const [resizing, setResizing] = react.useState(null);
       const [editor, setEditor] = react.useState(null);
+      // 窄屏：派发面板挪到 MeshApp 的底部固定操作条里，主页不再重复一份。
+      const narrow = useNarrowViewport();
       const cfg = (state && state.config) || {};
       const tsnet = state && state.tsnet;
       const phase = tsnetPhase(tsnet);
@@ -7654,7 +7851,7 @@ function CapabilityChips({ caps, peer }) {
         null,
         h(
           "div",
-          { className: cls("mesh-home", density === "compact" && "is-dense") },
+          { className: cls("mesh-home", density === "compact" && "is-dense", narrow && "is-narrow") },
           h(
             "div",
             { className: "mesh-home-inner" },
@@ -7800,15 +7997,18 @@ function CapabilityChips({ caps, peer }) {
                 )
               : null,
             // 派发放最底下：先看设备状态，再写指令，最后才是这个动作面板。
-            h(DispatchPanel, {
-              peers,
-              hostDown: !!hostDown,
-              disabled: !!hostDown,
-              onScan,
-              scanning,
-              onDispatched,
-              density,
-            }),
+            // 窄屏改由 MeshApp 的底部固定「派发任务」条承载（避免重复 + 节省首屏）。
+            narrow
+              ? null
+              : h(DispatchPanel, {
+                  peers,
+                  hostDown: !!hostDown,
+                  disabled: !!hostDown,
+                  onScan,
+                  scanning,
+                  onDispatched,
+                  density,
+                }),
           ),
         ),
         editor
@@ -7925,6 +8125,54 @@ function CapabilityChips({ caps, peer }) {
       );
     }
 
+    /**
+     * 窄屏底部固定派发条（P2b）。
+     *
+     * 为什么单独一个组件：手机上主页的派发卡在首屏之外，先看设备还要滚很久；
+     * 底部固定条让「派发任务」永远一只手够得到，点开后在条上方展开完整面板
+     * （复用同一个 DispatchPanel，不复制业务逻辑）。
+     *
+     * 宽屏不渲染（MeshApp 里按 narrow 分支），桌面行为零变化。
+     */
+    function MobileDispatchBar({ peers, hostDown, open, onToggle, onScan, scanning, onDispatched, density }) {
+      const targets = (peers || []).filter((p) => p && !p.self);
+      const online = targets.filter((p) => p.online).length;
+      return h(
+        "div",
+        { className: cls("mesh-mobile-bar-wrap", open && "is-open"), "data-mesh-mobile": "dispatch" },
+        open
+          ? h(
+              "div",
+              { className: "mesh-mobile-bar-panel mesh-mobile-dispatch" },
+              h(DispatchPanel, {
+                peers,
+                hostDown: !!hostDown,
+                disabled: !!hostDown,
+                onScan,
+                scanning,
+                onDispatched,
+                density,
+              }),
+            )
+          : null,
+        h(
+          "div",
+          { className: "mesh-mobile-bar" },
+          h(
+            "div",
+            { className: "mesh-mobile-bar-meta" },
+            h(Dot, { kind: online > 0 ? "ok" : "idle" }),
+            h("span", null, targets.length ? `${online} / ${targets.length} 台在线` : "还没有其他设备"),
+          ),
+          h(
+            Button,
+            { variant: "primary", icon: "send", onClick: onToggle, disabled: !!hostDown },
+            open ? "收起派发" : "派发任务",
+          ),
+        ),
+      );
+    }
+
     function MeshApp() {
       const {
         layout,
@@ -7939,6 +8187,8 @@ function CapabilityChips({ caps, peer }) {
         setDensity,
         reset: resetHome,
       } = useHomePrefs();
+      // 窄屏（手机 WebView / island 嵌入）：只影响移动分支，宽屏渲染保持原样。
+      const narrow = useNarrowViewport();
       const { state, error, lastOk, loading, refreshing, reload } = useMeshState(focus ? 15000 : 3000);
       const cfg = (state && state.config) || {};
       const remoteEnabled = cfg.experimentalRemoteControl === true;
@@ -7980,6 +8230,8 @@ function CapabilityChips({ caps, peer }) {
       const [view, setView] = react.useState("home");
       const [selectedId, setSelectedId] = react.useState(null);
       const [mobilePane, setMobilePane] = react.useState("list");
+      // 窄屏底部派发条展开状态（宽屏不渲染这个条）
+      const [mobileDispatchOpen, setMobileDispatchOpen] = react.useState(false);
       const [selectedTaskKey, setSelectedTaskKey] = react.useState(null);
       const [taskPane, setTaskPane] = react.useState("list");
       const [taskFilter, setTaskFilter] = react.useState("all");
@@ -8441,7 +8693,7 @@ function CapabilityChips({ caps, peer }) {
       if (!state) {
         return h(
           "div",
-          { className: cls("mesh-root", focus && "mesh-focus") },
+          { className: cls("mesh-root", focus && "mesh-focus", narrow && "is-narrow") },
           h(TopBar, {
             view,
             onView: setView,
@@ -8471,7 +8723,7 @@ function CapabilityChips({ caps, peer }) {
 
       return h(
         "div",
-        { className: cls("mesh-root", focus && "mesh-focus"), "data-mesh-view": view },
+        { className: cls("mesh-root", focus && "mesh-focus", narrow && "is-narrow"), "data-mesh-view": view },
         h(TopBar, {
           view,
           onView: (v) => {
@@ -8610,6 +8862,19 @@ function CapabilityChips({ caps, peer }) {
                   reload,
                 }),
         ),
+        // 窄屏底部固定派发条：任何页签都能一键展开派发（宽屏不渲染）。
+        narrow
+          ? h(MobileDispatchBar, {
+              peers: sortedPeers,
+              hostDown: !!hostDown,
+              open: mobileDispatchOpen,
+              onToggle: () => setMobileDispatchOpen((open) => !open),
+              onScan: doScan,
+              scanning,
+              onDispatched: (peer, r) => notifyDispatched((peer && peer.machine) || "", r),
+              density,
+            })
+          : null,
         h(Composer, {
           target: composerTarget,
           open: !!composer,
@@ -8699,6 +8964,12 @@ function CapabilityChips({ caps, peer }) {
       TasksView,
       DeviceDetail,
       DeviceRow,
+      // P2b：窄屏适配（测试用；也便于宿主/调试面板读取断点常量）
+      MOBILE_MAX_WIDTH,
+      isNarrowViewport,
+      useNarrowViewport,
+      peerTransportBadges,
+      MobileDispatchBar,
       dshWebUrl,
       resolveWebUrl,
       openDshWebPage,
