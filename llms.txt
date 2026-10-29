@@ -30,6 +30,8 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 - Auto-creates an agent session on the receiving machine when a task arrives, then routes that task to a new or reused session.
 - Reports a structured `osInfo` card entry (host) and a `systems[]` array: host first, then environments such as WSL distros on Windows (`kind: "wsl"`, Linux `platform`, distro name/version). Older peers only send `os`, and the UI falls back to parsing it; purely display data, at most 4 systems.
 - On Windows, probes runtimes inside **running** WSL distros (`wsl.exe -d <name> -e sh -lc …`) and reports them as `capabilities.wsl[]`; stopped distros are never started just to probe. Host and WSL runtimes are displayed separately.
+- Home-page header exposes two compact text links (no cards): **问题反馈** opens a prefilled GitHub issue, and **检查更新** calls `GET /mesh/api/update`. The update route asks the npm registry (`registry.npmjs.org`, falling back to `registry.npmmirror.com`, 5 s per source, 30 min host-side cache) and compares with the running `VERSION`. A failed check returns `{ok:false,error,failures[]}` and is shown as "检查失败" — never as "已是最新". When a newer version exists, clicking the inline "新版本 vX" copies the exact release asset command with this installation's plugin dir filled in (a restart is required for it to take effect).
+- The prefilled feedback issue carries the same diagnostics text as the diagnostics section; `buildDiagnostics()` deliberately excludes secrets (pairing code, tsnet auth key). The author's email (`geekstartup@163.com`) is the fallback when GitHub is unreachable.
 
 ## Tools registered (callable by the agent)
 

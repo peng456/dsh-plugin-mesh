@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const files = ["lib/index.js", "lib/discovery.js", "lib/conversation.js", "lib/identity.js"];
+const files = ["lib/index.js", "lib/discovery.js", "lib/conversation.js", "lib/identity.js", "lib/update.js"];
 let problems = 0;
 
 /** 逐行计算花括号深度（粗略：不解析字符串/模板串，够用） */

@@ -37,6 +37,11 @@ window.__ModuleLoader__.load({
     const TS_KEYS_URL = "https://console.tailscale.com/admin/settings/keys";
     const TRANSFER_KEY = "mesh.transfers.v1";
     const TRANSFER_LIMIT = 50;
+    // 更新与反馈都指向同一个 GitHub 仓库；邮件是 GitHub 不通时的退路
+    //（作者机器上 git-over-https 到 github.com 常被重置，见 AGENTS.md）。
+    const RELEASE_REPO = "peng456/dsh-plugin-mesh";
+    const NEW_ISSUE_URL = `https://github.com/${RELEASE_REPO}/issues/new`;
+    const FEEDBACK_MAIL = "geekstartup@163.com";
     let pluginCtx = null;
 
     const HOME_PREF_KEY = "mesh.home.v1";
@@ -310,12 +315,7 @@ window.__ModuleLoader__.load({
       return (r && (r.error || r.message)) || "未知错误";
     }
 
-    async function api(path, body) {
-      const r = await fetch(API + path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body || {}),
-      });
+    async function parseApiResponse(r) {
       let j = {};
       try {
         j = await r.json();
@@ -324,6 +324,24 @@ window.__ModuleLoader__.load({
       }
       if (!r.ok && !j.error) j.error = `HTTP ${r.status}`;
       return j;
+    }
+
+    async function api(path, body) {
+      const r = await fetch(API + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      return parseApiResponse(r);
+    }
+
+    /** 只读接口走 GET（/mesh/api/update 就是这一类：查一次版本，不改任何状态）。 */
+    async function apiGet(path) {
+      const r = await fetch(API + path, {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      return parseApiResponse(r);
     }
 
     async function copyText(text) {
@@ -1692,6 +1710,21 @@ window.__ModuleLoader__.load({
 .mesh-editor-error { margin: 8px 0; font-size: 11.5px; color: var(--mesh-err); }
 .mesh-editor-foot { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
 .mesh-card-text.is-pre { white-space: pre-wrap; }
+/* 主页页头的轻入口：只有文字，没有边框/底色，和「专注」「自定义」同一行 */
+.mesh-home-meta { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mesh-meta-link {
+  appearance: none; -webkit-appearance: none;
+  border: 0; background: none; padding: 2px 0; margin: 0;
+  font: inherit; font-size: 11px; line-height: 1.5;
+  color: var(--mesh-muted); cursor: pointer;
+  text-decoration: none; white-space: nowrap;
+  transition: color var(--mesh-dur-fast) ease;
+}
+.mesh-meta-link:hover { color: var(--mesh-accent); text-decoration: underline; text-underline-offset: 2px; }
+.mesh-meta-link:focus-visible { outline: 2px solid var(--mesh-accent); outline-offset: 2px; border-radius: 4px; }
+.mesh-meta-link:disabled { cursor: default; opacity: .6; }
+.mesh-meta-link.is-update { color: var(--mesh-accent); font-weight: 600; }
+.mesh-meta-link.is-warn { color: var(--mesh-warn); }
 .mesh-card-link { color: var(--mesh-accent); text-decoration: none; }
 .mesh-card-link:hover { text-decoration: underline; }
 .mesh-focus .mesh-dot.is-ok::after,
@@ -6298,6 +6331,185 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ─────────────────────── 主页 · 问题反馈 / 检查更新（轻入口） ───────────────────────
+
+    /**
+     * 主页页头的两个轻入口：只占一行文字，不占卡片。
+     *
+     * 它们最初是两张卡片，真机上看太占首屏 —— 主页要回答的是"谁在线、能不能
+     * 派活"，更新和反馈是偶尔用一次的事。于是收成和「专注」「自定义」同一行的
+     * 两个小字，功能一个不少：
+     *   · 问题反馈 → GitHub 新建 Issue（标题/正文预填，带诊断、不含 secret）；
+     *   · 检查更新 → 查一次 registry；有更新时旁边多出「新版本 vX」，点它复制
+     *     升级命令；失败时多出「检查失败」，点它重试。
+     * 失败**不会**显示成"已是最新"：徽标、tooltip、toast 说的都是"没查到"。
+     */
+
+    /** 反馈正文：与「诊断」同一份数据，Issue 链接里预填。 */
+    function feedbackBody(state) {
+      return [
+        "### 发生了什么",
+        "",
+        "<!-- 一句话描述：做了什么、期望什么、实际发生了什么 -->",
+        "",
+        "### 复现步骤",
+        "",
+        "1. ",
+        "",
+        "### 诊断信息（可删掉不想公开的行）",
+        "",
+        "```",
+        buildDiagnostics(state),
+        "```",
+      ].join("\n");
+    }
+
+    function feedbackIssueUrl(state) {
+      const self = (state && state.self) || {};
+      const title = `[反馈] Mesh ${self.version || ""}${self.machine ? ` · ${self.machine}` : ""}`.trim();
+      const params = new URLSearchParams({ title, body: feedbackBody(state) });
+      return `${NEW_ISSUE_URL}?${params.toString()}`;
+    }
+
+    /** 问题反馈：一个链接，直接打开预填好的新建 Issue 页。 */
+    function FeedbackLink({ state }) {
+      return h(
+        "a",
+        {
+          className: "mesh-meta-link",
+          href: feedbackIssueUrl(state),
+          target: "_blank",
+          rel: "noreferrer",
+          title: `在 GitHub 提 Issue（打不开可以邮件 ${FEEDBACK_MAIL}）`,
+        },
+        "问题反馈",
+      );
+    }
+
+    /** 检查更新的展示层（纯 props）：自测可以直接给三种现场，不用联网。 */
+    function UpdateLinkView({ phase, report, onCheck, onCopy }) {
+      const checking = phase === "checking";
+      const failed = !!report && report.ok !== true;
+      const hasUpdate = !!report && report.ok === true && report.hasUpdate === true;
+      const incomparable = !!report && report.ok === true && report.comparable === false;
+      const label = checking ? "检查中…" : "检查更新";
+      const title = failed
+        ? `上次检查失败：${String(report.error || "未知原因")}（点一下重试）`
+        : incomparable
+          ? `当前 v${report.current} 与 registry 返回的 v${report.latest} 无法比较，点一下重新检查`
+          : hasUpdate
+            ? `当前 v${report.current} → 最新 v${report.latest}；点一下重新检查`
+            : "查一下有没有新版本";
+      return h(
+        react.Fragment,
+        null,
+        h(
+          "button",
+          {
+            type: "button",
+            className: cls("mesh-meta-link", checking && "is-busy"),
+            onClick: onCheck,
+            disabled: checking,
+            title,
+            "aria-label": "检查更新",
+            "aria-busy": checking || undefined,
+          },
+          label,
+        ),
+        hasUpdate
+          ? h(
+              "button",
+              {
+                type: "button",
+                className: "mesh-meta-link is-update",
+                onClick: () => onCopy(report.upgradeCommand),
+                title: `复制升级命令（v${report.current} → v${report.latest}，装好后重启 DSH）`,
+                "aria-label": `复制升级命令到 v${report.latest}`,
+              },
+              `新版本 v${report.latest}`,
+            )
+          : null,
+        failed
+          ? h(
+              "button",
+              { type: "button", className: "mesh-meta-link is-warn", onClick: onCheck, title: report.error },
+              "检查失败",
+            )
+          : null,
+        incomparable
+          ? h(
+              "button",
+              { type: "button", className: "mesh-meta-link is-warn", onClick: onCheck, title },
+              "无法比较",
+            )
+          : null,
+      );
+    }
+
+    /**
+     * 检查更新的容器：进主页**静默**查一次（宿主机缓存 30 分钟），点一下强查。
+     * 静默失败也会在页头留下「检查失败」—— 不点也看得见"没问到"，而不是假装无事。
+     */
+    function UpdateLink({ push }) {
+      const [phase, setPhase] = react.useState("idle");
+      const [report, setReport] = react.useState(null);
+      const alive = react.useRef(true);
+      const copyCommand = react.useCallback(
+        async (text) => {
+          if (!text) {
+            push("error", "这次结果里没有升级命令，请先重新检查");
+            return;
+          }
+          const ok = await copyText(text);
+          push(ok ? "success" : "error", ok ? "升级命令已复制：装好后重启 DSH 生效" : "复制失败，请手动选择");
+        },
+        [push],
+      );
+      const run = react.useCallback(
+        async (force, announce) => {
+          setPhase("checking");
+          try {
+            const r = await apiGet(`/update${force ? "?force=1" : ""}`);
+            if (!alive.current) return;
+            const next = r && typeof r === "object" ? r : { ok: false, error: "主机没有返回结果" };
+            setReport(next);
+            setPhase("done");
+            if (!announce) return;
+            if (next.ok !== true) {
+              push("error", `没查到最新版本：${String(next.error || "未知原因")}`);
+            } else if (next.comparable === false) {
+              push("error", `版本号无法比较：v${next.current} vs v${next.latest}，请到 Release 页面确认`);
+            } else if (next.hasUpdate) {
+              push("success", `有新版本 v${next.latest}（当前 v${next.current}）`, {
+                label: "复制升级命令",
+                onClick: () => copyCommand(next.upgradeCommand),
+              });
+            } else {
+              push("success", `已是最新（v${next.current}）`);
+            }
+          } catch (e) {
+            if (!alive.current) return;
+            setReport({ ok: false, error: String((e && e.message) || e) });
+            setPhase("done");
+            if (announce) push("error", `没查到最新版本：${String((e && e.message) || e)}`);
+          }
+        },
+        [push, copyCommand],
+      );
+      react.useEffect(() => {
+        alive.current = true;
+        run(false, false);
+        return () => {
+          alive.current = false;
+        };
+      }, [run]);
+      return h(UpdateLinkView, { phase, report, onCheck: () => run(true, true), onCopy: copyCommand });
+    }
+
+    function HomeMetaLinks({ state, push }) {
+      return h("div", { className: "mesh-home-meta" }, h(FeedbackLink, { state }), h(UpdateLink, { push }));
+    }
+
     // ─────────────────────── 主页 · 派发任务 ───────────────────────
 
     /**
@@ -6913,6 +7125,7 @@ window.__ModuleLoader__.load({
                   ? h(Button, { variant: "primary", size: "sm", icon: "check", onClick: () => setEditing(false) }, "完成")
                   : h(Button, { variant: "secondary", size: "sm", icon: "edit", onClick: () => setEditing(true) }, "自定义"),
                 editing ? h(Button, { variant: "ghost", size: "sm", onClick: onReset }, "恢复默认") : null,
+                h(HomeMetaLinks, { state, push }),
               ),
             ),
             h(
@@ -7960,6 +8173,12 @@ window.__ModuleLoader__.load({
       SwitchBody,
       SwitchRow,
       HomeSwitchBar,
+      HomeMetaLinks,
+      UpdateLink,
+      UpdateLinkView,
+      FeedbackLink,
+      feedbackBody,
+      feedbackIssueUrl,
     };
     return module.exports;
   },
