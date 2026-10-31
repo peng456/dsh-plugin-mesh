@@ -100,7 +100,10 @@ lib/identity.js       persistent UUID + OS machine fingerprint (claim only)
 lib/conversation.js   conversation key + reply target (both sides compute independently)
 lib/capabilities.js   runtime/GPU/capability collection, sanitising, staleness
 lib/prompt.js         task prompt text generation (pure, unit-tested)
+lib/at-mention.js     chat-window `@machine` parsing + rewritten prompt (pure, unit-tested)
 lib/switch.js         one-click shutdown resolver (pure, unit-tested): state.json `shutdown`
+lib/update.js         version comparison + npm registry lookup (pure + injectable fetch, unit-tested)
+lib/upgrade.js        one-click upgrade: sha512 verify, tar extract, loadability gate, atomic swap (unit-tested)
 lib/tsnet/            sidecar download/verify, per-channel process manager, tailnet HTTP bridge,
                       channel-list resolution (channels.js, pure and unit-tested)
 client/client.js      renderer: sidebar icon + Mesh panel, hand-written bundle
@@ -120,9 +123,13 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 |---|---|---|
 | Core / tsnet | `npm run selftest` | discovery, multi-channel endpoints, channel resolution, conversation keys, stall detection (76) |
 | Capabilities | `npm run selftest:caps` | sanitising, GPU parsing, retry-on-timeout, claim rules (72) |
-| Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output, kill-switch rows + overview bar (60) |
-| Prompt | `npm run selftest:prompt` | reply target must be a machine name, not `machine/user` (10) |
+| Client render | `npm run selftest:client` | bundle loads, `apply()` registers slots, component output, kill-switch rows + overview bar, chat-window @ source (72) |
+| Prompt | `npm run selftest:prompt` | reply target must be a machine name, not `machine/user`; results must not carry noWake (16) |
+| Chat-window @ | `npm run selftest:at` | leading `@machine` parsing, name-with-spaces matching, failure wording (19) |
+| Chat-window @ (host) | `npm run selftest:at:host` | real `agent/pre-step` → loopback POST, dedupe, offline/ambiguous/closed failures, inbound gate bypass for human tasks (17) |
 | Kill switch | `npm run selftest:switch` | shutdown merge rules: `off` defaults to true, `all` closes both scopes, strict booleans only (15) |
+| Update check | `npm run selftest:update` | version compare/prerelease, registry fallback, "failure is not up-to-date" (22) |
+| One-click upgrade | `npm run selftest:upgrade` | integrity, tar paths, change classification, atomic swap/rollback (26) |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host
 running; it is deliberately not part of `npm test` because it creates real agent

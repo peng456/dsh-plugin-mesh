@@ -1725,6 +1725,8 @@ window.__ModuleLoader__.load({
 .mesh-meta-link:disabled { cursor: default; opacity: .6; }
 .mesh-meta-link.is-update { color: var(--mesh-accent); font-weight: 600; }
 .mesh-meta-link.is-warn { color: var(--mesh-warn); }
+.mesh-meta-link.is-busy { opacity: .65; }
+.mesh-meta-pill { font-size: 11px; line-height: 1.5; color: var(--mesh-accent); font-weight: 600; white-space: nowrap; }
 .mesh-card-link { color: var(--mesh-accent); text-decoration: none; }
 .mesh-card-link:hover { text-decoration: underline; }
 .mesh-focus .mesh-dot.is-ok::after,
@@ -2199,6 +2201,115 @@ window.__ModuleLoader__.load({
         return () => clearInterval(t);
       }, [ms]);
       return now;
+    }
+
+    // ─────────────────────── 聊天窗口 @ 设备 ───────────────────────
+    //
+    // composer 里打 @ 时，菜单把**在线的 mesh 机器**列出来。选中只插入
+    // `@机器名 ` 这段文本；真正的派发在宿主侧：agent/pre-step 认出消息开头的
+    // @机器名，把正文直接发给那台机器（见 lib/at-mention.js）。
+    //
+    // 候选数据来自和面板同一个 /mesh/api/state，但带 2.5 秒缓存 —— 补全是按键
+    // 触发的，不能让每个字符都打一次接口（那还会顺带读盘）。
+
+    const AT_STATE_TTL_MS = 2500;
+    const AT_SECTION = "Mesh 设备";
+    let atPeersCache = { at: 0, rows: [] };
+
+    /** 读一次在线设备列表（带短缓存）；失败沿用上一份缓存，不把错误抛给补全管线。 */
+    async function loadOnlinePeers(signal) {
+      if (atPeersCacheFresh()) return atPeersCache.rows;
+      try {
+        const r = await fetch(`${API}/state`, {
+          headers: { accept: "application/json" },
+          cache: "no-store",
+          ...(signal ? { signal } : {}),
+        });
+        const j = await r.json();
+        const peers = j && Array.isArray(j.peers) ? j.peers : [];
+        const rows = peers
+          .filter((p) => p && p.online === true && String(p.machine || "").trim())
+          .map((p) => ({
+            machine: String(p.machine).trim(),
+            address: peerAddress(p),
+            system: osInfoLabel(p),
+            user: String(p.user || "").trim(),
+          }))
+          .sort((a, b) => a.machine.localeCompare(b.machine));
+        atPeersCache = { at: Date.now(), rows };
+        return rows;
+      } catch {
+        // 网络/宿主不可用：沿用上一次的列表（可能为空）。候选失败必须静默，
+        // 否则每敲一个字都弹一次错误。
+        return atPeersCache.rows;
+      }
+    }
+
+    function resetAtPeersCache() {
+      atPeersCache = { at: 0, rows: [] };
+    }
+
+    /** 缓存是否还新鲜（空列表也要缓存：没有在线设备时别每敲一个字都打接口）。 */
+    function atPeersCacheFresh() {
+      return atPeersCache.at > 0 && Date.now() - atPeersCache.at < AT_STATE_TTL_MS;
+    }
+
+    /**
+     * 一个 `@` 源：在线设备 → 插入 `@名字 `。
+     *
+     * `showGroupTitle: false` + 每行带 section：菜单里显示的是我们自己的分组名，
+     * 而不是触发管线按 source 名（"mesh"）反查出来的原始 key。
+     */
+    function buildAtPeerSource() {
+      return {
+        trigger: "@",
+        name: "mesh",
+        showGroupTitle: false,
+        async candidates(_session, { query, quoted, signal }) {
+          // @"..." 是文件路径语法（见 @deepseek-ai/dsh-client-ui-reference），让给文件引用。
+          if (quoted === true) return [];
+          const rows = await loadOnlinePeers(signal);
+          if (signal && signal.aborted) return [];
+          const needle = String(query || "").trim().toLocaleLowerCase();
+          return rows
+            .filter(
+              (row) =>
+                needle === "" ||
+                row.machine.toLocaleLowerCase().includes(needle) ||
+                row.address.toLocaleLowerCase().includes(needle),
+            )
+            .map((row) => ({
+              name: row.machine,
+              description: [row.address, row.system, row.user ? `user=${row.user}` : ""].filter(Boolean).join(" · "),
+              section: AT_SECTION,
+              value: row.machine,
+            }));
+        },
+        onPick({ candidate }) {
+          const machine = String((candidate && candidate.value) || "").trim();
+          if (!machine) return undefined;
+          return { text: `@${machine} ` };
+        },
+      };
+    }
+
+    /**
+     * 注册 @ 源。宿主没有触发管线（老版本 DSH）时安静跳过 —— 不能因为多了
+     * 一个可选增强，让整个 Mesh 面板起不来。
+     */
+    function registerAtPeerSource(ctx) {
+      if (!ctx || typeof ctx.inject !== "function") return;
+      try {
+        ctx.inject(["inputTriggers"], (scoped) => {
+          const inputTriggers =
+            (scoped && (scoped.inputTriggers || (scoped.get && scoped.get("inputTriggers")))) || null;
+          if (!inputTriggers || typeof inputTriggers.registerSource !== "function") return;
+          scoped.effect(() => inputTriggers.registerSource(buildAtPeerSource()), "mesh: @ 在线设备");
+        });
+      } catch (err) {
+        // 触发管线是可选的：注册失败只记一条日志，不能让 Mesh 面板跟着挂掉。
+        console.warn("mesh client: 聊天窗口 @ 设备注册失败（面板不受影响）", err);
+      }
     }
 
     function prefersReducedMotion() {
@@ -6386,12 +6497,29 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** 检查更新的展示层（纯 props）：自测可以直接给三种现场，不用联网。 */
-    function UpdateLinkView({ phase, report, onCheck, onCopy }) {
+    /**
+     * 检查更新的展示层（纯 props）：自测可以直接给各种现场，不用联网。
+     *
+     * 状态优先级（写在这里是为了让"该装 / 已装待重启 / 已装待重载"不会互相盖住）：
+     *   pendingUpgrade（磁盘已是目标版）→ 只给「重启」或「重载界面」；
+     *   否则 hasUpdate → 给「新版本 vX」，点第一下变确认、第二下才开始装；
+     *   失败 → 明确写「安装失败」，点一下重试（绝不悄悄回到"有新版本"）。
+     */
+    function UpdateLinkView({ phase, report, install, onCheck, onInstall, onRestart, onReload }) {
       const checking = phase === "checking";
-      const failed = !!report && report.ok !== true;
+      const state = (install && install.state) || "idle";
+      const running = state === "running";
+      const armed = state === "armed";
+      const installFailed = state === "failed";
+      const busy = checking || running;
+      const pending =
+        report && report.ok === true && report.pendingUpgrade && (!report.latest || report.pendingUpgrade.version === report.latest)
+          ? report.pendingUpgrade
+          : null;
       const hasUpdate = !!report && report.ok === true && report.hasUpdate === true;
+      const failed = !!report && report.ok !== true;
       const incomparable = !!report && report.ok === true && report.comparable === false;
+      const canInstall = hasUpdate && !pending && report.diskVersion !== report.latest;
       const label = checking ? "检查中…" : "检查更新";
       const title = failed
         ? `上次检查失败：${String(report.error || "未知原因")}（点一下重试）`
@@ -6407,29 +6535,65 @@ window.__ModuleLoader__.load({
           "button",
           {
             type: "button",
-            className: cls("mesh-meta-link", checking && "is-busy"),
+            className: cls("mesh-meta-link", busy && "is-busy"),
             onClick: onCheck,
-            disabled: checking,
+            disabled: busy,
             title,
             "aria-label": "检查更新",
-            "aria-busy": checking || undefined,
+            "aria-busy": busy || undefined,
           },
           label,
         ),
-        hasUpdate
+        pending
+          ? h(
+              "span",
+              { className: "mesh-meta-pill", title: pending.at ? `安装于 ${pending.at}` : undefined },
+              `已安装 v${pending.version}`,
+            )
+          : null,
+        pending && pending.restartRequired
           ? h(
               "button",
               {
                 type: "button",
                 className: "mesh-meta-link is-update",
-                onClick: () => onCopy(report.upgradeCommand),
-                title: `复制升级命令（v${report.current} → v${report.latest}，装好后重启 DSH）`,
-                "aria-label": `复制升级命令到 v${report.latest}`,
+                onClick: onRestart,
+                title: "重启 DSH 让新版本生效（会中断当前会话）",
               },
-              `新版本 v${report.latest}`,
+              "重启生效",
             )
           : null,
-        failed
+        pending && !pending.restartRequired
+          ? h(
+              "button",
+              {
+                type: "button",
+                className: "mesh-meta-link is-update",
+                onClick: onReload,
+                title: "这次只改了界面，重载界面即可生效",
+              },
+              "重载界面",
+            )
+          : null,
+        !pending && canInstall
+          ? h(
+              "button",
+              {
+                type: "button",
+                className: cls("mesh-meta-link is-update", installFailed && "is-warn"),
+                onClick: onInstall,
+                disabled: running,
+                title: installFailed
+                  ? `上次安装失败：${String(install.error || "未知原因")}；点一下重试`
+                  : armed
+                    ? `再点一次开始安装 v${report.latest}（sha512 校验后替换，装完重启生效）`
+                    : `一键安装 v${report.latest}（先校验 sha512，可加载检查通过才替换）`,
+                "aria-label": armed ? `确认安装 v${report.latest}` : `安装 v${report.latest}`,
+              },
+              installFailed ? "安装失败" : running ? "安装中…" : armed ? `确认安装 v${report.latest}` : `新版本 v${report.latest}`,
+            )
+          : null,
+        failed && !canInstall
           ? h(
               "button",
               { type: "button", className: "mesh-meta-link is-warn", onClick: onCheck, title: report.error },
@@ -6448,23 +6612,13 @@ window.__ModuleLoader__.load({
 
     /**
      * 检查更新的容器：进主页**静默**查一次（宿主机缓存 30 分钟），点一下强查。
-     * 静默失败也会在页头留下「检查失败」—— 不点也看得见"没问到"，而不是假装无事。
+     * 点「新版本」第一下只是确认（6 秒内不点第二下自动取消），第二下才真的装。
      */
     function UpdateLink({ push }) {
       const [phase, setPhase] = react.useState("idle");
       const [report, setReport] = react.useState(null);
+      const [install, setInstall] = react.useState({ state: "idle", error: "" });
       const alive = react.useRef(true);
-      const copyCommand = react.useCallback(
-        async (text) => {
-          if (!text) {
-            push("error", "这次结果里没有升级命令，请先重新检查");
-            return;
-          }
-          const ok = await copyText(text);
-          push(ok ? "success" : "error", ok ? "升级命令已复制：装好后重启 DSH 生效" : "复制失败，请手动选择");
-        },
-        [push],
-      );
       const run = react.useCallback(
         async (force, announce) => {
           setPhase("checking");
@@ -6479,11 +6633,15 @@ window.__ModuleLoader__.load({
               push("error", `没查到最新版本：${String(next.error || "未知原因")}`);
             } else if (next.comparable === false) {
               push("error", `版本号无法比较：v${next.current} vs v${next.latest}，请到 Release 页面确认`);
+            } else if (next.pendingUpgrade && (!next.latest || next.pendingUpgrade.version === next.latest)) {
+              push(
+                "success",
+                next.pendingUpgrade.restartRequired
+                  ? `已安装 v${next.pendingUpgrade.version}，重启 DSH 后生效`
+                  : `已安装 v${next.pendingUpgrade.version}，重载界面后生效`,
+              );
             } else if (next.hasUpdate) {
-              push("success", `有新版本 v${next.latest}（当前 v${next.current}）`, {
-                label: "复制升级命令",
-                onClick: () => copyCommand(next.upgradeCommand),
-              });
+              push("success", `有新版本 v${next.latest}（当前 v${next.current}），点「新版本」一键安装`);
             } else {
               push("success", `已是最新（v${next.current}）`);
             }
@@ -6494,7 +6652,7 @@ window.__ModuleLoader__.load({
             if (announce) push("error", `没查到最新版本：${String((e && e.message) || e)}`);
           }
         },
-        [push, copyCommand],
+        [push],
       );
       react.useEffect(() => {
         alive.current = true;
@@ -6503,7 +6661,85 @@ window.__ModuleLoader__.load({
           alive.current = false;
         };
       }, [run]);
-      return h(UpdateLinkView, { phase, report, onCheck: () => run(true, true), onCopy: copyCommand });
+      // 确认态 6 秒后自动取消：避免"上次点了一半"的按钮一直挂着。
+      react.useEffect(() => {
+        if (install.state !== "armed") return;
+        const timer = setTimeout(() => setInstall({ state: "idle", error: "" }), 6000);
+        return () => clearTimeout(timer);
+      }, [install.state]);
+
+      const startInstall = react.useCallback(async () => {
+        if (!report || report.ok !== true || !report.latest) return;
+        if (install.state !== "armed") {
+          setInstall({ state: "armed", error: "" });
+          return;
+        }
+        setInstall({ state: "running", error: "" });
+        try {
+          const r = await api("/upgrade", { version: report.latest });
+          if (!alive.current) return;
+          if (!r || r.ok !== true) {
+            setInstall({ state: "failed", error: apiErr(r) });
+            push("error", `安装失败：${apiErr(r)}`);
+            return;
+          }
+          setInstall({ state: "idle", error: "" });
+          if (r.upToDate || r.installed === false) {
+            push("success", `v${report.latest} 已经在磁盘上，不用重复安装`);
+          } else if (r.restartRequired) {
+            push("success", `已安装 v${r.version}，重启 DSH 后生效（旧版已备份，可回滚）`);
+          } else if (r.reloadRequired) {
+            push("success", `已安装 v${r.version}，点「重载界面」即可生效`);
+          } else {
+            push("success", `已安装 v${r.version}`);
+          }
+          await run(true, false);
+        } catch (e) {
+          if (!alive.current) return;
+          setInstall({ state: "failed", error: String((e && e.message) || e) });
+          push("error", `安装失败：${String((e && e.message) || e)}`);
+        }
+      }, [install.state, push, report, run]);
+
+      const restart = react.useCallback(async () => {
+        try {
+          const r = await api("/upgrade/restart", {});
+          if (r && r.ok) push("success", "正在重启 DSH，窗口会自动回来…");
+          else push("error", (r && r.error) || "当前宿主没有可用的重启入口，请手动重启 DSH");
+        } catch (e) {
+          push("error", String((e && e.message) || e));
+        }
+      }, [push]);
+
+      const reload = react.useCallback(async () => {
+        // 先问宿主有没有内置重载入口（DSH Desktop 有：和「开发者选项 → 重新加载
+        // 界面」同一个动作）；没有才用页面自身 reload。两种都只重载渲染器，
+        // 不重启宿主。
+        try {
+          const r = await api("/upgrade/reload", {});
+          if (r && r.ok) {
+            push("success", "正在重新加载界面…");
+            return;
+          }
+        } catch {
+          /* 落到页面自身重载 */
+        }
+        try {
+          window.location.reload();
+        } catch {
+          push("error", "无法自动重载，请按 Cmd/Ctrl+R 手动重载界面");
+        }
+      }, [push]);
+
+      return h(UpdateLinkView, {
+        phase,
+        report,
+        install,
+        onCheck: () => run(true, true),
+        onInstall: startInstall,
+        onRestart: restart,
+        onReload: reload,
+      });
     }
 
     function HomeMetaLinks({ state, push }) {
@@ -8130,6 +8366,7 @@ window.__ModuleLoader__.load({
       ctx.slots.inject("main", () =>
         ctx.slots.register({ name: "main", key: PANEL_ID }, MeshApp),
       );
+      registerAtPeerSource(ctx);
       ctx.logger?.info?.("mesh client: 已注册 Mesh 工作台");
     }
 
@@ -8179,6 +8416,9 @@ window.__ModuleLoader__.load({
       FeedbackLink,
       feedbackBody,
       feedbackIssueUrl,
+      buildAtPeerSource,
+      loadOnlinePeers,
+      resetAtPeersCache,
     };
     return module.exports;
   },
