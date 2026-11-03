@@ -10,10 +10,24 @@
 
 ## What it is
 
-A dsh plugin. Install it on two or more machines and they find each other on the
-LAN, show up in a sidebar panel, and accept tasks from one another. The receiving
-machine wakes its own agent to do the work, and the result is dispatched back into
-**Tasks** — dispatch only means "delivered", the result arrives on its own.
+A dsh plugin. Install it on two or more machines and the agents find each other on
+the LAN, show up in a sidebar panel, and hand work to one another. The receiving
+agent decides how to do it, and the result is dispatched back into **Tasks** —
+dispatch only means "delivered", the result arrives on its own.
+
+This is **agent-to-agent delegation**, not remote execution: you state the outcome,
+the other agent runs the commands.
+
+### Examples
+
+| Scenario | You say | The peer agent does | You get |
+|---|---|---|---|
+| Compile on the PC | “Build the Windows target, send the artifact and errors.” | pulls, builds, collects | artifact path, exit code, errors |
+| Deploy & verify on Android | “Install that build on the Android device, launch it, send a screenshot and logs.” | installs, launches, screenshots, logs | screenshot, key logs, launch status |
+| Plugin adaptation | “On Windows, install the latest build, restart, confirm health reports the new version.” | upgrades, restarts, probes health | version, whether it took effect |
+
+Chains work too: A sends to B to compile, B hands it to C to deploy, and the result
+comes back to A. Each hop is just another `mesh_run` — no central scheduler.
 
 When machines are not on the same network, an optional bundled userspace Tailscale
 node (tsnet) provides a second channel. It is a separate Go binary, downloaded per

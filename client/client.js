@@ -3954,9 +3954,9 @@ window.__ModuleLoader__.load({
               "div",
               { className: "mesh-chips", style: { marginBottom: 8 } },
               [
-                "报一下你的系统和负载",
-                "跑一遍测试，把失败的用例回报我",
-                "把 ~/Downloads 里的大视频转成 mp4",
+                "在 Windows 那台编译，产物和报错都发我",
+                "装到 Android 上启动一下，截图和日志发我",
+                "在另一台装新版本插件，重启后确认版本",
               ].map((preset) =>
                 h(
                   "button",

@@ -38,6 +38,17 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 - `GET /mesh/api/demo` returns a read-only snapshot of this machine (platform, CPU, memory, load, uptime, a few runtimes) used by the panel's single-machine demo. It contains no secrets and changes no state.
 - `/mesh/api/state` additionally exposes `config.requireApproval`, `approvals[]` (pending first-contact tasks) and `approvedPeers[]` (`{machine,address,at}`).
 
+## Usage patterns (agent to agent)
+
+What this is for: one agent hands a task to another agent on a different machine, and the result comes back. The receiving agent decides how to do it; the sender only states the outcome.
+
+- **Compile on the PC** — “Pull the latest code, build the Windows target, send me the artifact and any errors.” The peer agent runs the build and returns the artifact path, exit code and error summary.
+- **Deploy and verify on Android** — “Install the build I just made on the Android device, launch it, send a screenshot and the logs.” The peer installs, launches, screenshots and returns key log lines.
+- **Plugin adaptation** — “On the Windows box, install the latest build, restart, and confirm `/mesh/v1/health` reports the new version.” The peer upgrades, restarts, probes health and reports the version.
+- **Chains** — the receiving agent can call `mesh_run` itself to hand the next step to a third machine (compile on B, deploy on C), and the consolidated result is dispatched back to the origin. No central scheduler: each hop is just another `mesh_run`.
+
+These are outcomes, not a fixed feature list: the peer agent can run any command it has permission for.
+
 ## Tools registered (callable by the agent)
 
 | Tool | Parameters | Purpose |
