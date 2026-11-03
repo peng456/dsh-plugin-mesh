@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DSH Mesh — 把几台电脑连起来，互相派活</title>
-<meta name="description" content="DSH Mesh：局域网自动发现其他 DSH 实例，双向派发任务，不在同一网络时自动走内置用户态 Tailscale。Discovers other DSH instances on the LAN and dispatches tasks between machines.">
-<meta property="og:title" content="DSH Mesh">
-<meta property="og:description" content="把几台电脑连起来，互相派活。Connect your DSH machines and let them dispatch work to each other.">
+<title>DSH Mesh — 合上笔记本，活还在跑</title>
+<meta name="description" content="在两台装了 DSH 的电脑上各装一次，它们自己找到彼此。说一句要做什么，另一台去跑，跑完把结果派回来。局域网零配置，跨网络走内置用户态 Tailscale。">
+<meta property="og:title" content="DSH Mesh — 合上笔记本，活还在跑">
+<meta property="og:description" content="把跑不完的活交给另一台电脑；跑完，结果回到你面前。">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="img/logo.svg">
 <!-- 不引任何外部字体/CDN：有些网络加载不到，而且慢 -->
@@ -35,8 +35,13 @@
   .langs{margin-left:auto;display:flex;gap:4px}
   .langbtn{border:1px solid var(--line);background:none;color:var(--muted);font:13px system-ui;padding:4px 11px;border-radius:7px;cursor:pointer}
   .langbtn.on{border-color:var(--brand);color:var(--brand);background:var(--brand-soft);font-weight:600}
-  .lead{font-size:20px;margin:20px 0 10px}
+  .lead{font-size:23px;line-height:1.45;margin:22px 0 10px;letter-spacing:-.01em}
   .dim{color:var(--muted);font-size:15px;margin:0}
+
+  .cta{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 0}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:9px;border:1px solid var(--line);background:none;color:var(--fg);font:inherit;font-size:14px;text-decoration:none;cursor:pointer}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn:hover{opacity:.9}
 
   section{padding:38px 0;border-bottom:1px solid var(--line)}
   h2{font-size:20px;margin:0 0 18px}
@@ -53,9 +58,14 @@
   pre code{background:none;padding:0}
   .copy{position:absolute;top:7px;right:7px;font:12px system-ui;padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--muted);cursor:pointer}
   .hint{font-size:14px;color:var(--muted);margin:0}
-  figure{margin:32px 0 0}
+  figure{margin:26px 0 0}
   figure img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:11px}
   figcaption{font-size:13.5px;color:var(--muted);margin-top:9px}
+  .scenes{display:grid;gap:10px;margin:0}
+  .scene{border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+  .scene b{display:block;font-size:14.5px;margin-bottom:2px}
+  .scene span{color:var(--muted);font-size:13.5px}
+  .tag{display:inline-block;font-size:11px;letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px}
   footer{padding:34px 0 64px;color:var(--muted);font-size:14.5px}
   footer a{color:var(--brand)}
   a{color:var(--brand)}
@@ -75,26 +85,51 @@
   </div>
 
   <div data-lang="zh">
-    <p class="lead">把几台电脑连起来，互相派活。</p>
-    <p class="dim">每台都装上，它们自己就找到了彼此 —— 不用配对码、不用填 IP、不用装 Tailscale。</p>
+    <p class="lead">合上笔记本，活还在跑。</p>
+    <p class="dim">两台电脑各装一次，它们自己找到彼此 —— 不用配对码、不用填 IP、不用装 Tailscale 客户端。你说一句要它做什么，另一台去做；做完，结果派回来。</p>
+    <div class="cta">
+      <a class="btn primary" href="demo.html">看 60 秒演示</a>
+      <a class="btn" href="#start">装到这台机器</a>
+    </div>
+    <p class="hint" style="margin-top:12px">没有第二台电脑也能看：演示不连接任何机器，也不花 token。</p>
   </div>
   <div data-lang="en">
-    <p class="lead">Connect your DSH machines. Let them hand work to each other.</p>
-    <p class="dim">Install on each one and they find each other — no pairing codes, no IP addresses, no Tailscale client.</p>
+    <p class="lead">Close the lid. The work keeps running.</p>
+    <p class="dim">Install on both machines and they find each other — no pairing codes, no IP addresses, no Tailscale client. Say what you need done; the other machine does it and sends the result back.</p>
+    <div class="cta">
+      <a class="btn primary" href="demo.html">Watch the 60s demo</a>
+      <a class="btn" href="#start">Install</a>
+    </div>
+    <p class="hint" style="margin-top:12px">No second machine? The demo runs on this page — nothing is connected, no tokens are spent.</p>
   </div>
-
-  <figure>
-    <img id="panel-img" src="img/mesh-panel.svg"
-         alt="Mesh panel: one row per machine, showing online state, LAN / tailnet channel badges, and the capabilities each machine reports.">
-    <figcaption data-lang="zh">界面示意：每台机器一行，徽章是它自己报上来的能力。</figcaption>
-    <figcaption data-lang="en">The panel: one row per machine. Badges are the capabilities each machine reports.</figcaption>
-  </figure>
 </header>
 
-<!-- ═════════ 快速开始 / Quick start ═════════ -->
+<!-- ═════════ 它能帮你做什么 / What it is for ═════════ -->
 <section class="wrap">
   <div data-lang="zh">
-    <h2>快速开始</h2>
+    <h2>它能帮你做什么</h2>
+    <div class="scenes">
+      <div class="scene"><b>这个活太重，笔记本风扇要起飞</b><span>丢给台式机，或者抽屉里那台吃灰的旧电脑。</span></div>
+      <div class="scene"><b>长任务跑到一半，你要合盖走人</b><span>活在那台机器上继续跑，结果回到「任务」里。</span></div>
+      <div class="scene"><b>人在外面，只想让家里的电脑干件事</b><span>从手机上的 DSH 派过去，回家看结果。</span></div>
+    </div>
+    <p class="hint" style="margin-top:16px">以前：两台机器各干各的，你在中间搬上下文、复述需求、复制结果。现在：一句话派过去，对端的 agent 自己开跑，结果由它派回来。</p>
+  </div>
+  <div data-lang="en">
+    <h2>What it is for</h2>
+    <div class="scenes">
+      <div class="scene"><b>The job is too heavy for this laptop</b><span>Hand it to the desktop, or to the old machine in the drawer.</span></div>
+      <div class="scene"><b>A long task is halfway done and you need to leave</b><span>It keeps running over there; the result lands in “Tasks”.</span></div>
+      <div class="scene"><b>You are out, but the home machine could do it</b><span>Dispatch from DSH on your phone; read the result when you are back.</span></div>
+    </div>
+    <p class="hint" style="margin-top:16px">Before: two machines working separately, with you moving context back and forth. Now: one sentence, the peer’s agent runs it, and the result comes back on its own.</p>
+  </div>
+</section>
+
+<!-- ═════════ 快速开始 / Quick start ═════════ -->
+<section class="wrap" id="start">
+  <div data-lang="zh">
+    <h2>5 分钟上手</h2>
     <ol class="steps">
       <li>
         <h3>每台机器装一遍</h3>
@@ -106,14 +141,18 @@
         <p class="hint">插件在启动时加载，装完必须重启一次。</p>
       </li>
       <li>
-        <h3>侧栏点「Mesh」</h3>
-        <p class="hint">看到别的机器就是成功了。看不到就看下面的排查。</p>
+        <h3>侧栏点「Mesh」，起个名字</h3>
+        <p class="hint">第一次会让你给这台机器起名（默认主机名）。别的机器就靠这个名字找你。两台在同一局域网，几秒内就会互相出现。</p>
+      </li>
+      <li>
+        <h3>派一个活，然后去看结果</h3>
+        <p class="hint">选一台设备 →「派发任务」，或者直接在会话里以 <code>@机器名</code> 开头说话。派出去只是「送达」；对端跑完会把结果派回来，出现在「任务」里。第一次往陌生设备派活时，对方会先弹一次「允许」。</p>
       </li>
     </ol>
   </div>
 
   <div data-lang="en">
-    <h2>Quick start</h2>
+    <h2>Quick start (5 minutes)</h2>
     <ol class="steps">
       <li>
         <h3>Install on every machine</h3>
@@ -125,55 +164,71 @@
         <p class="hint">Plugins load at startup, so restart once.</p>
       </li>
       <li>
-        <h3>Click “Mesh” in the sidebar</h3>
-        <p class="hint">Seeing another machine means it worked. If not, check troubleshooting.</p>
+        <h3>Open “Mesh” in the sidebar and name this machine</h3>
+        <p class="hint">First run asks for a name (hostname by default). Peers find you by that name. On the same LAN they show up within seconds.</p>
+      </li>
+      <li>
+        <h3>Dispatch one task, then read the result</h3>
+        <p class="hint">Pick a device → “Dispatch”, or start a chat message with <code>@machine</code>. Sending only means “delivered”; the peer dispatches the result back into “Tasks” when it is done. The first task to an unknown machine asks that side for approval.</p>
       </li>
     </ol>
   </div>
 </section>
 
-<!-- ═════════ 设计原理 / How it works ═════════ -->
+<!-- ═════════ 原理 / How it works ═════════ -->
 <section class="wrap">
   <div data-lang="zh">
-    <h2>设计原理</h2>
+    <h2>它是怎么做到的 <span class="tag">不关心可以跳过</span></h2>
     <ul>
       <li><b>自己找</b> —— 每 5 秒向局域网发一个心跳包，同时监听同一个地址。所以不用填 IP。</li>
       <li><b>派活</b> —— 把任务发给对方，对方<b>自动开一个 agent 会话</b>去做，做完再派回来。</li>
-      <li><b>两条路</b> —— 局域网优先；不在同一网络时，走插件自带的用户态 Tailscale（自动下载，不用装客户端）。<b>需要免费注册 Tailscale 并生成一个授权码</b>，插件里直接给了地址，不用自己找。</li>
+      <li><b>两条路</b> —— 局域网优先；不在同一网络时，走插件自带的用户态 Tailscale（自动下载，不用装客户端）。需要免费注册 Tailscale 并生成一个授权码。</li>
       <li><b>会什么</b> —— 每台机器把自己装的运行时、内存、显卡报上来，派活之前就能看出它做不做得了。</li>
     </ul>
+    <figure>
+      <img src="img/mesh-panel.svg"
+           alt="Mesh 面板：每台机器一行，显示在线状态、局域网/互联网通道徽章，以及每台机器上报的能力。">
+      <figcaption>界面示意：每台机器一行，徽章是它自己报上来的能力。</figcaption>
+    </figure>
   </div>
 
   <div data-lang="en">
-    <h2>How it works</h2>
+    <h2>How it works <span class="tag">skip if you only want the outcome</span></h2>
     <ul>
       <li><b>Discovery</b> — every 5 seconds each machine sends a heartbeat to the LAN and listens on the same address. That is why you never type an IP.</li>
       <li><b>Dispatch</b> — a task is sent to the peer, which <b>opens an agent session automatically</b>, does the work, and dispatches the result back.</li>
-      <li><b>Two channels</b> — LAN first; across networks it falls back to a bundled userspace Tailscale node, downloaded automatically. No client to install. <b>Needs a free Tailscale account and an auth key</b> — the plugin links to the page that issues it.</li>
+      <li><b>Two channels</b> — LAN first; across networks it falls back to a bundled userspace Tailscale node, downloaded automatically. No client to install. Needs a free Tailscale account and an auth key.</li>
       <li><b>Capabilities</b> — each machine reports its runtimes, memory and GPU, so you can tell before dispatching whether it can do the job.</li>
     </ul>
+    <figure>
+      <img src="img/mesh-panel.en.svg"
+           alt="The Mesh panel: one row per machine, showing online state, LAN / tailnet channel badges, and the capabilities each machine reports.">
+      <figcaption>The panel: one row per machine. Badges are the capabilities each machine reports.</figcaption>
+    </figure>
   </div>
 </section>
 
-<!-- ═════════ 排查障碍 / Troubleshooting ═════════ -->
+<!-- ═════════ 常见问题 / Troubleshooting ═════════ -->
 <section class="wrap">
   <div data-lang="zh">
-    <h2>排查障碍</h2>
+    <h2>常见问题</h2>
     <ul>
-      <li><b>看不到对方</b> —— 依次确认：① 两台在同一局域网？ ② 对端也装了、也重启了？ ③ 防火墙放行了 TCP <code>45917</code> 和 UDP <code>45892</code>？</li>
-      <li><b>组播被挡</b> —— 很多路由器会挡。点面板上的「扫描本网段」主动扫一次即可。</li>
+      <li><b>看不到对方</b> —— 依次确认：① 两台在同一局域网？ ② 对端也装了、也重启了？ ③ 防火墙放行了 TCP <code>45917</code> 和 UDP <code>45892</code>？ 还不出现就点「局域网探测」—— 只要端口通，扫描就能发现，不依赖组播。</li>
+      <li><b>结果在哪</b> —— 在「任务」里。派发的返回只代表对端<b>收下了</b>，不代表跑完了；跑完的结果由对端派回来。</li>
+      <li><b>第一次派活，对方没反应</b> —— 默认会先问那台机器一次「允许」。点过之后同一台设备不再问；也可以在「连接 → 配对码」里改成两端同码，彻底关掉这个确认。</li>
       <li><b>Android 老掉线</b> —— 是系统省电在杀后台，不是插件的问题。把 DSH 加进电池优化白名单。</li>
-      <li><b>安全</b> —— 默认<b>不</b>校验密钥：同一网络里能连上 <code>45917</code> 的人都能给你派活。在咖啡厅、宿舍这类网络，打开 Mesh 页面「配对码」里的开关，再把两台机器的码对成同一个就行。</li>
+      <li><b>安全</b> —— 陌生设备第一次派活默认要本机确认；允许过的设备记在本地。在咖啡厅、宿舍这类网络，再打开「配对码」：两端用同一个码。所有数据都在本机，没有账号、没有云端。</li>
     </ul>
   </div>
 
   <div data-lang="en">
     <h2>Troubleshooting</h2>
     <ul>
-      <li><b>No peers</b> — check in order: same LAN? peer also installed and restarted? firewall allows TCP <code>45917</code> and UDP <code>45892</code>?</li>
-      <li><b>Multicast blocked</b> — common on many routers. Use the panel's “Scan subnet” button instead.</li>
+      <li><b>No peers</b> — check in order: same LAN? peer also installed and restarted? firewall allows TCP <code>45917</code> and UDP <code>45892</code>? Still nothing: use “Scan subnet” — if the port is reachable, the scan finds it without multicast.</li>
+      <li><b>Where is the result?</b> — In “Tasks”. A successful dispatch only means <b>delivered</b>; the peer dispatches the result back when it finishes.</li>
+      <li><b>First dispatch to a new machine does nothing</b> — By default that machine asks its owner once for “Allow”. After that it stops asking; or turn on pairing codes on both sides to skip the prompt entirely.</li>
       <li><b>Android keeps dropping</b> — the OS is killing background apps, not a plugin bug. Add DSH to the battery whitelist.</li>
-      <li><b>Security</b> — by default the key is <b>not</b> checked: anyone on the same network who can reach <code>45917</code> can send you work. On café or dorm networks, flip the switch in the Mesh panel's “pairing” card and make both machines share one code.</li>
+      <li><b>Security</b> — a first task from an unknown machine needs local approval; approved machines are remembered locally. On café/dorm networks also turn on pairing codes. All data stays local: no account, no cloud.</li>
     </ul>
   </div>
 </section>
@@ -181,8 +236,9 @@
 <footer class="wrap">
   <div data-lang="zh">
     <p>
+      <a href="demo.html">60 秒演示</a> ·
       <a href="https://github.com/peng456/dsh-plugin-mesh">源码</a> ·
-      <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/README.md">完整文档</a> ·
+      <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/README.md">文档</a> ·
       <a href="llms.txt">给 agent 的摘要</a> ·
       <a href="https://github.com/peng456/dsh-plugin-mesh/issues">问题反馈</a>
     </p>
@@ -190,6 +246,7 @@
   </div>
   <div data-lang="en">
     <p>
+      <a href="demo.html">60s demo</a> ·
       <a href="https://github.com/peng456/dsh-plugin-mesh">Source</a> ·
       <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/README.en.md">Docs</a> ·
       <a href="llms.txt">Summary for agents</a> ·
@@ -206,14 +263,6 @@
 
   function apply(lang) {
     html.setAttribute('data-lang-on', lang);
-    // 图片里的文字也要跟着换语言，否则英文页面里出现一张中文截图
-    var img = document.getElementById('panel-img');
-    if (img) {
-      img.src = lang === 'en' ? 'img/mesh-panel.en.svg' : 'img/mesh-panel.svg';
-      img.alt = lang === 'en'
-        ? 'The Mesh panel: one row per machine, showing online state, LAN / tailnet channel badges, and the capabilities each machine reports.'
-        : 'Mesh 面板：每台机器一行，显示在线状态、局域网/互联网通道徽章，以及每台机器上报的能力。';
-    }
     html.setAttribute('lang', lang === 'en' ? 'en' : 'zh-CN');
     for (var i = 0; i < btns.length; i++) {
       btns[i].classList.toggle('on', btns[i].getAttribute('data-set-lang') === lang);
@@ -239,7 +288,7 @@
       apply(lang);
       try { localStorage.setItem('mesh-lang', lang); } catch (e) {}
       var u = new URL(location.href);
-      u.searchParams.set('lang', lang);      // 链接可分享：?lang=en
+      u.searchParams.set('lang', lang);
       history.replaceState(null, '', u);
     });
   }

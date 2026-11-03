@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Mesh — 60 秒演示</title>
+<meta name="description" content="60 秒看完：从手机派一个任务到另一台电脑，它自己跑，结果和通知回到你面前。示意动画，不连接任何机器。">
+<link rel="icon" type="image/svg+xml" href="img/logo.svg">
+<style>
+  :root{
+    --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#fff;
+    --brand:#2563eb; --brand-soft:#eff6ff; --code-bg:#f6f8fa;
+    --ok:#16a34a; --ok-soft:#ecfdf3; --warn:#b45309; --warn-soft:#fff7ed;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --fg:#e8eaed; --muted:#9aa0a6; --line:#2f3336; --bg:#141618;
+           --brand:#7aa2f7; --brand-soft:#1b2333; --code-bg:#1c1f23;
+           --ok:#4ade80; --ok-soft:#0f2417; --warn:#fbbf24; --warn-soft:#2a1f0b; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 20px 56px}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+  .top img{width:34px;height:34px}
+  .top h1{font-size:19px;margin:0;letter-spacing:-.01em}
+  .top .badge{margin-left:auto;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px}
+  .stage{
+    position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:linear-gradient(180deg,var(--bg),var(--code-bg));
+    min-height:360px;padding:18px 18px 64px;
+  }
+  .stage-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:14px;align-items:start}
+  .stage-grid > *{min-width:0}
+  @media (max-width:640px){
+    .stage-grid{grid-template-columns:minmax(0,1fr)}
+    .top{flex-wrap:wrap}
+    .top .badge{margin-left:0}
+  }
+
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:12px 13px;min-height:120px;min-width:0}
+  .card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+  .card-title{font-size:12.5px;font-weight:600}
+  .card-sub{margin-left:auto;font-size:10.5px;color:var(--muted)}
+  .card-body{display:flex;flex-direction:column;gap:8px;min-height:70px;min-width:0}
+
+  .bubble{
+    align-self:flex-end;max-width:92%;font-size:12px;line-height:1.6;
+    border:1px solid var(--line);border-radius:12px 12px 4px 12px;
+    padding:7px 10px;background:var(--brand-soft);color:var(--fg);
+    opacity:0;transform:translateY(6px);transition:opacity .35s ease,transform .35s ease;
+  }
+  .bubble.on{opacity:1;transform:none}
+  .hintline{font-size:10.5px;color:var(--muted);opacity:0;transition:opacity .4s ease}
+  .hintline.on{opacity:1}
+
+  .term{
+    font:11.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+    min-height:76px;min-width:0;overflow-wrap:anywhere;
+  }
+  .term div{opacity:0;transform:translateY(2px);transition:opacity .3s ease,transform .3s ease}
+  .term div.on{opacity:1;transform:none}
+  .term .ok{color:var(--ok)}
+  .term .warn{color:var(--warn)}
+
+  .status-row{
+    display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);
+    opacity:0;transition:opacity .3s ease;
+  }
+  .status-row.on{opacity:1}
+  .spinner{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--brand);border-top-color:transparent;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .check{color:var(--ok);font-weight:700}
+
+  .notif{
+    min-width:0;overflow-wrap:anywhere;border:1px solid var(--line);border-radius:10px;background:var(--bg);
+    box-shadow:0 8px 20px rgba(0,0,0,.08);padding:8px 10px;
+    opacity:0;max-height:0;overflow:hidden;transform:translateY(-6px);
+    transition:opacity .3s ease,transform .3s ease,max-height .3s ease;
+  }
+  .notif.on{opacity:1;max-height:90px;transform:none}
+  .notif b{font-size:11px}
+  .notif p{margin:2px 0 0;font-size:10.5px;color:var(--muted)}
+
+  .result{grid-column:1 / -1;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:13px 14px;display:none;opacity:0;transform:translateY(8px)}
+  .result.on{display:block;opacity:1;transform:none;animation:pop .35s ease both}
+  @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .result h3{margin:0 0 10px;font-size:12.5px;display:flex;align-items:center;gap:8px}
+  .kv{display:grid;grid-template-columns:70px 1fr;gap:4px 10px;font-size:11.5px;line-height:1.6}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;overflow-wrap:anywhere}
+  .fail{color:var(--warn)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px}
+
+  .end{
+    grid-column:1 / -1;text-align:center;padding:18px 12px 6px;
+    display:none;opacity:0;transform:translateY(6px);
+  }
+  .end.on{display:block;opacity:1;transform:none;animation:pop .35s ease both}
+  .end .big{font-size:19px;font-weight:650;letter-spacing:-.01em;margin:0 0 8px}
+  .end code{background:var(--code-bg);border:1px solid var(--line);padding:4px 9px;border-radius:7px;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  .subtitle{
+    position:absolute;left:0;right:0;bottom:0;
+    padding:10px 18px 14px;border-top:1px solid var(--line);
+    background:var(--bg);
+    font-size:12.5px;color:var(--fg);display:flex;gap:10px;align-items:center;
+  }
+  .sub-num{font-variant-numeric:tabular-nums;color:var(--muted);font-size:10.5px;min-width:30px}
+  .progress{position:absolute;left:0;right:0;top:0;height:2px;background:transparent}
+  .progress i{display:block;height:100%;width:0;background:var(--brand);transition:width .4s linear}
+
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  button{font:inherit;font-size:13px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--fg);cursor:pointer}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .note{font-size:12px;color:var(--muted);margin-left:auto}
+  a{color:var(--brand)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <img src="img/logo.svg" alt="">
+    <h1>60 秒：一次跨机派发</h1>
+    <span class="badge">示意动画 · 不连接任何机器</span>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="progress"><i id="bar"></i></div>
+
+    <div class="stage-grid">
+      <!-- 手机 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="dot"></span>
+          <span class="card-title">你的手机 · DSH</span>
+          <span class="card-sub">在线</span>
+        </div>
+        <div class="card-body">
+          <div class="bubble" id="b1">跑一遍测试，失败的用例发我</div>
+          <div class="hintline" id="b1h">→ 派给「演示机 Studio」</div>
+          <div class="notif" id="notif">
+            <b>Mesh · 演示机 Studio</b>
+            <p>任务完成：测试跑完了，2 个失败</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 台式机 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="dot"></span>
+          <span class="card-title">演示机 Studio · 台式机</span>
+          <span class="card-sub">在线 · 8 核</span>
+        </div>
+        <div class="card-body">
+          <div class="status-row" id="st1"><span class="spinner"></span>收到任务，开一个会话去做</div>
+          <div class="term" id="term">
+            <div id="t1">$ pnpm test --reporter=dot</div>
+            <div id="t2">✓ 130 passed <span class="ok">（2.4s）</span></div>
+            <div id="t3">✗ 2 failed <span class="warn">checkout.spec.ts · settings.spec.ts</span></div>
+            <div id="t4">退出码 1</div>
+          </div>
+          <div class="status-row" id="st2"><span class="check">✓</span> 跑完，结果正在派回</div>
+        </div>
+      </div>
+
+      <!-- 结果卡 -->
+      <div class="result" id="result">
+        <h3><span class="check">✓</span> 任务完成 · 结果卡</h3>
+        <dl class="kv">
+          <dt>任务</dt><dd>跑一遍测试，失败的用例发我</dd>
+          <dt>摘要</dt><dd>132 个用例 · 130 通过 · <span class="fail">2 失败</span> · 3 分 42 秒</dd>
+          <dt>命令</dt><dd class="mono">pnpm test --reporter=dot</dd>
+          <dt>退出码</dt><dd>1</dd>
+          <dt>失败</dt><dd class="fail mono">checkout.spec.ts › 优惠券叠加<br>settings.spec.ts › 深色模式</dd>
+          <dt>改动</dt><dd class="mono">src/coupon.ts · +12 −3</dd>
+        </dl>
+      </div>
+
+      <!-- 收尾 -->
+      <div class="end" id="end">
+        <p class="big">不是「发出去了，然后呢」</p>
+        <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px">跑完会回来找你 —— 不需要盯着，也不需要再问一遍。</p>
+        <code>dsh plugin add dsh-plugin-mesh</code>
+      </div>
+    </div>
+
+    <div class="subtitle">
+      <span class="sub-num" id="subnum">1/6</span>
+      <span id="subtext">两台电脑各装一次，它们自己找到彼此 —— 不用配对码、不用填 IP。</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="replay">重播</button>
+    <span class="note">演示只用来说明流程；真实界面以插件为准。 <a href="index.html">回首页</a></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var timers = [];
+
+  var SUBS = [
+    "两台电脑各装一次，它们自己找到彼此 —— 不用配对码、不用填 IP。",
+    "你在手机上说要什么，它派给那台台式机。",
+    "对端自己开一个会话去跑。你合上笔记本，它不受影响。",
+    "跑完了，它先通知你。",
+    "点开是结果卡：摘要、命令、退出码、失败用例、改了哪些文件。",
+    "就这些。不是「发出去了，然后呢」。",
+  ];
+
+  function clearTimers() {
+    timers.forEach(clearTimeout);
+    timers = [];
+  }
+
+  function setSub(n) {
+    $("subnum").textContent = (n + 1) + "/6";
+    $("subtext").textContent = SUBS[n];
+  }
+
+  function reset() {
+    clearTimers();
+    ["b1", "b1h", "st1", "st2", "notif", "result", "end", "t1", "t2", "t3", "t4"].forEach(function (id) {
+      $(id).classList.remove("on");
+    });
+    $("bar").style.width = "0%";
+    setSub(0);
+  }
+
+  function at(ms, fn) {
+    timers.push(setTimeout(fn, ms));
+  }
+
+  // 总时长约 58 秒；进度条按百分比推进
+  function run() {
+    reset();
+    $("bar").style.transition = "none";
+    $("bar").style.width = "0%";
+
+    at(50, function () {
+      $("bar").style.transition = "width 58s linear";
+      $("bar").style.width = "100%";
+    });
+    at(3200, function () { $("b1").classList.add("on"); setSub(1); });
+    at(4600, function () { $("b1h").classList.add("on"); });
+    at(8400, function () { $("st1").classList.add("on"); setSub(2); });
+    at(10800, function () { $("t1").classList.add("on"); });
+    at(13000, function () { $("t2").classList.add("on"); });
+    at(15200, function () { $("t3").classList.add("on"); });
+    at(17400, function () { $("t4").classList.add("on"); });
+    at(19800, function () { $("st1").classList.remove("on"); $("st2").classList.add("on"); });
+    at(22000, function () { $("notif").classList.add("on"); setSub(3); });
+    at(28000, function () { $("result").classList.add("on"); setSub(4); });
+    at(43000, function () { $("end").classList.add("on"); setSub(5); });
+  }
+
+  $("replay").addEventListener("click", run);
+
+  run();
+})();
+</script>
+</body>
+</html>

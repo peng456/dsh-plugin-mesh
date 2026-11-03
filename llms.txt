@@ -34,6 +34,9 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 - One-click install: the inline "新版本 vX" link calls `POST /mesh/api/upgrade` (same-origin loopback only). It downloads the npm tarball for that version, verifies `dist.integrity` (sha512), extracts to a sibling staging dir, runs a real `import()` loadability check, backs up the old directory (`.mesh-upgrade-backup-*`, last 3 kept) and atomically swaps. Any failure keeps the old version and returns the failing stage. The result classifies the change: `restartRequired` only when `lib/` changed (plus version-only bumps), `reloadRequired` when only `client/` changed.
 - A successful install writes `upgrade.json` under the mesh state dir; until the process restarts, `GET /mesh/api/update` reports `pendingUpgrade` so the UI offers **重启生效** (`POST /mesh/api/upgrade/restart`) or **重载界面** instead of installing again (`POST /mesh/api/upgrade/reload` uses DSH Desktop's built-in `desktopSettingsController.reloadRenderer()`, the same action as Settings → Developer options → Reload interface; other hosts fall back to a page reload). On DSH Desktop the restart goes through the host's own `desktopSettingsController.restart()` (native confirm + ordered relaunch); plain `dsh web`/headless falls back to dshmarket's self-restart (`POST /dsh-market/api/v1/restart`) when that plugin is installed and not under a detected systemd supervisor. When neither entry exists the response is `mode:"manual"` with an explicit reason — it never pretends a restart happened.
 - The prefilled feedback issue carries the same diagnostics text as the diagnostics section; `buildDiagnostics()` deliberately excludes secrets (pairing code, tsnet auth key). The author's email (`geekstartup@163.com`) is the fallback when GitHub is unreachable.
+- **First-contact approval (default on).** An inbound task from a machine that is not in `state.json`'s `approvedPeers` is stored with `status: "needs-approval"` and answered with **HTTP 202** `{ok:true,pendingApproval:true}`; no agent session is created. The owner allows or denies it in the panel (`POST /mesh/api/approval` `{id,action:"allow"|"deny"}`); allowing adds the peer to `approvedPeers` and immediately runs the stored task. `POST /mesh/api/approval/revoke` `{machine}` removes trust. Replies (a task whose `thread` matches an outbound dispatch to the same machine) bypass the gate — otherwise the result would never come back. With `requirePairing` on (or the pairing switch enabled) the gate is skipped: pairing is the stronger trust gesture.
+- `GET /mesh/api/demo` returns a read-only snapshot of this machine (platform, CPU, memory, load, uptime, a few runtimes) used by the panel's single-machine demo. It contains no secrets and changes no state.
+- `/mesh/api/state` additionally exposes `config.requireApproval`, `approvals[]` (pending first-contact tasks) and `approvedPeers[]` (`{machine,address,at}`).
 
 ## Tools registered (callable by the agent)
 
@@ -138,6 +141,7 @@ Override by id in the profile's `cordis.patch.yml`:
 | `pingIntervalMs` | natural | `10000` | LAN health probe period |
 | `tsnetProbeIntervalMs` | natural | `60000` | Tailnet health probe period |
 | `requirePairing` | boolean | `false` | **Default off: the peer API accepts unauthenticated task POSTs.** Setting it `true` here pins pairing on; otherwise the Mesh panel's pairing switch (persisted in `state.json`) decides |
+| `requireApproval` | boolean | `true` | First task from an unknown machine is held as `needs-approval` until the owner clicks Allow. Set `false` to restore fully unattended dispatch. Ignored (no prompt) when pairing is on |
 | `agentPreset` | string | `"standard"` | Agent preset for auto-created sessions |
 | `permissionPreset` | string | `"workspace-write"` | Permission preset for auto-created sessions |
 | `workspaceRoot` | string | `""` | |
@@ -175,7 +179,8 @@ Outbound dispatch tries LAN first, then each tailnet channel in order.
 
 - Ports: TCP `45917` (peer HTTP), UDP `45892` (multicast group `239.255.42.99`).
 - Discovery is intentionally public: any host on the same L2 network can see the machine and its self-reported card.
-- With `requirePairing: false` (the default), **any host that can reach TCP 45917 can POST a task, which wakes an agent session** using `permissionPreset`. Turn on the pairing switch in the Mesh panel (immediate, no restart) or set `requirePairing: true`, and make both machines share one secret, on untrusted networks. The token travels in a plain HTTP header — it guards against stray devices, not against a network sniffer.
+- With `requireApproval: true` (the default) a first task from an unknown machine does **not** wake anything: it is held for local approval. Once approved, later tasks from that machine run unattended. Set `requireApproval: false` to get fully unattended dispatch (the pre-0.6 behaviour).
+- With `requirePairing: false` (the default) there is still no cryptographic authentication of the sender: the trust decision is per-machine, made by the owner, not by a shared secret. On untrusted networks turn on the pairing switch in the Mesh panel (immediate, no restart) or set `requirePairing: true`, and make both machines share one secret. The token travels in a plain HTTP header — it guards against stray devices, not against a network sniffer.
 - The shared secret is stored in `~/.dsh/mesh/state.json` (mode 0600) alongside `machineName`, the persisted `instanceIds`, and the tsnet auth key. It is never included in the multicast card.
 - Persistent identity is a UUID per profile; the OS machine fingerprint is used only to reclaim a reinstalled device (same name, or the old record already offline). Two live instances on one physical machine are kept separate.
 - Sidecar binaries are verified against sha256 checksums pinned in `lib/tsnet/checksums.js` — deliberately not fetched from the same release, so a hostile mirror cannot swap both.
@@ -203,11 +208,13 @@ npm run build:sidecar    # rebuild the Go tsnet sidecar (cross-platform)
 
 - `AGENTS.md` — agent operating guide, constraints, traps (English)
 - `README.en.md` — short English quickstart (English)
+- `README.md` — user-facing entry (Chinese): what it gives you, 5-minute start, safety, FAQ
+- `docs/DESIGN-NOTES.md` — the old long-form README: multicast/scan/firewall details, tsnet, identity, full config table, security model, limits, development
 - `DESIGN.md` — design rationale, trade-offs and post-mortems (Chinese)
-- `README.md` — full documentation, Chinese, includes design rationale and post-mortems
 - `Placement设计.md` — placement design and implementation record (Chinese)
 - `设备身份与多通道设计.md` — identity and multi-channel design (Chinese)
 - `docs/index.html` — user-facing showcase, Chinese (GitHub Pages)
+- `docs/demo.html` — 60-second animated walkthrough (schematic; connects to nothing)
 
 ## Contact
 

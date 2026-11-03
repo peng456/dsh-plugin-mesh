@@ -2,7 +2,7 @@
   "name": "dsh-plugin-mesh",
   "version": "0.5.8",
   "type": "module",
-  "description": "DSH Mesh：局域网自动发现同网段的 DSH 实例、显示每台机器上报的能力，并双向派发任务；可用内置的用户态 Tailscale 节点跨互联网组网。Discovers other DSH instances on the LAN, shows the capabilities each one reports, and dispatches tasks between machines in both directions, with an optional userspace Tailscale node for links across networks.",
+  "description": "把跑不完的活交给另一台电脑；跑完，结果回到你面前。两台装了 DSH 的电脑各装一次，自动互相发现，任务派过去由对端的 agent 执行，结果派回来。Hand a long task to another machine: your DSH instances find each other, the peer runs it, and the result comes back. No pairing codes, no IPs, no Tailscale client.",
   "license": "MIT",
   "author": "peng456 (https://github.com/peng456)",
   "keywords": [
@@ -11,14 +11,14 @@
     "deepseek-harness",
     "dsh-desktop",
     "mesh",
-    "lan",
-    "multicast",
-    "discovery",
     "remote",
+    "multi-machine",
+    "long-task",
+    "second-machine",
+    "lan",
     "tailscale",
-    "tsnet",
     "tailnet",
-    "wireguard"
+    "discovery"
   ],
   "homepage": "https://github.com/peng456/dsh-plugin-mesh#readme",
   "repository": {
@@ -68,7 +68,8 @@
     "selftest:osinfo": "node lib/_selftest-osinfo.mjs",
     "selftest:update": "node lib/_selftest-update.mjs",
     "selftest:upgrade": "node lib/_selftest-upgrade.mjs",
-    "test": "npm run check && npm run selftest && npm run selftest:prompt && npm run selftest:at && npm run selftest:at:host && npm run selftest:pairing && npm run selftest:switch && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:osinfo && npm run selftest:update && npm run selftest:upgrade",
+    "selftest:approval": "node lib/_selftest-approval.mjs",
+    "test": "npm run check && npm run selftest && npm run selftest:prompt && npm run selftest:at && npm run selftest:at:host && npm run selftest:pairing && npm run selftest:approval && npm run selftest:switch && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:osinfo && npm run selftest:update && npm run selftest:upgrade",
     "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/at-mention.js && node --check lib/pairing.js && node --check lib/switch.js && node --check lib/scan.js && node --check lib/update.js && node --check lib/upgrade.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:loadable && npm run check:docs",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
