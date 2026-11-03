@@ -10,9 +10,24 @@
 
 ## What it is
 
-A dsh plugin. Install it on two or more machines and they find each other on the
-LAN, show up in a sidebar panel, and accept tasks from one another. The receiving
-machine wakes its own agent to do the work, and the result is dispatched back.
+A dsh plugin. Install it on two or more machines and the agents find each other on
+the LAN, show up in a sidebar panel, and hand work to one another. The receiving
+agent decides how to do it, and the result is dispatched back into **Tasks** —
+dispatch only means "delivered", the result arrives on its own.
+
+This is **agent-to-agent delegation**, not remote execution: you state the outcome,
+the other agent runs the commands.
+
+### Examples
+
+| Scenario | You say | The peer agent does | You get |
+|---|---|---|---|
+| Compile on the PC | “Build the Windows target, send the artifact and errors.” | pulls, builds, collects | artifact path, exit code, errors |
+| Deploy & verify on Android | “Install that build on the Android device, launch it, send a screenshot and logs.” | installs, launches, screenshots, logs | screenshot, key logs, launch status |
+| Plugin adaptation | “On Windows, install the latest build, restart, confirm health reports the new version.” | upgrades, restarts, probes health | version, whether it took effect |
+
+Chains work too: A sends to B to compile, B hands it to C to deploy, and the result
+comes back to A. Each hop is just another `mesh_run` — no central scheduler.
 
 When machines are not on the same network, an optional bundled userspace Tailscale
 node (tsnet) provides a second channel. It is a separate Go binary, downloaded per
@@ -57,17 +72,21 @@ is often blocked by routers — the panel's **Scan subnet** button works around 
   rather than assumed-good.
 - **Traceable routing** — every task records why it went where it went, and why it
   failed if it did. Both are readable from the peer.
+- **A demo that needs one machine** — the panel's **看演示 / demo** entry plays the
+  whole dispatch → run → result loop locally (no network, no agent session, no
+  tokens), so a single-machine user can see what it is for.
 
 ## Security defaults — read this
 
-**With `requirePairing: false` (the default), any host that can reach TCP `45917` can
-POST a task, and that task wakes an agent session** using the configured
-`permissionPreset`. Discovery is intentionally public so you can see machines before
-deciding to talk to them.
+**A first task from an unknown machine does not run.** It is held as
+`needs-approval` and the panel asks the owner once ("Allow" / "Deny"); nothing wakes
+until it is allowed. Approved machines are remembered locally (`approvedPeers` in
+`state.json`). Set `requireApproval: false` to restore fully unattended dispatch.
 
-On an untrusted network (café, dorm, office):
+Discovery is intentionally public so you can see machines before deciding to talk to
+them. On an untrusted network (café, dorm, office) also turn on pairing:
 
-1. Flip the switch in the Mesh panel's **pairing** card — it takes effect immediately, no restart. (Writing `requirePairing: true` in `cordis.patch.yml` also works and pins it on, so the UI cannot turn it off.)
+1. Flip the switch in the Mesh panel's **pairing** card — it takes effect immediately, no restart. (Writing `requirePairing: true` in `cordis.patch.yml` also works and pins it on, so the UI cannot turn it off. Pairing also skips the per-machine approval prompt, since it is the stronger trust gesture.)
 2. Make the pairing secret identical on both machines (the Mesh panel has a field for it).
 
 Note the token travels in a plain HTTP header: it guards against stray devices on

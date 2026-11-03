@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Mesh — 60 秒：三个 agent 接力</title>
+<meta name="description" content="60 秒看完：手机上一个 agent 发起，PC 上的 agent 编译，Android 上的 agent 安装验证，结果和截图回到你面前。示意动画，不连接任何机器。">
+<link rel="icon" type="image/svg+xml" href="img/logo.svg">
+<style>
+  :root{
+    --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --bg:#fff;
+    --brand:#2563eb; --brand-soft:#eff6ff; --code-bg:#f6f8fa;
+    --ok:#16a34a; --ok-soft:#ecfdf3; --warn:#b45309; --warn-soft:#fff7ed;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --fg:#e8eaed; --muted:#9aa0a6; --line:#2f3336; --bg:#141618;
+           --brand:#7aa2f7; --brand-soft:#1b2333; --code-bg:#1c1f23;
+           --ok:#4ade80; --ok-soft:#0f2417; --warn:#fbbf24; --warn-soft:#2a1f0b; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:780px;margin:0 auto;padding:28px 20px 56px}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .top img{width:34px;height:34px}
+  .top h1{font-size:19px;margin:0;letter-spacing:-.01em}
+  .top .badge{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px}
+  @media (min-width:641px){ .top .badge{margin-left:auto} }
+
+  .stage{
+    position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:linear-gradient(180deg,var(--bg),var(--code-bg));
+    min-height:300px;padding:18px 18px 64px;
+  }
+  .stage-grid{display:grid;grid-template-columns:minmax(0,0.95fr) minmax(0,1.15fr);gap:14px;align-items:start}
+  .stage-grid > *{min-width:0}
+  @media (max-width:640px){ .stage-grid{grid-template-columns:minmax(0,1fr)} }
+
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:12px 13px;min-height:120px;min-width:0}
+  .card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+  .card-title{font-size:12.5px;font-weight:600}
+  .card-sub{margin-left:auto;font-size:10.5px;color:var(--muted)}
+  .card-body{display:flex;flex-direction:column;gap:8px;min-height:70px;min-width:0}
+
+  .bubble{
+    align-self:flex-end;max-width:96%;font-size:12px;line-height:1.6;
+    border:1px solid var(--line);border-radius:12px 12px 4px 12px;
+    padding:7px 10px;background:var(--brand-soft);color:var(--fg);
+    opacity:0;transform:translateY(6px);transition:opacity .35s ease,transform .35s ease;
+  }
+  .bubble.on{opacity:1;transform:none}
+  .hintline{font-size:10.5px;color:var(--muted);opacity:0;transition:opacity .4s ease}
+  .hintline.on{opacity:1}
+
+  .term{
+    font:11.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+    min-height:54px;min-width:0;overflow-wrap:anywhere;
+  }
+  .term div{opacity:0;transform:translateY(2px);transition:opacity .3s ease,transform .3s ease}
+  .term div.on{opacity:1;transform:none}
+  .term .ok{color:var(--ok)}
+  .term .warn{color:var(--warn)}
+
+  .chain-card{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:12px 13px;min-width:0}
+  .chain-sec{padding:2px 0 6px}
+  .chain-sec + .chain-sec{border-top:1px dashed var(--line);margin-top:6px;padding-top:10px}
+  .chain-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;margin-bottom:7px}
+  .chain-head .sub{margin-left:auto;font-weight:400;font-size:10.5px;color:var(--muted)}
+  .handoff{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--muted);padding:4px 2px 0;opacity:0;transition:opacity .4s ease}
+  .handoff.on{opacity:1}
+  .handoff b{color:var(--brand);font-weight:600}
+  .shot{
+    display:inline-flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);
+    border:1px dashed var(--line);border-radius:7px;padding:3px 8px;margin-top:6px;
+  }
+  .shot i{width:12px;height:9px;border:1px solid var(--line);border-radius:2px;background:var(--code-bg);display:inline-block}
+
+  .status-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);opacity:0;transition:opacity .3s ease}
+  .status-row.on{opacity:1}
+  .spinner{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--brand);border-top-color:transparent;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .check{color:var(--ok);font-weight:700}
+
+  .notif{
+    min-width:0;overflow-wrap:anywhere;
+    border:1px solid var(--line);border-radius:10px;background:var(--bg);
+    box-shadow:0 8px 20px rgba(0,0,0,.08);padding:8px 10px;
+    opacity:0;max-height:0;overflow:hidden;transform:translateY(-6px);
+    transition:opacity .3s ease,transform .3s ease,max-height .3s ease;
+  }
+  .notif.on{opacity:1;max-height:110px;transform:none}
+  .notif b{font-size:11px}
+  .notif p{margin:2px 0 0;font-size:10.5px;color:var(--muted)}
+
+  .result{grid-column:1 / -1;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:13px 14px;display:none;opacity:0;transform:translateY(8px)}
+  .result.on{display:block;opacity:1;transform:none;animation:pop .35s ease both}
+  @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .result h3{margin:0 0 10px;font-size:12.5px;display:flex;align-items:center;gap:8px}
+  .kv{display:grid;grid-template-columns:76px 1fr;gap:4px 10px;font-size:11.5px;line-height:1.6;margin:0}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;overflow-wrap:anywhere}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px}
+
+  .end{grid-column:1 / -1;text-align:center;padding:18px 12px 6px;display:none;opacity:0;transform:translateY(6px)}
+  .end.on{display:block;opacity:1;transform:none;animation:pop .35s ease both}
+  .end .big{font-size:19px;font-weight:650;letter-spacing:-.01em;margin:0 0 8px}
+  .end code{background:var(--code-bg);border:1px solid var(--line);padding:4px 9px;border-radius:7px;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  .subtitle{
+    position:absolute;left:0;right:0;bottom:0;
+    padding:10px 18px 14px;border-top:1px solid var(--line);
+    background:var(--bg);
+    font-size:12.5px;color:var(--fg);display:flex;gap:10px;align-items:center;
+  }
+  .sub-num{font-variant-numeric:tabular-nums;color:var(--muted);font-size:10.5px;min-width:30px}
+  .progress{position:absolute;left:0;right:0;top:0;height:2px;background:transparent}
+  .progress i{display:block;height:100%;width:0;background:var(--brand);transition:width .4s linear}
+
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  button{font:inherit;font-size:13px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--fg);cursor:pointer}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .note{font-size:12px;color:var(--muted)}
+  @media (min-width:561px){ .note{margin-left:auto} }
+  a{color:var(--brand)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <img src="img/logo.svg" alt="">
+    <h1>60 秒：三个 agent 接力</h1>
+    <span class="badge">示意动画 · 不连接任何机器</span>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="progress"><i id="bar"></i></div>
+
+    <div class="stage-grid">
+      <!-- 发起者：手机 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="dot"></span>
+          <span class="card-title">你的手机 · DSH</span>
+          <span class="card-sub">在线</span>
+        </div>
+        <div class="card-body">
+          <div class="bubble" id="b1">编译 Windows 版，装到 Android 上验证，截图和日志发我</div>
+          <div class="hintline" id="b1h">→ 交给「Studio · 编译机」</div>
+          <div class="notif" id="notif">
+            <b>Mesh · 全链路完成</b>
+            <p>编译成功 · Android 启动正常 · 2 张截图已回传</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 两台对端：PC 编译 → Android 验证 -->
+      <div class="chain-card">
+        <div class="chain-sec">
+          <div class="chain-head">
+            <span class="dot"></span>
+            Studio · 编译机（Windows）
+            <span class="sub">在线 · 8 核</span>
+          </div>
+          <div class="term" id="pc-term">
+            <div id="p1">$ pnpm build:win</div>
+            <div id="p2">✓ built in 42s <span class="ok">· exit 0</span></div>
+            <div id="p3">dist/app-win-x64.zip</div>
+          </div>
+          <div class="handoff" id="handoff">结果交给 <b>Android-04</b> 安装验证 →</div>
+        </div>
+        <div class="chain-sec">
+          <div class="chain-head">
+            <span class="dot"></span>
+            Android-04 · Termux
+            <span class="sub">在线 · 手机</span>
+          </div>
+          <div class="term" id="and-term">
+            <div id="a1">$ adb install -r app.apk</div>
+            <div id="a2">Success <span class="ok">· 已安装</span></div>
+            <div id="a3">$ adb shell am start … → Start: ok</div>
+          </div>
+          <div class="status-row" id="shots"><span class="shot"><i></i>截图 2 张</span><span class="shot"><i></i>logcat 3 行</span></div>
+        </div>
+      </div>
+
+      <!-- 合并结果 -->
+      <div class="result" id="result">
+        <h3><span class="check">✓</span> 全链路完成 · 结果卡</h3>
+        <dl class="kv">
+          <dt>任务</dt><dd>编译 Windows 版，装到 Android 上验证，截图和日志发我</dd>
+          <dt>产物</dt><dd class="mono">dist/app-win-x64.zip</dd>
+          <dt>编译</dt><dd>42 秒 · 退出码 0</dd>
+          <dt>部署</dt><dd>Android-04 · 安装成功 · 启动成功</dd>
+          <dt>证据</dt><dd>截图 2 张 · logcat 3 行（关键行已标出）</dd>
+          <dt>耗时</dt><dd>3 分 18 秒 · 你只发了一句话</dd>
+        </dl>
+      </div>
+
+      <!-- 收尾 -->
+      <div class="end" id="end">
+        <p class="big">一句话，三个 agent 接力</p>
+        <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px">不是「发出去了，然后呢」—— 每一步做完都往下一台走，最后合并回你面前。</p>
+        <code>dsh plugin add dsh-plugin-mesh</code>
+      </div>
+    </div>
+
+    <div class="subtitle">
+      <span class="sub-num" id="subnum">1/6</span>
+      <span id="subtext">三台设备各装一次，agent 自己找到彼此 —— 不用配对码、不用填 IP。</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="replay">重播</button>
+    <span class="note">示意动画只用来说明流程；真实界面以插件为准。 <a href="index.html">回首页</a></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var timers = [];
+
+  var SUBS = [
+    "三台设备各装一次，agent 自己找到彼此 —— 不用配对码、不用填 IP。",
+    "你在手机上说清要什么结果，任务交给第一台。",
+    "第一个 agent 接过去编译 —— 你不用管它用什么命令。",
+    "编完，它自己把结果交给下一个 agent 部署验证。",
+    "第二个 agent 安装、启动、截图、抓日志。",
+    "结果合并回你面前。不是「发出去了，然后呢」。",
+  ];
+
+  function setSub(n) {
+    $("subnum").textContent = (n + 1) + "/6";
+    $("subtext").textContent = SUBS[n];
+  }
+
+  var ALL = ["b1", "b1h", "notif", "p1", "p2", "p3", "handoff", "a1", "a2", "a3", "shots", "result", "end"];
+
+  function reset() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    ALL.forEach(function (id) { $(id).classList.remove("on"); });
+    $("bar").style.transition = "none";
+    $("bar").style.width = "0%";
+    setSub(0);
+  }
+
+  function at(ms, fn) {
+    timers.push(setTimeout(fn, ms));
+  }
+
+  // 约 52 秒
+  function run() {
+    reset();
+    at(50, function () {
+      $("bar").style.transition = "width 52s linear";
+      $("bar").style.width = "100%";
+    });
+    at(3000, function () { $("b1").classList.add("on"); setSub(1); });
+    at(4400, function () { $("b1h").classList.add("on"); });
+    at(7600, function () { $("p1").classList.add("on"); setSub(2); });
+    at(9400, function () { $("p2").classList.add("on"); });
+    at(11200, function () { $("p3").classList.add("on"); });
+    at(13600, function () { $("handoff").classList.add("on"); setSub(3); });
+    at(17000, function () { $("a1").classList.add("on"); setSub(4); });
+    at(19200, function () { $("a2").classList.add("on"); });
+    at(21400, function () { $("a3").classList.add("on"); });
+    at(23800, function () { $("shots").classList.add("on"); });
+    at(26800, function () { $("notif").classList.add("on"); setSub(5); });
+    at(33000, function () { $("result").classList.add("on"); });
+    at(44000, function () { $("end").classList.add("on"); });
+  }
+
+  $("replay").addEventListener("click", run);
+  run();
+})();
+</script>
+</body>
+</html>

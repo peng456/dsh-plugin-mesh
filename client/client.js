@@ -1094,6 +1094,12 @@ window.__ModuleLoader__.load({
 .mesh-chip.is-muted { background: transparent; border: 1px solid var(--mesh-line); color: var(--mesh-muted); }
 .mesh-chip-label { color: var(--mesh-muted); }
 .mesh-chip-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+.mesh-chip-btn {
+  cursor: pointer; border: 1px solid var(--mesh-line);
+  background: transparent; color: var(--mesh-fg);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.mesh-chip-btn:hover { border-color: var(--mesh-line-2); background: var(--mesh-surface-2); }
 .mesh-specs { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--mesh-muted); }
 .mesh-text-btn {
   align-self: flex-start; border: 0; background: transparent;
@@ -1609,6 +1615,84 @@ window.__ModuleLoader__.load({
 .mesh-home-empty { margin-top: 16px; border: 1px dashed var(--mesh-line-2); border-radius: 14px; padding: 28px; text-align: center; }
 .mesh-home-empty p { margin: 0 0 12px; font-size: 12px; color: var(--mesh-muted); }
 .mesh-home .mesh-firstrun { margin: 0 0 16px; }
+
+/* ── 演示（单机也能看见完整闭环） ── */
+.mesh-demo-layer {
+  position: absolute; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px;
+  background: rgba(12, 14, 18, .46);
+  animation: mesh-view-in 160ms ease both;
+}
+.mesh-demo-card {
+  width: min(560px, 100%); max-height: min(88vh, 780px);
+  display: flex; flex-direction: column;
+  background: var(--mesh-surface);
+  color: var(--mesh-fg);
+  border: 1px solid var(--mesh-line);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.34);
+  overflow: hidden;
+  animation: mesh-detail-in 220ms var(--mesh-ease-out) both;
+}
+.mesh-demo-head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  padding: 15px 18px 12px;
+  border-bottom: 1px solid var(--mesh-line);
+}
+.mesh-demo-eyebrow { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--mesh-muted); }
+.mesh-demo-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.mesh-demo-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 6px; display: flex; flex-direction: column; gap: 12px; }
+.mesh-demo-peer {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--mesh-line); border-radius: 12px;
+  background: var(--mesh-bg);
+}
+.mesh-demo-peer-name { font-size: 13px; font-weight: 600; }
+.mesh-demo-peer-meta { margin-left: auto; font-size: 11px; color: var(--mesh-muted); }
+.mesh-demo-task {
+  align-self: flex-end; max-width: 86%;
+  padding: 9px 13px; border-radius: 14px 14px 4px 14px;
+  background: var(--mesh-accent-soft, var(--mesh-surface));
+  border: 1px solid var(--mesh-line);
+  font-size: 12.5px; line-height: 1.6;
+}
+.mesh-demo-steps { display: flex; flex-direction: column; gap: 7px; padding: 2px 2px 0; }
+.mesh-demo-step { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--mesh-muted); }
+.mesh-demo-step.is-active { color: var(--mesh-fg); font-weight: 550; }
+.mesh-demo-step.is-done { color: var(--mesh-fg); }
+.mesh-demo-step-dot {
+  width: 16px; height: 16px; flex: 0 0 auto; border-radius: 50%;
+  border: 1.5px solid var(--mesh-line-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: transparent;
+}
+.mesh-demo-step.is-active .mesh-demo-step-dot { border-color: var(--mesh-accent); }
+.mesh-demo-step.is-done .mesh-demo-step-dot { border-color: var(--mesh-accent); background: var(--mesh-accent); color: var(--mesh-bg); }
+.mesh-demo-spin { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--mesh-accent); border-top-color: transparent; animation: mesh-spin .8s linear infinite; }
+.mesh-demo-result {
+  border: 1px solid var(--mesh-line); border-radius: 13px;
+  padding: 13px 14px; background: var(--mesh-bg);
+  animation: mesh-detail-in 220ms ease both;
+}
+.mesh-demo-result-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.mesh-demo-result-title { font-size: 12.5px; font-weight: 600; }
+.mesh-demo-result-rows { display: flex; flex-direction: column; gap: 5px; }
+.mesh-demo-result-row { display: flex; gap: 10px; font-size: 11.5px; line-height: 1.5; }
+.mesh-demo-result-k { flex: 0 0 66px; color: var(--mesh-muted); }
+.mesh-demo-result-v { flex: 1; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.mesh-demo-caption { font-size: 11px; line-height: 1.65; color: var(--mesh-muted); }
+.mesh-demo-code {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 11px; border: 1px dashed var(--mesh-line-2); border-radius: 10px;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--mesh-code-bg, var(--mesh-bg));
+  overflow-wrap: anywhere;
+}
+.mesh-demo-code code { flex: 1; min-width: 0; }
+.mesh-demo-foot { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px 16px; border-top: 1px solid var(--mesh-line); flex-wrap: wrap; }
+.mesh-demo-note { margin-right: auto; font-size: 10.5px; color: var(--mesh-muted); align-self: center; }
 
 /* 主页底部的派发面板：视觉上跟卡片同级，但不参与拖动/隐藏。 */
 .mesh-dispatch {
@@ -2977,6 +3061,183 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 陌生设备第一次派活的确认条。
+     *
+     * 默认会拦（判定在 lib/approval.js）。这里只负责把「谁、要干什么」摆清楚，
+     * 给两个按钮；点完立刻调接口 —— 任务要么当场开始跑，要么被拒。
+     */
+    function ApprovalBar({ items, busy, onDecide }) {
+      const list = Array.isArray(items) ? items : [];
+      const first = list[0];
+      if (!first) return null;
+      const name = first.fromMachine || String(first.from || "").split("/")[0] || "一台设备";
+      const more = list.length > 1 ? `（还有 ${list.length - 1} 条待确认）` : "";
+      const preview = String(first.task || "").replace(/\s+/g, " ").slice(0, 68);
+      return h(
+        "div",
+        { className: "mesh-banner is-warn", role: "status", "data-mesh-approval": first.id },
+        h(Icon, { name: "alert", size: 14 }),
+        h(
+          "div",
+          { className: "mesh-banner-main" },
+          h("span", { className: "mesh-banner-title" }, `「${name}」想派一个任务过来${more}`),
+          h("span", { className: "mesh-banner-detail" }, `允许后这台设备以后不再问：${preview}`),
+        ),
+        h(Button, { variant: "primary", size: "sm", loading: busy, onClick: () => onDecide(first.id, "allow") }, "允许"),
+        h(Button, { variant: "ghost", size: "sm", disabled: busy, onClick: () => onDecide(first.id, "deny") }, "拒绝"),
+      );
+    }
+
+    /**
+     * 「看演示」：没有第二台机器也能看见完整闭环。
+     *
+     * 这是唯一能让单机用户理解产品的东西。它**不连网络、不建会话、不花 token**，
+     * 但结果里的数字是这台机器的真实数据（走 GET /mesh/api/demo），所以看起来
+     * 不像编的。装好第二台之后，同一条链路会真的在那边跑。
+     */
+    function DemoOverlay({ open, onClose }) {
+      const [phase, setPhase] = react.useState("loading");
+      const [data, setData] = react.useState(null);
+      const [error, setError] = react.useState("");
+      const [run, setRun] = react.useState(0);
+      const [copied, setCopied] = react.useState(false);
+
+      react.useEffect(() => {
+        if (!open) return undefined;
+        let alive = true;
+        const timers = [];
+        setPhase("loading");
+        setError("");
+        setCopied(false);
+        apiGet("/demo")
+          .then((r) => {
+            if (!alive) return;
+            if (!r || !r.ok) {
+              setError(apiErr(r));
+              setPhase("error");
+              return;
+            }
+            setData(r);
+            setPhase("queued");
+            timers.push(setTimeout(() => alive && setPhase("running"), 900));
+            timers.push(setTimeout(() => alive && setPhase("done"), 3000));
+          })
+          .catch((e) => {
+            if (!alive) return;
+            setError(String((e && e.message) || e));
+            setPhase("error");
+          });
+        return () => {
+          alive = false;
+          timers.forEach((t) => clearTimeout(t));
+        };
+      }, [open, run]);
+
+      if (!open) return null;
+
+      const stage = phase === "done" ? 2 : phase === "running" ? 1 : phase === "queued" ? 0 : -1;
+      const stepClass = (i) => cls("mesh-demo-step", stage === i && "is-active", stage > i && "is-done");
+      const dot = (i) => (stage === i ? h("span", { className: "mesh-demo-spin" }) : stage > i ? "✓" : "");
+      const install = "dsh plugin add dsh-plugin-mesh";
+
+      return h(
+        "div",
+        { className: "mesh-demo-layer", role: "dialog", "aria-modal": "true", "aria-label": "Mesh 演示", onClick: (e) => e.target === e.currentTarget && onClose() },
+        h(
+          "div",
+          { className: "mesh-demo-card" },
+          h(
+            "div",
+            { className: "mesh-demo-head" },
+            h(Dot, { kind: "ok" }),
+            h(
+              "div",
+              { style: { flex: 1, minWidth: 0 } },
+              h("div", { className: "mesh-demo-eyebrow" }, "演示 · 不连接其他机器"),
+              h("div", { className: "mesh-demo-title" }, "一次跨机派发长什么样"),
+            ),
+            h(IconButton, { icon: "close", label: "关闭演示", onClick: onClose }),
+          ),
+          h(
+            "div",
+            { className: "mesh-demo-body" },
+            h(
+              "div",
+              { className: "mesh-demo-peer" },
+              h(Dot, { kind: "ok" }),
+              h("span", { className: "mesh-demo-peer-name" }, "演示机 · Studio"),
+              h("span", { className: "mesh-demo-peer-meta" }, "在线 · 示例"),
+            ),
+            h("div", { className: "mesh-demo-task" }, "报一下你的系统和负载"),
+            h(
+              "div",
+              { className: "mesh-demo-steps" },
+              h("div", { className: stage >= 0 ? "mesh-demo-step is-done" : "mesh-demo-step" }, h("span", { className: "mesh-demo-step-dot" }, stage >= 0 ? "✓" : ""), "已送达对端"),
+              h("div", { className: stepClass(1) }, h("span", { className: "mesh-demo-step-dot" }, dot(1)), stage === 1 ? "对端正在跑" : "对端执行完毕"),
+              h("div", { className: stepClass(2) }, h("span", { className: "mesh-demo-step-dot" }, dot(2)), "结果回到这里"),
+            ),
+            phase === "error"
+              ? h("div", { className: "mesh-demo-caption" }, `取不到本机数据：${error}（演示依赖插件主机在线）`)
+              : null,
+            phase === "done" && data
+              ? h(
+                  "div",
+                  { className: "mesh-demo-result" },
+                  h(
+                    "div",
+                    { className: "mesh-demo-result-head" },
+                    h(Icon, { name: "check", size: 14 }),
+                    h("span", { className: "mesh-demo-result-title" }, "任务完成 · 结果卡"),
+                  ),
+                  h(
+                    "div",
+                    { className: "mesh-demo-result-rows" },
+                    h("div", { className: "mesh-demo-result-row" }, h("span", { className: "mesh-demo-result-k" }, "机器"), h("span", { className: "mesh-demo-result-v" }, `${data.hostname || data.machine} · ${osLabel(data.platform)} ${data.release}`)),
+                    h("div", { className: "mesh-demo-result-row" }, h("span", { className: "mesh-demo-result-k" }, "CPU"), h("span", { className: "mesh-demo-result-v" }, `${data.cpuModel || "未知型号"} · ${data.cpuCores} 核`)),
+                    h("div", { className: "mesh-demo-result-row" }, h("span", { className: "mesh-demo-result-k" }, "内存"), h("span", { className: "mesh-demo-result-v" }, `${data.memFreeGb} GB 可用 / ${data.memTotalGb} GB`)),
+                    h("div", { className: "mesh-demo-result-row" }, h("span", { className: "mesh-demo-result-k" }, "负载"), h("span", { className: "mesh-demo-result-v" }, `${data.load1}（1 分钟）· 已运行 ${data.uptimeHours} 小时`)),
+                    h("div", { className: "mesh-demo-result-row" }, h("span", { className: "mesh-demo-result-k" }, "运行时"), h("span", { className: "mesh-demo-result-v" }, (data.runtimes || []).map((r) => `${r.name} ${r.version}`).join(" · ") || "未探测到")),
+                  ),
+                )
+              : null,
+            phase === "done"
+              ? h(
+                  "div",
+                  null,
+                  h("p", { className: "mesh-demo-caption" }, "上面的数字来自这台机器本身 —— 演示只证明流程，不假装有第二台。装好第二台之后，同一句话会真的在那边跑，结果回到这里；合上笔记本也不影响。"),
+                  h(
+                    "div",
+                    { className: "mesh-demo-code" },
+                    h("code", null, install),
+                    h(
+                      Button,
+                      {
+                        variant: "ghost",
+                        size: "sm",
+                        icon: copied ? "check" : "copy",
+                        onClick: async () => {
+                          const ok = await copyText(install);
+                          setCopied(ok);
+                        },
+                      },
+                      copied ? "已复制" : "复制",
+                    ),
+                  ),
+                )
+              : h("p", { className: "mesh-demo-caption" }, "派发出去之后这里会变成「在跑」，跑完自动变成结果卡 —— 你不用盯着。"),
+          ),
+          h(
+            "div",
+            { className: "mesh-demo-foot" },
+            h("span", { className: "mesh-demo-note" }, "演示不会唤醒 agent，也不花 token。"),
+            h(Button, { variant: "ghost", size: "sm", icon: "refresh", onClick: () => setRun((n) => n + 1) }, "再看一遍"),
+            h(Button, { variant: "primary", size: "sm", onClick: onClose }, "知道了"),
+          ),
+        ),
+      );
+    }
+
     function LoadingView() {
       return h("div", { className: "mesh-loading" }, h("span", { className: "mesh-spinner-lg" }), h("span", null, "正在读取 Mesh 状态…"));
     }
@@ -3353,7 +3614,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function DeviceList({ selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning }) {
+    function DeviceList({ selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning, onDemo }) {
       return h(
         "aside",
         { className: "mesh-list-pane" },
@@ -3380,7 +3641,17 @@ window.__ModuleLoader__.load({
           h("div", { className: "mesh-list-heading" }, "其他设备"),
           peers.length
             ? peers.map((p, i) => h(DeviceRow, { key: p.id, peer: p, active: selectedId === p.id, onSelect, onWeb, onSsh, now, index: i + 1 }))
-            : h("div", { className: "mesh-list-empty" }, "还没有发现其他设备。点下面探测一次本网段。"),
+            : h(
+                "div",
+                { className: "mesh-list-empty" },
+                h("div", null, "还没有发现其他设备。"),
+                h("div", { style: { marginTop: 8 } },
+                  onDemo
+                    ? h(Button, { variant: "primary", size: "sm", icon: "arrowOut", onClick: onDemo }, "看 60 秒演示")
+                    : null,
+                ),
+                h("div", { style: { marginTop: 6, fontSize: 10.5 } }, "或者在另一台电脑上装一次，它们会自己找到彼此。"),
+              ),
           h(
             "div",
             { className: "mesh-list-actions" },
@@ -3557,7 +3828,7 @@ window.__ModuleLoader__.load({
     }
 
     function DeviceView(props) {
-      const { selfPeer, peers, selectedPeer, selectedId, onSelect, onWeb, onSsh, mobilePane, onBack, onCompose, onProbe, probe, hostDown, now, lastOk, onScan, scanning, firstRun, onRename, recentTasks, onOpenTask, onAllTasks } = props;
+      const { selfPeer, peers, selectedPeer, selectedId, onSelect, onWeb, onSsh, mobilePane, onBack, onCompose, onProbe, probe, hostDown, now, lastOk, onScan, scanning, onDemo, firstRun, onRename, recentTasks, onOpenTask, onAllTasks } = props;
       return h(
         react.Fragment,
         null,
@@ -3565,7 +3836,7 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "mesh-split", "data-pane": mobilePane },
-          h(DeviceList, { selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning }),
+          h(DeviceList, { selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning, onDemo }),
           h(DeviceDetail, { peer: selectedPeer, isSelf: selectedId === "self", onCompose, onProbe, probe, hostDown, now, onBack, onRename, onScan, recentTasks, onOpenTask, onAllTasks }),
         ),
       );
@@ -3680,6 +3951,27 @@ window.__ModuleLoader__.load({
               h("span", { style: { marginLeft: "auto" } }, online ? "对端会在自己的会话里执行" : "设备离线"),
             ),
             h(
+              "div",
+              { className: "mesh-chips", style: { marginBottom: 8 } },
+              [
+                "在 Windows 那台编译，产物和报错都发我",
+                "装到 Android 上启动一下，截图和日志发我",
+                "在另一台装新版本插件，重启后确认版本",
+              ].map((preset) =>
+                h(
+                  "button",
+                  {
+                    key: preset,
+                    type: "button",
+                    className: "mesh-chip mesh-chip-btn",
+                    onClick: () => setTask(preset),
+                    title: "填入这句话",
+                  },
+                  preset,
+                ),
+              ),
+            ),
+            h(
               Field,
               { label: "要对方做什么？" },
               h("textarea", {
@@ -3713,7 +4005,7 @@ window.__ModuleLoader__.load({
               ),
             ),
             error ? h("div", { className: "mesh-sheet-error" }, error) : null,
-            h("p", { className: "mesh-hint" }, "派发是异步的：这里成功只代表对端已接收，执行结果会由对端回派。⌘/Ctrl + Enter 发送。"),
+            h("p", { className: "mesh-hint" }, "派发是异步的：这里成功只代表对端收了。它跑完会把结果派回来，出现在「任务」里。第一次派给陌生设备时，对方会先问你一次。⌘/Ctrl + Enter 发送。"),
           ),
           h(
             "div",
@@ -4437,6 +4729,10 @@ window.__ModuleLoader__.load({
       dispatched: ["已派发", "ok"],
       "queued-lost": ["排队丢失", "err"],
       "dispatch-failed": ["派发失败", "err"],
+      // 信任闸门：发出去的还在等对端点「允许」，收到的等本机点「允许」
+      "awaiting-approval": ["等对端确认", "warn"],
+      "needs-approval": ["待本机确认", "warn"],
+      rejected: ["已拒绝", "err"],
     };
 
     function taskList(state) {
@@ -4462,7 +4758,13 @@ window.__ModuleLoader__.load({
         at: tsOf(t.at),
         text: String(t.task || ""),
         thread: t.thread || "",
-        status: t.ok ? "delivered" : t.status === 403 ? "pairing-mismatch" : "failed",
+        status: t.ok
+          ? t.remoteStatus === "needs-approval"
+            ? "awaiting-approval"
+            : "delivered"
+          : t.status === 403
+            ? "pairing-mismatch"
+            : "failed",
         raw: t,
       }));
       return [...inbound, ...outbound].sort((a, b) => b.at - a.at);
@@ -5953,7 +6255,14 @@ window.__ModuleLoader__.load({
                     h("span", { className: "mesh-mini-meta" }, p.online ? `在线 · ${osLabel(p.os)}` : `${ago(p.lastSeen, now)}`),
                   ),
                 )
-              : h("p", { className: "mesh-card-text" }, "还没有发现其他设备。扫描本网段，或让对方也打开 Mesh。"),
+              : h(
+                  "div",
+                  null,
+                  h("p", { className: "mesh-card-text" }, "还没有发现其他设备。扫描本网段，或让对方也打开 Mesh。"),
+                  onDemo
+                    ? h(Button, { variant: "secondary", size: "sm", icon: "arrowOut", onClick: onDemo }, "看演示：一次派发长什么样")
+                    : null,
+                ),
             footer: h(Button, { variant: "ghost", size: "sm", icon: "device", onClick: onDevices }, "查看全部设备"),
           });
         }
@@ -6930,6 +7239,7 @@ window.__ModuleLoader__.load({
       onSsh,
       onScan,
       scanning,
+      onDemo,
       firstRun,
       hostDown,
       onDispatched,
@@ -7663,6 +7973,10 @@ window.__ModuleLoader__.load({
       const [transferDraft, setTransferDraft] = react.useState(null);
       const [transferLogOpen, setTransferLogOpen] = react.useState(false);
       const [transfers, setTransfers] = react.useState(() => loadTransfers());
+      // 「看演示」：单机用户也能看见完整闭环（不连网络、不建会话）
+      const [demoOpen, setDemoOpen] = react.useState(false);
+      // 陌生设备首次派活的确认动作进行中
+      const [approvalBusy, setApprovalBusy] = react.useState(false);
       const sessionId = currentSessionId();
 
       const self = state && state.self ? state.self : null;
@@ -7734,6 +8048,30 @@ window.__ModuleLoader__.load({
           : sortedPeers.find((p) => p.id === composer.id) || peers.find((p) => p.id === composer.id) || null
         : null;
       const hostDown = !!error;
+
+      /**
+       * 陌生设备第一次派活的确认。
+       *
+       * 允许 = 对端写进本机信任列表并立刻开始执行；拒绝 = 只标记，不执行。
+       * 两种情况都刷新一次状态，让确认条和任务列表同时更新。
+       */
+      const decideApproval = async (id, action) => {
+        if (!id || approvalBusy) return;
+        setApprovalBusy(true);
+        try {
+          const r = await api("/approval", { id, action });
+          if (r && r.ok) {
+            push("success", action === "allow" ? "已允许这台设备，任务开始执行" : "已拒绝这次派发");
+          } else {
+            push("error", apiErr(r));
+          }
+          await reload();
+        } catch (e) {
+          push("error", String((e && e.message) || e));
+        } finally {
+          setApprovalBusy(false);
+        }
+      };
 
       const saveName = async (raw) => {
         const name = String(raw || "").trim();
@@ -7954,7 +8292,11 @@ window.__ModuleLoader__.load({
        * 设备页弹层和主页的派发面板共用它，免得两处提示文案慢慢走散。
        */
       const notifyDispatched = (name, r) => {
-        push("success", `已派发给 ${name || "对端"}${r && r.id ? `（${r.id}）` : ""}`, {
+        // 202 = 对端收到了，但在等人点「允许」。不能把「送达」说成「开跑」。
+        const pending = !!(r && r.pendingApproval);
+        push(pending ? "info" : "success", pending
+          ? `已送达 ${name || "对端"}，等它那边点一次「允许」`
+          : `已派发给 ${name || "对端"}${r && r.id ? `（${r.id}）` : ""}`, {
           label: "查看任务",
           onClick: () => {
             setView("tasks");
@@ -8205,6 +8547,9 @@ window.__ModuleLoader__.load({
               },
             })
           : null,
+        state.approvals && state.approvals.length
+          ? h(ApprovalBar, { items: state.approvals, busy: approvalBusy, onDecide: decideApproval })
+          : null,
         h(
           "main",
           { key: view, className: "mesh-view", role: "tabpanel", "aria-label": view === "home" ? "主页" : view === "devices" ? "设备" : view === "tasks" ? "任务" : "连接" },
@@ -8234,6 +8579,7 @@ window.__ModuleLoader__.load({
                 onSsh: (peer) => setSshPeer(peer),
                 onScan: doScan,
                 scanning,
+                onDemo: () => setDemoOpen(true),
                 firstRun: firstRunNode,
                 hostDown,
                 onDispatched: (peer, r) => notifyDispatched((peer && peer.machine) || "", r),
@@ -8259,6 +8605,7 @@ window.__ModuleLoader__.load({
                 lastOk,
                 onScan: doScan,
                 scanning,
+                onDemo: () => setDemoOpen(true),
                 recentTasks,
                 onOpenTask: openTask,
                 onAllTasks: openAllTasks,
@@ -8328,6 +8675,7 @@ window.__ModuleLoader__.load({
         h(WebPanel, { panel: webPanel, onClose: closeWebPanel, onReload: reloadWebPanel }),
         sshPeer ? h(SshPanel, { peer: sshPeer, onClose: () => setSshPeer(null) }) : null,
         h(Toasts, { items: toasts, onClose: close }),
+        h(DemoOverlay, { open: demoOpen, onClose: () => setDemoOpen(false) }),
       );
     }
 
@@ -8377,6 +8725,8 @@ window.__ModuleLoader__.load({
       HomeView,
       HomeBoard,
       DispatchPanel,
+      DemoOverlay,
+      ApprovalBar,
       DeviceList,
       TasksView,
       DeviceDetail,
