@@ -1694,6 +1694,36 @@ window.__ModuleLoader__.load({
 .mesh-demo-foot { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px 16px; border-top: 1px solid var(--mesh-line); flex-wrap: wrap; }
 .mesh-demo-note { margin-right: auto; font-size: 10.5px; color: var(--mesh-muted); align-self: center; }
 
+/* ── 安装确认弹窗：一次点击 → 一个说清楚要发生什么的弹窗 ── */
+.mesh-confirm-layer {
+  position: fixed; inset: 0; z-index: 2147482700;
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px; background: rgba(12, 14, 18, .46);
+  animation: mesh-view-in 140ms ease both;
+}
+.mesh-confirm-card {
+  width: min(430px, 100%);
+  background: var(--mesh-surface); color: var(--mesh-fg);
+  border: 1px solid var(--mesh-line); border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.34);
+  overflow: hidden; animation: mesh-detail-in 180ms var(--mesh-ease-out) both;
+}
+.mesh-confirm-head { display: flex; align-items: center; gap: 9px; padding: 16px 18px 6px; }
+.mesh-confirm-title { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.mesh-confirm-body { padding: 4px 18px 14px; font-size: 12px; line-height: 1.7; }
+.mesh-confirm-body p { margin: 0 0 8px; color: var(--mesh-muted); }
+.mesh-confirm-ver {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; color: var(--mesh-fg);
+}
+.mesh-confirm-list { margin: 0 0 10px; padding-left: 18px; color: var(--mesh-muted); }
+.mesh-confirm-list li { margin: 2px 0; }
+.mesh-confirm-warn { color: var(--mesh-warn); font-size: 11.5px; margin: 0; }
+.mesh-confirm-foot {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 12px 18px 16px; border-top: 1px solid var(--mesh-line);
+}
+
 /* 主页底部的派发面板：视觉上跟卡片同级，但不参与拖动/隐藏。 */
 .mesh-dispatch {
   margin-top: 16px;
@@ -6818,7 +6848,6 @@ window.__ModuleLoader__.load({
       const checking = phase === "checking";
       const state = (install && install.state) || "idle";
       const running = state === "running";
-      const armed = state === "armed";
       const installFailed = state === "failed";
       const busy = checking || running;
       const pending =
@@ -6894,12 +6923,10 @@ window.__ModuleLoader__.load({
                 disabled: running,
                 title: installFailed
                   ? `上次安装失败：${String(install.error || "未知原因")}；点一下重试`
-                  : armed
-                    ? `再点一次开始安装 v${report.latest}（sha512 校验后替换，装完重启生效）`
-                    : `一键安装 v${report.latest}（先校验 sha512，可加载检查通过才替换）`,
-                "aria-label": armed ? `确认安装 v${report.latest}` : `安装 v${report.latest}`,
+                  : `安装 v${report.latest}（先弹确认，再下载、校验、替换）`,
+                "aria-label": `安装 v${report.latest}`,
               },
-              installFailed ? "安装失败" : running ? "安装中…" : armed ? `确认安装 v${report.latest}` : `新版本 v${report.latest}`,
+              installFailed ? "安装失败" : running ? "安装中…" : `新版本 v${report.latest}`,
             )
           : null,
         failed && !canInstall
@@ -6920,13 +6947,87 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 安装确认弹窗：一次点击就打开，把"要发生什么"说清楚再动手。
+     *
+     * 为什么不是"点两下"：旧版把第一次点击做成静默确认态，按钮文案虽然变了，
+     * 但没有别的提示，很多人点一下就以为装完了（真机反馈：点一次就重启，
+     * 结果还是旧版本）。确认应该是一个看得见的弹窗，而不是一个容易错过的按钮状态。
+     */
+    function InstallConfirm({ report, busy, onCancel, onConfirm }) {
+      const to = report && report.latest ? String(report.latest) : "";
+      const from = report ? String(report.current || report.diskVersion || "?") : "?";
+      react.useEffect(() => {
+        const onKey = (e) => {
+          if (e.key === "Escape" && !busy) onCancel();
+        };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+      }, [busy, onCancel]);
+      if (!report || report.hasUpdate !== true || !to) return null;
+      return h(
+        "div",
+        {
+          className: "mesh-confirm-layer",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-label": `安装 v${to}`,
+          onClick: (e) => {
+            if (e.target === e.currentTarget && !busy) onCancel();
+          },
+        },
+        h(
+          "div",
+          { className: "mesh-confirm-card" },
+          h(
+            "div",
+            { className: "mesh-confirm-head" },
+            h(Icon, { name: "arrowUp", size: 15 }),
+            h("span", { className: "mesh-confirm-title" }, `安装 Mesh v${to}？`),
+          ),
+          h(
+            "div",
+            { className: "mesh-confirm-body" },
+            h(
+              "p",
+              null,
+              "当前 ",
+              h("span", { className: "mesh-confirm-ver" }, `v${from}`),
+              " → 目标 ",
+              h("span", { className: "mesh-confirm-ver" }, `v${to}`),
+            ),
+            h(
+              "ul",
+              { className: "mesh-confirm-list" },
+              h("li", null, "从 npm 下载，并校验 sha512"),
+              h("li", null, "可加载检查通过后才替换文件；旧版本会备份，可回滚"),
+              h("li", null, "装完在顶部点「重启生效」；只改界面时会提示重载即可"),
+            ),
+            h("p", { className: "mesh-confirm-warn" }, "重启 DSH 会中断当前会话。"),
+          ),
+          h(
+            "div",
+            { className: "mesh-confirm-foot" },
+            h(Button, { variant: "ghost", disabled: busy, onClick: onCancel }, "取消"),
+            h(
+              Button,
+              { variant: "primary", loading: busy, onClick: onConfirm },
+              busy ? "安装中…" : `安装 v${to}`,
+            ),
+          ),
+        ),
+      );
+    }
+
+    /**
      * 检查更新的容器：进主页**静默**查一次（宿主机缓存 30 分钟），点一下强查。
-     * 点「新版本」第一下只是确认（6 秒内不点第二下自动取消），第二下才真的装。
+     * 点「新版本」→ 弹确认框 → 点「安装」才真的动手。
      */
     function UpdateLink({ push }) {
       const [phase, setPhase] = react.useState("idle");
       const [report, setReport] = react.useState(null);
       const [install, setInstall] = react.useState({ state: "idle", error: "" });
+      // 安装确认弹窗：点「新版本」打开，点「安装」才真的开始
+      const [confirmOpen, setConfirmOpen] = react.useState(false);
       const alive = react.useRef(true);
       const run = react.useCallback(
         async (force, announce) => {
@@ -6970,19 +7071,9 @@ window.__ModuleLoader__.load({
           alive.current = false;
         };
       }, [run]);
-      // 确认态 6 秒后自动取消：避免"上次点了一半"的按钮一直挂着。
-      react.useEffect(() => {
-        if (install.state !== "armed") return;
-        const timer = setTimeout(() => setInstall({ state: "idle", error: "" }), 6000);
-        return () => clearTimeout(timer);
-      }, [install.state]);
-
       const startInstall = react.useCallback(async () => {
         if (!report || report.ok !== true || !report.latest) return;
-        if (install.state !== "armed") {
-          setInstall({ state: "armed", error: "" });
-          return;
-        }
+        setConfirmOpen(false);
         setInstall({ state: "running", error: "" });
         try {
           const r = await api("/upgrade", { version: report.latest });
@@ -7008,7 +7099,7 @@ window.__ModuleLoader__.load({
           setInstall({ state: "failed", error: String((e && e.message) || e) });
           push("error", `安装失败：${String((e && e.message) || e)}`);
         }
-      }, [install.state, push, report, run]);
+      }, [push, report, run]);
 
       const restart = react.useCallback(async () => {
         try {
@@ -7040,15 +7131,27 @@ window.__ModuleLoader__.load({
         }
       }, [push]);
 
-      return h(UpdateLinkView, {
-        phase,
-        report,
-        install,
-        onCheck: () => run(true, true),
-        onInstall: startInstall,
-        onRestart: restart,
-        onReload: reload,
-      });
+      return h(
+        react.Fragment,
+        null,
+        h(UpdateLinkView, {
+          phase,
+          report,
+          install,
+          onCheck: () => run(true, true),
+          onInstall: () => setConfirmOpen(true),
+          onRestart: restart,
+          onReload: reload,
+        }),
+        confirmOpen
+          ? h(InstallConfirm, {
+              report,
+              busy: install.state === "running",
+              onCancel: () => setConfirmOpen(false),
+              onConfirm: startInstall,
+            })
+          : null,
+      );
     }
 
     function HomeMetaLinks({ state, push }) {
@@ -8763,6 +8866,7 @@ window.__ModuleLoader__.load({
       HomeMetaLinks,
       UpdateLink,
       UpdateLinkView,
+      InstallConfirm,
       FeedbackLink,
       feedbackBody,
       feedbackIssueUrl,
