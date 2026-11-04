@@ -137,4 +137,16 @@ npm test
 
 有问题或想提需求：<https://github.com/peng456/dsh-plugin-mesh/issues> · 邮箱 `geekstartup@163.com`
 
+---
+
+## 赞助方
+
+<a href="https://omdsh.dev/"><img src="https://omdsh.dev/assets/logo-orca.png" width="22" height="22" alt="Oh My DSH"></a> **[OMDSH](https://omdsh.dev/)**（Oh My DSH）· *Beyond the default.* · DeepSeek Harness 开发者社区
+
+独立、非官方，为本项目赞助模型 token（算力）。官网 <https://omdsh.dev/>
+
+感谢 OMDSH 的支持。赞助是支持，不是购买——本项目全部功能免费，赞助不解锁任何能力。
+
+---
+
 MIT · 与 DeepSeek 官方无隶属关系

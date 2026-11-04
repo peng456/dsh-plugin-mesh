@@ -123,4 +123,16 @@ The full key list with defaults is in [`llms.txt`](llms.txt#configuration).
 | Issues | https://github.com/peng456/dsh-plugin-mesh/issues |
 | Contact | geekstartup@163.com |
 
+---
+
+## Sponsors
+
+<a href="https://omdsh.dev/"><img src="https://omdsh.dev/assets/logo-orca.png" width="22" height="22" alt="Oh My DSH"></a> **[OMDSH](https://omdsh.dev/)** (Oh My DSH) · *Beyond the default.* · DeepSeek Harness developer community
+
+Independent and unofficial; it sponsors the model tokens (compute) for this project. Website <https://omdsh.dev/>
+
+Thanks, OMDSH. Sponsorship is support, not a purchase: everything here is free, and sponsorship unlocks no features.
+
+---
+
 MIT licensed. Not affiliated with DeepSeek.
