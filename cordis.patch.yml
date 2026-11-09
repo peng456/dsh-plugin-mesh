@@ -53,12 +53,6 @@
         # 若网络不完全可信（合租/公司/有访客设备），改成 true 再对齐配对码。
         requirePairing: false
 
-        # 陌生设备第一次派活时，本机先弹一次确认（默认开）。
-        # 允许过的设备写进 state.json 的 approvedPeers，同一台不再问。
-        # 开了 requirePairing 就不再重复问 —— 配对码是更强的信任动作。
-        # 想让内网完全免打扰（自己家几台机器）就改成 false。
-        requireApproval: true
-
         # 对端任务在本机新建会话时的选项
         agentPreset: standard
         # 对端派来的是外部不可信输入，默认不给 danger-full-access

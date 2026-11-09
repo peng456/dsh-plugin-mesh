@@ -36,7 +36,7 @@ Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON c
 - The prefilled feedback issue carries the same diagnostics text as the diagnostics section; `buildDiagnostics()` deliberately excludes secrets (pairing code, tsnet auth key). The author's email (`geekstartup@163.com`) is the fallback when GitHub is unreachable.
 - **First-contact approval (default on).** An inbound task from a machine that is not in `state.json`'s `approvedPeers` is stored with `status: "needs-approval"` and answered with **HTTP 202** `{ok:true,pendingApproval:true}`; no agent session is created. The owner allows or denies it in the panel (`POST /mesh/api/approval` `{id,action:"allow"|"deny"}`); allowing adds the peer to `approvedPeers` and immediately runs the stored task. `POST /mesh/api/approval/revoke` `{machine}` removes trust. Replies (a task whose `thread` matches an outbound dispatch to the same machine) bypass the gate — otherwise the result would never come back. With `requirePairing` on (or the pairing switch enabled) the gate is skipped: pairing is the stronger trust gesture.
 - `GET /mesh/api/demo` returns a read-only snapshot of this machine (platform, CPU, memory, load, uptime, a few runtimes) used by the panel's single-machine demo. It contains no secrets and changes no state.
-- `/mesh/api/state` additionally exposes `config.requireApproval`, `approvals[]` (pending first-contact tasks) and `approvedPeers[]` (`{machine,address,at}`).
+- `/mesh/api/state` additionally exposes `approvals[]` (pending first-contact tasks, only present when the debug gate below is on) and `approvedPeers[]` (`{machine,address,at}`).
 
 ## Usage patterns (agent to agent)
 
@@ -152,7 +152,6 @@ Override by id in the profile's `cordis.patch.yml`:
 | `pingIntervalMs` | natural | `10000` | LAN health probe period |
 | `tsnetProbeIntervalMs` | natural | `60000` | Tailnet health probe period |
 | `requirePairing` | boolean | `false` | **Default off: the peer API accepts unauthenticated task POSTs.** Setting it `true` here pins pairing on; otherwise the Mesh panel's pairing switch (persisted in `state.json`) decides |
-| `requireApproval` | boolean | `true` | First task from an unknown machine is held as `needs-approval` until the owner clicks Allow. Set `false` to restore fully unattended dispatch. Ignored (no prompt) when pairing is on |
 | `agentPreset` | string | `"standard"` | Agent preset for auto-created sessions |
 | `permissionPreset` | string | `"workspace-write"` | Permission preset for auto-created sessions |
 | `workspaceRoot` | string | `""` | |
@@ -190,7 +189,7 @@ Outbound dispatch tries LAN first, then each tailnet channel in order.
 
 - Ports: TCP `45917` (peer HTTP), UDP `45892` (multicast group `239.255.42.99`).
 - Discovery is intentionally public: any host on the same L2 network can see the machine and its self-reported card.
-- With `requireApproval: true` (the default) a first task from an unknown machine does **not** wake anything: it is held for local approval. Once approved, later tasks from that machine run unattended. Set `requireApproval: false` to get fully unattended dispatch (the pre-0.6 behaviour).
+- A task from any machine that can reach the port wakes an agent and runs, with no prompt. The per-machine first-contact approval gate (`needs-approval` + `POST /mesh/api/approval`) is **debug-only**, not a config key: start the host with `DSH_MESH_REQUIRE_APPROVAL=1` to test it. Pairing is the supported gate.
 - With `requirePairing: false` (the default) there is still no cryptographic authentication of the sender: the trust decision is per-machine, made by the owner, not by a shared secret. On untrusted networks turn on the pairing switch in the Mesh panel (immediate, no restart) or set `requirePairing: true`, and make both machines share one secret. The token travels in a plain HTTP header — it guards against stray devices, not against a network sniffer.
 - The shared secret is stored in `~/.dsh/mesh/state.json` (mode 0600) alongside `machineName`, the persisted `instanceIds`, and the tsnet auth key. It is never included in the multicast card.
 - Persistent identity is a UUID per profile; the OS machine fingerprint is used only to reclaim a reinstalled device (same name, or the old record already offline). Two live instances on one physical machine are kept separate.

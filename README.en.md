@@ -78,15 +78,16 @@ is often blocked by routers — the panel's **Scan subnet** button works around 
 
 ## Security defaults — read this
 
-**A first task from an unknown machine does not run.** It is held as
-`needs-approval` and the panel asks the owner once ("Allow" / "Deny"); nothing wakes
-until it is allowed. Approved machines are remembered locally (`approvedPeers` in
-`state.json`). Set `requireApproval: false` to restore fully unattended dispatch.
+**Dispatch works out of the box.** Zero configuration: a machine you can reach can
+hand you a task and it runs, with no prompt. That is deliberate — working immediately
+is the point. Pairing (below) is the gate to turn on; a per-machine “did you allow
+this device?” prompt still exists in the code but is debug-only
+(`DSH_MESH_REQUIRE_APPROVAL=1`) until someone actually asks for it as a setting.
 
 Discovery is intentionally public so you can see machines before deciding to talk to
 them. On an untrusted network (café, dorm, office) also turn on pairing:
 
-1. Flip the switch in the Mesh panel's **pairing** card — it takes effect immediately, no restart. (Writing `requirePairing: true` in `cordis.patch.yml` also works and pins it on, so the UI cannot turn it off. Pairing also skips the per-machine approval prompt, since it is the stronger trust gesture.)
+1. Flip the switch in the Mesh panel's **pairing** card — it takes effect immediately, no restart. (Writing `requirePairing: true` in `cordis.patch.yml` also works and pins it on, so the UI cannot turn it off.) A dispatch whose `x-dsh-mesh-token` header does not match this machine's secret is rejected with HTTP 403; discovery and health probes stay public.
 2. Make the pairing secret identical on both machines (the Mesh panel has a field for it).
 
 Note the token travels in a plain HTTP header: it guards against stray devices on

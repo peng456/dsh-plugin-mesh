@@ -4035,7 +4035,7 @@ window.__ModuleLoader__.load({
               ),
             ),
             error ? h("div", { className: "mesh-sheet-error" }, error) : null,
-            h("p", { className: "mesh-hint" }, "派发是异步的：这里成功只代表对端收了。它跑完会把结果派回来，出现在「任务」里。第一次派给陌生设备时，对方会先问你一次。⌘/Ctrl + Enter 发送。"),
+            h("p", { className: "mesh-hint" }, "派发是异步的：这里成功只代表对端收了。它跑完会把结果派回来，出现在「任务」里。⌘/Ctrl + Enter 发送。"),
           ),
           h(
             "div",

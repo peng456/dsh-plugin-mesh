@@ -819,7 +819,6 @@ TCP/UDP，只放行 HTTP 客户端的代理设置对它无效（实测诊断里�
     announceIntervalMs: 5000
     peerTtlMs: 20000           # 多久没消息算离线
     requirePairing: false      # 见下（也可以用页面上的开关，不必写配置）
-    requireApproval: true      # 陌生设备第一次派活要本机点一次「允许」；配对码开着时不再问
     agentPreset: standard
     permissionPreset: workspace-write
     workspaceRoot: ''
@@ -921,12 +920,21 @@ Mesh 页面看到，不会被丢弃）：
 
 ## 安全
 
-**默认会先问一次** —— 陌生设备第一次派活，本机暂停并弹确认（`needs-approval`），
-点过「允许」之后同一台设备不再问。判定在 `lib/approval.js`，状态落在
-`state.json` 的 `approvedPeers`。这是 0.6 起的新默认：原来"发现即可派活"
-对自家内网方便，对不熟悉的网络就是敞着门。
+**默认不问，直接派活** —— 同一内网里发现即可互相派活，没有确认弹窗。装上就能用
+是这件事的价值，多一步确认就多一次放弃。
 
-**仍然没有加密认证** —— 允许之后，同一内网里这台设备的任务会被当成一条用户消息
+**那道闸现在是调试用的** —— 「陌生设备第一次派活要本机点一次允许」（`needs-approval`
+挂起 → 点「允许」→ 写进 `state.json` 的 `approvedPeers`）仍然完整保留在
+`lib/approval.js` 与 `/mesh/api/approval`，但它**不是配置项**：要测试就带环境变量启动
+
+```bash
+DSH_MESH_REQUIRE_APPROVAL=1 dsh --profile web
+```
+
+真实用户需要常开它时，再把它捡回 `Config`（实现和 18 项自测都在，改回来只是几行）。
+支持的安全闸是配对码（下一条）。
+
+**没有加密认证** —— 派活之后，同一内网里这台设备的任务会被当成一条用户消息
 （默认权限 `workspace-write`：能读写工作区、能执行命令）。如果你在
 **不完全可信的网络**里（合租、公司、宿舍、有访客设备、IoT 设备多），请打开：
 

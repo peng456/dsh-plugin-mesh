@@ -68,6 +68,29 @@
   .example .say{margin:6px 0 8px;font-size:13.5px;color:var(--fg);border-left:3px solid var(--brand);padding-left:10px;line-height:1.6}
   .example p{margin:0 0 3px;font-size:13px;color:var(--muted);line-height:1.6}
   .example .k{display:inline-block;min-width:42px;color:var(--muted);font-size:11.5px;letter-spacing:.04em}
+  /* 平台下载行：小白照着点，不需要知道包名 */
+  .plats{display:grid;gap:8px;margin:12px 0 0}
+  .plat{display:grid;grid-template-columns:66px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:9px 12px;text-decoration:none;color:inherit}
+  .plat:hover{border-color:var(--brand);background:var(--brand-soft)}
+  .plat b{font-size:14px}
+  .plat span{color:var(--muted);font-size:13px;line-height:1.5}
+  .plat em{font-style:normal;color:var(--brand);font-size:13px;font-weight:600;white-space:nowrap}
+  .plat .copy{position:static;top:auto;right:auto;font-size:12px;padding:3px 9px}
+  .plat .copy:hover{color:var(--brand);border-color:var(--brand)}
+  /* 三种装法并列：每种都能独立走完，不逼人读命令 */
+  .ways{display:grid;gap:10px;margin:12px 0 0}
+  .way{border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+  .way>b{display:block;font-size:14.5px;margin-bottom:7px}
+  .way p{margin:0 0 8px;font-size:13.5px;color:var(--muted);line-height:1.6}
+  .way p:last-child{margin-bottom:0}
+  .way pre{margin:9px 0}
+  .way .say{margin:8px 0 10px;font-size:13.5px;color:var(--fg);border-left:3px solid var(--brand);padding-left:10px;line-height:1.6}
+  @media (max-width:520px){
+    .plat{grid-template-columns:1fr auto;align-items:start;gap:2px 10px}
+    .plat b{grid-column:1;grid-row:1}
+    .plat span{grid-column:1;grid-row:2}
+    .plat em,.plat .copy{grid-column:2;grid-row:1}
+  }
   .scene{border:1px solid var(--line);border-radius:11px;padding:12px 14px}
   .scene b{display:block;font-size:14.5px;margin-bottom:2px}
   .scene span{color:var(--muted);font-size:13.5px}
@@ -191,49 +214,117 @@
 <!-- ═════════ 快速开始 / Quick start ═════════ -->
 <section class="wrap" id="start">
   <div data-lang="zh">
-    <h2>5 分钟上手</h2>
+    <h2>从零开始：装两次，然后一句话</h2>
+    <p class="hint" style="margin-bottom:18px">不用懂网络，也不用背命令。整套只有两步：<b>每台设备先装 DSH</b>，<b>再给每台装 mesh</b>。装完什么都不用配 —— 同一局域网里它们几秒内自己碰头。</p>
     <ol class="steps">
       <li>
-        <h3>每台机器装一遍</h3>
-        <pre><code>dsh plugin add dsh-plugin-mesh</code><button class="copy" data-copy="dsh plugin add dsh-plugin-mesh">复制</button></pre>
-        <p class="hint"><code>desktop</code> profile 要在 DSH 自带终端里跑；其它 profile 用普通终端即可。</p>
+        <h3>给每台设备装上 DSH</h3>
+        <p class="hint" style="margin:0 0 10px">DSH 是 DeepSeek 官方的开源项目，官方下载页：<a href="https://www.deepseek.com/harness"><b>deepseek.com/harness</b></a>（源码在 <a href="https://github.com/deepseek-ai/deepseek-harness">GitHub</a>）。</p>
+        <div class="plats">
+          <a class="plat" href="https://download.deepseek.com/desktop/dsh-latest-windows-x64.exe"><b>Windows</b><span>Setup.exe，双击装完打开</span><em>官方</em></a>
+          <a class="plat" href="https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg"><b>macOS</b><span>DMG，Apple 芯片 / macOS 13+</span><em>官方</em></a>
+          <a class="plat" href="https://github.com/anywhere-labs/dsh-desktop/releases/latest"><b>Linux</b><span>deb / AppImage / tar.gz</span><em>社区</em></a>
+          <a class="plat" href="https://github.com/ccch1mneyyy/dsh-Go/releases"><b>Android</b><span>dsh-Go：免 root、免 Termux</span><em>社区</em></a>
+          <a class="plat" href="https://github.com/kelai141/dsh-mobile-apk"><b>Android</b><span>dsh-mobile：备选壳，arm64 / x86_64</span><em>社区</em></a>
+          <a class="plat" href="https://github.com/ccch1mneyyy/dsh-Go/releases"><b>鸿蒙</b><span>5 及更早：装安卓版 dsh-Go 的 APK</span><em>社区</em></a>
+          <a class="plat" href="https://github.com/sol5766/dshm/releases"><b>鸿蒙</b><span>5 之后（纯血）：装 dshm 的原生 HAP</span><em>社区</em></a>
+          <a class="plat" href="https://github.com/ccch1mneyyy/dsh-Go/releases"><b>iOS</b><span>暂无本地客户端，关注 dsh-Go</span><em>关注</em></a>
+        </div>
+        <div class="plats" style="margin-top:8px">
+          <a class="plat" href="https://github.com/anywhere-labs/dsh-desktop/releases/download/v2.0.13/DSH.Desktop-2.0.13-universal.dmg"><b>Intel Mac</b><span>社区桌面端 v2.0.13，支持 macOS 12，universal 含 Intel</span><em>社区</em></a>
+          <div class="plat"><b>命令行</b><span><code>npx @deepseek-ai/dsh web</code>，任何系统，需先装 Node.js</span><button class="copy" data-copy="npx @deepseek-ai/dsh web">复制</button></div>
+        </div>
+        <p class="hint" style="margin-top:10px">标「官方」的是 DeepSeek 直接发布；其余（DSH Desktop、dsh-Go、dsh-mobile、dshm）是社区项目。</p>
+        <p class="hint" style="margin-top:10px"><b>鸿蒙</b>：5 及更早装安卓版（dsh-Go 的 APK）；5 之后是纯血鸿蒙，装 <a href="https://github.com/sol5766/dshm/releases">dshm</a> 的 HAP。不想装东西的话，也可以直接用浏览器打开电脑上的 DSH（设置 → 桌面设置 → 局域网访问）。</p>
       </li>
       <li>
-        <h3>重启 DSH</h3>
-        <p class="hint">插件在启动时加载，装完必须重启一次。</p>
+        <h3>再给每台装 mesh（三种方式，任选一种）</h3>
+        <div class="ways">
+          <div class="way">
+            <b>① 点界面：插件市场</b>
+            <p>侧栏打开「插件市场」，搜索框输入 <code>dsh-plugin-mesh</code>，点安装，装完重启 DSH。</p>
+            <p class="hint">侧栏没有这个入口：进 设置 → <b>插件市场</b>，选一个市场启用（桌面端内置 <code>dsh-community-market</code>），再回侧栏。搜不到就用下面两种。</p>
+          </div>
+          <div class="way">
+            <b>② 一行命令</b>
+            <pre><code>dsh plugin add dsh-plugin-mesh</code><button class="copy" data-copy="dsh plugin add dsh-plugin-mesh">复制</button></pre>
+            <p class="hint">在 DSH <b>自带的终端</b>里跑（桌面端能开一个，Profile 已经配好；这条命令改的就是 <code>desktop</code> profile）。自己用 <code>dsh web</code> 起的，换成 <code>dsh plugin --profile web add dsh-plugin-mesh</code>。</p>
+          </div>
+          <div class="way">
+            <b>③ 直接跟对话框说</b>
+            <p>新开一个会话，发这一句就够了：</p>
+            <p class="say">「帮我把 dsh-plugin-mesh 装上，装完提醒我重启。」</p>
+            <p class="hint">它会在自己所在的环境里动手装。如果它说装不了，多半是那台桌面端管着自己的插件：按它指的路径点一次「插件市场」即可，别自己硬试。</p>
+          </div>
+        </div>
       </li>
       <li>
-        <h3>侧栏点「Mesh」，起个名字</h3>
-        <p class="hint">第一次会让你给这台机器起名（默认主机名）。别的机器就靠这个名字找你。两台在同一局域网，几秒内就会互相出现。</p>
+        <h3>重启 DSH，给这台机器起个名字</h3>
+        <p class="hint">插件在启动时加载，装完必须重启一次。重启后侧栏会出现「Mesh」，点开先给这台机器起名（默认主机名），别的机器就靠这个名字找你。</p>
       </li>
       <li>
-        <h3>派一个活，然后去看结果</h3>
-        <p class="hint">选一台设备 →「派发任务」，或者直接在会话里以 <code>@机器名</code> 开头说话。派出去只是「送达」；对端跑完会把结果派回来，出现在「任务」里。第一次往陌生设备派活时，对方会先弹一次「允许」。</p>
+        <h3>派一个活，然后回来看结果</h3>
+        <p class="hint">两台在同一局域网，几秒内就会互相出现。选一台设备 →「派发任务」，或者直接在会话里以 <code>@机器名</code> 开头说话。派出去只是「送达」；对端跑完会把结果派回来，出现在「任务」里。</p>
       </li>
     </ol>
+    <p class="hint" style="margin-top:18px">只装一台也能先看：Mesh 面板里有个 60 秒演示，不连接别的机器，也不花 token。</p>
   </div>
 
   <div data-lang="en">
-    <h2>Quick start (5 minutes)</h2>
+    <h2>From zero: install twice, then one sentence</h2>
+    <p class="hint" style="margin-bottom:18px">No networking, no commands to memorise. Two steps: <b>put DSH on every device</b>, then <b>put mesh on every device</b>. Nothing to configure — on the same LAN they find each other within seconds.</p>
     <ol class="steps">
       <li>
-        <h3>Install on every machine</h3>
-        <pre><code>dsh plugin add dsh-plugin-mesh</code><button class="copy" data-copy="dsh plugin add dsh-plugin-mesh">Copy</button></pre>
-        <p class="hint">The <code>desktop</code> profile needs DSH's own terminal; other profiles work from a normal one.</p>
+        <h3>Put DSH on every device</h3>
+        <p class="hint" style="margin:0 0 10px">DSH is DeepSeek's official open-source project. Official downloads: <a href="https://www.deepseek.com/harness"><b>deepseek.com/harness</b></a> (source on <a href="https://github.com/deepseek-ai/deepseek-harness">GitHub</a>).</p>
+        <div class="plats">
+          <a class="plat" href="https://download.deepseek.com/desktop/dsh-latest-windows-x64.exe"><b>Windows</b><span>Setup.exe — run it, open the app</span><em>Official</em></a>
+          <a class="plat" href="https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg"><b>macOS</b><span>DMG, Apple silicon / macOS 13+</span><em>Official</em></a>
+          <a class="plat" href="https://github.com/anywhere-labs/dsh-desktop/releases/latest"><b>Linux</b><span>deb / AppImage / tar.gz</span><em>Community</em></a>
+          <a class="plat" href="https://github.com/ccch1mneyyy/dsh-Go/releases"><b>Android</b><span>dsh-Go: no root, no Termux</span><em>Community</em></a>
+          <a class="plat" href="https://github.com/kelai141/dsh-mobile-apk"><b>Android</b><span>dsh-mobile: alternative shell, arm64 / x86_64</span><em>Community</em></a>
+          <a class="plat" href="https://github.com/ccch1mneyyy/dsh-Go/releases"><b>HarmonyOS</b><span>5 and earlier: install the Android dsh-Go APK</span><em>Community</em></a>
+          <a class="plat" href="https://github.com/sol5766/dshm/releases"><b>HarmonyOS</b><span>after 5 (pure): install dshm's native HAP</span><em>Community</em></a>
+          <a class="plat" href="https://github.com/ccch1mneyyy/dsh-Go/releases"><b>iOS</b><span>No on-device client yet — follow dsh-Go</span><em>Watch</em></a>
+        </div>
+        <div class="plats" style="margin-top:8px">
+          <a class="plat" href="https://github.com/anywhere-labs/dsh-desktop/releases/download/v2.0.13/DSH.Desktop-2.0.13-universal.dmg"><b>Intel Mac</b><span>Community desktop v2.0.13 — supports macOS 12, universal (Intel included)</span><em>Community</em></a>
+          <div class="plat"><b>Terminal</b><span><code>npx @deepseek-ai/dsh web</code> — any OS, needs Node.js installed</span><button class="copy" data-copy="npx @deepseek-ai/dsh web">Copy</button></div>
+        </div>
+        <p class="hint" style="margin-top:10px">Rows marked “Official” are published by DeepSeek; everything else (DSH Desktop, dsh-Go, dsh-mobile, dshm) is a community project.</p>
+        <p class="hint" id="harmony-en" style="margin-top:10px"><b>HarmonyOS</b>: 5 and earlier install the Android build (dsh-Go's APK); after 5 it is pure HarmonyOS, so install <a href="https://github.com/sol5766/dshm/releases">dshm</a>'s HAP. Rather not install anything? Open the DSH running on your computer in a browser (Settings → Desktop settings → LAN access).</p>
       </li>
       <li>
-        <h3>Restart DSH</h3>
-        <p class="hint">Plugins load at startup, so restart once.</p>
+        <h3>Then put mesh on each machine — any one of three ways</h3>
+        <div class="ways">
+          <div class="way">
+            <b>① Click: the plugin market</b>
+            <p>Open “Plugin market” in the sidebar, type <code>dsh-plugin-mesh</code> in the search box, install, then restart DSH.</p>
+            <p class="hint">No such entry in your sidebar: go to Settings → <b>Plugin market</b>, enable one source (the desktop app bundles <code>dsh-community-market</code>), then come back. Nothing found: use one of the two ways below.</p>
+          </div>
+          <div class="way">
+            <b>② One command</b>
+            <pre><code>dsh plugin add dsh-plugin-mesh</code><button class="copy" data-copy="dsh plugin add dsh-plugin-mesh">Copy</button></pre>
+            <p class="hint">Run it in DSH's <b>own terminal</b> (the desktop app can open one with the profile already set; this command edits the <code>desktop</code> profile). Started with <code>dsh web</code> yourself? Use <code>dsh plugin --profile web add dsh-plugin-mesh</code>.</p>
+          </div>
+          <div class="way">
+            <b>③ Just say it in the chat box</b>
+            <p>Start a new session and send this one sentence:</p>
+            <p class="say">“Install dsh-plugin-mesh for me and remind me to restart.”</p>
+            <p class="hint">It installs in whatever environment it is running in. If it says it cannot, that desktop app manages its own plugins: click “Plugin market” once where it points you instead of forcing it.</p>
+          </div>
+        </div>
       </li>
       <li>
-        <h3>Open “Mesh” in the sidebar and name this machine</h3>
-        <p class="hint">First run asks for a name (hostname by default). Peers find you by that name. On the same LAN they show up within seconds.</p>
+        <h3>Restart DSH, then name this machine</h3>
+        <p class="hint">Plugins load at startup, so restart once. “Mesh” then appears in the sidebar: open it and give this machine a name (hostname by default). Peers find you by that name.</p>
       </li>
       <li>
-        <h3>Dispatch one task, then read the result</h3>
-        <p class="hint">Pick a device → “Dispatch”, or start a chat message with <code>@machine</code>. Sending only means “delivered”; the peer dispatches the result back into “Tasks” when it is done. The first task to an unknown machine asks that side for approval.</p>
+        <h3>Dispatch one task, then come back for the result</h3>
+        <p class="hint">On the same LAN they show up within seconds. Pick a device → “Dispatch”, or start a chat message with <code>@machine</code>. Sending only means “delivered”; the peer dispatches the result back into “Tasks” when it is done.</p>
       </li>
     </ol>
+    <p class="hint" style="margin-top:18px">One machine is enough to look around: the Mesh panel has a 60-second demo that connects to nothing and spends no tokens.</p>
   </div>
 </section>
 
@@ -277,9 +368,8 @@
     <ul>
       <li><b>看不到对方</b> —— 依次确认：① 两台在同一局域网？ ② 对端也装了、也重启了？ ③ 防火墙放行了 TCP <code>45917</code> 和 UDP <code>45892</code>？ 还不出现就点「局域网探测」—— 只要端口通，扫描就能发现，不依赖组播。</li>
       <li><b>结果在哪</b> —— 在「任务」里。派发的返回只代表对端<b>收下了</b>，不代表跑完了；跑完的结果由对端派回来。</li>
-      <li><b>第一次派活，对方没反应</b> —— 默认会先问那台机器一次「允许」。点过之后同一台设备不再问；也可以在「连接 → 配对码」里改成两端同码，彻底关掉这个确认。</li>
+      <li><b>安全保护</b> —— 默认装好就能直接派活，没有确认弹窗。要加保护：在「连接 → 配对码」里开配对，两端用同一个码，码不一致的派活请求会被直接拒（HTTP 403）；临时不想被任何人找到，用面板上的「一键关闭」。所有数据都在本机，没有账号、没有云端。</li>
       <li><b>Android 老掉线</b> —— 是系统省电在杀后台，不是插件的问题。把 DSH 加进电池优化白名单。</li>
-      <li><b>安全</b> —— 陌生设备第一次派活默认要本机确认；允许过的设备记在本地。在咖啡厅、宿舍这类网络，再打开「配对码」：两端用同一个码。所有数据都在本机，没有账号、没有云端。</li>
     </ul>
   </div>
 
@@ -288,9 +378,8 @@
     <ul>
       <li><b>No peers</b> — check in order: same LAN? peer also installed and restarted? firewall allows TCP <code>45917</code> and UDP <code>45892</code>? Still nothing: use “Scan subnet” — if the port is reachable, the scan finds it without multicast.</li>
       <li><b>Where is the result?</b> — In “Tasks”. A successful dispatch only means <b>delivered</b>; the peer dispatches the result back when it finishes.</li>
-      <li><b>First dispatch to a new machine does nothing</b> — By default that machine asks its owner once for “Allow”. After that it stops asking; or turn on pairing codes on both sides to skip the prompt entirely.</li>
+      <li><b>Protection</b> — dispatch works out of the box, with no confirmation prompt. To guard it: turn on “Pairing code” under Connect, so both ends share one code — a dispatch carrying a different code is rejected with HTTP 403. To stop being discoverable at all, use “One-click off” in the panel. All data stays local: no account, no cloud.</li>
       <li><b>Android keeps dropping</b> — the OS is killing background apps, not a plugin bug. Add DSH to the battery whitelist.</li>
-      <li><b>Security</b> — a first task from an unknown machine needs local approval; approved machines are remembered locally. On café/dorm networks also turn on pairing codes. All data stays local: no account, no cloud.</li>
     </ul>
   </div>
 </section>
