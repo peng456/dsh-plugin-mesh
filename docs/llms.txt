@@ -124,6 +124,33 @@ the home board, enabled while the peer is online):
 - The private key and credentials live under the profile's mesh directory (mode 0600);
   they are never broadcast and never included in the peer card.
 
+### Viewing a peer whose GUI only listens on loopback
+
+A DSH Web GUI usually binds `127.0.0.1` — and DSH Desktop hardcodes that
+(`desktopWebServerHost()` ignores `networkExposure`), so a profile patch cannot
+change it. In that case `GET /mesh/v1/web-url` also returns a `tunnel` object and
+the panel reaches the peer through the **already-open mesh port** instead:
+
+```
+viewer  ->  <peer>:<mesh port>/mesh/peer-web/<original path>   (header: x-dsh-peer-web)
+peer    ->  127.0.0.1:<its own GUI port>                        (Host/Origin rewritten,
+                                                                 session cookie signed here)
+```
+
+- No certificate, no extra listener, no second profile: forwarding happens inside the
+  peer process, so a loopback-only GUI (including DSH Desktop) can be viewed.
+- The ticket is **minted by the viewed machine** (`HMAC` with its own mesh secret),
+  lives 12 hours, is never persisted, and is only handed out by the authenticated
+  `/mesh/v1/web-url`. Changing the pairing code invalidates it immediately.
+- Security policy is the **same as every other mesh route**: the one-click LAN/internet
+  kill switch answers 503; with `requirePairing` on, every tunnel request must carry the
+  shared secret (`x-dsh-mesh-token`, attached by the viewer's proxy). Neither the ticket
+  nor that secret is forwarded to the upstream GUI.
+- Transport is plaintext HTTP — the same level as the mesh port itself. Use a pairing
+  code (or an SSH/tunnel wrapper) on untrusted networks.
+- Both ends must run a version that knows the tunnel: an older peer never reports one,
+  so the panel falls back to the loopback URL and fails with `ECONNREFUSED`.
+
 ## Configuration
 
 Override by id in the profile's `cordis.patch.yml`:

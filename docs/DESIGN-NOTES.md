@@ -773,6 +773,36 @@ TCP/UDP，只放行 HTTP 客户端的代理设置对它无效（实测诊断里�
 > ⚠️ 能在这里开 SSH，意味着"对端能给你派任务 + 你信任它"就已经够用来登进对方 shell。
 > 网络不完全可信时，先把「配对码」打开；不想让某台机器被登录就把它从设备列表信任范围里拿掉。
 
+### 对端 GUI 只听回环时：经 mesh 口的隧道
+
+**问题**：DSH 的 Web GUI 默认绑 `127.0.0.1`，而 DSH Desktop 是**硬编码**的 ——
+`desktopWebServerHost()` 无论 `networkExposure` 是什么都返回回环，profile patch
+改不动（app 在 profile patch 之后又追加一条 `webserver` config 覆盖回来）。
+于是"在另一台机器的面板里打开它"这条路，靠对端开端口走不通。
+
+**做法**：不要求对端开端口，改走**本来就在局域网上的 mesh 口**：
+
+```
+观看端 → <对端>:<mesh端口>/mesh/peer-web/<原路径>   （头：x-dsh-peer-web=票据）
+被看端 → 127.0.0.1:<自己的 GUI 端口>                （Host/Origin 改写为本机同源，
+                                                     会话 cookie 在被看端现签）
+```
+
+- 转发在**被看端进程内部**完成，所以 GUI 不必对外监听，也不需要证书、不需要第二个 profile。
+- 与 `desktopWebPort` 的区别：那套转发到**另一个**引擎、且挂在 Web 口（回环时对端一样连不上）；
+  这套挂在 mesh 口、目标是**本进程自己的** Web 端口。
+- 票据由**被看端**用自己 state.json 的 mesh 密钥 HMAC 签发（12 小时、不落盘），只在
+  鉴权通过的 `/mesh/v1/web-url` 上发放；换配对码即失效。
+- 安全策略与 mesh 口其它路由**完全一致**：一键关闭时整条隧道 503；`requirePairing`
+  打开时每个请求都要带共享密钥（观看端代理附着）。票据与密钥都不转发给上游 GUI。
+
+**踩过的坑（值得记住）**：隧道还原路径时一度用 `new URL()` + `searchParams` 去掉票据参数，
+把 DSH 的插件脚本地址 `/plugins/??a/client.js,b/client.js&rev=…` 编码成了 `%3F%40…`，
+对端静态路由匹配失败兜底返回 index.html，浏览器拿 HTML 当脚本解析，前端只报一句
+`client-modules: HTML did not preload @deepseek-ai/dsh-client-modules/client.js`。
+**凡是转发路径，一律按原字符串处理，只摘自己那一个参数。**
+
+
 ## 配置项
 
 默认已经可用。要改就在 profile 的 `cordis.patch.yml` 里按 id 覆盖。
