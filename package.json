@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-mesh",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "type": "module",
   "description": "把跑不完的活交给另一台电脑；跑完，结果回到你面前。两台装了 DSH 的电脑各装一次，自动互相发现，任务派过去由对端的 agent 执行，结果派回来。Hand a long task to another machine: your DSH instances find each other, the peer runs it, and the result comes back. No pairing codes, no IPs, no Tailscale client.",
   "license": "MIT",
