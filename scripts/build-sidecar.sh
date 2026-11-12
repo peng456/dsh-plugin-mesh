@@ -19,7 +19,9 @@ DIST_DIR="$REPO_ROOT/dist/sidecar"
 
 # The release tag is tied to the sidecar control-API protocol, not the plugin
 # version: the plugin pins a protocol number and refuses mismatched binaries.
-PROTOCOL_VERSION=1
+# 必须与 sidecar/main.go 的 ProtocolVersion、lib/tsnet/download.js 的
+# SIDECAR_PROTOCOL 三处一致（脚本里自己会校验前两者）。
+PROTOCOL_VERSION=2
 RELEASE_TAG="sidecar-v${PROTOCOL_VERSION}"
 # 发布目标仓库。必须与 lib/tsnet/download.js 里的 REPO 一致，否则插件会去
 # 另一个仓库找二进制。

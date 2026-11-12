@@ -6904,6 +6904,10 @@ window.__ModuleLoader__.load({
       const failed = !!report && report.ok !== true;
       const incomparable = !!report && report.ok === true && report.comparable === false;
       const canInstall = hasUpdate && !pending && report.diskVersion !== report.latest;
+      // 查完「没有新版本」以前什么都不渲染，看上去就像检查没生效；
+      // 这里补一个结果：已是最新 vX（点完能看见查到的版本号）。
+      const upToDate =
+        !!report && report.ok === true && !hasUpdate && !incomparable && !pending && !!(report.latest || report.current);
       const label = checking ? "检查中…" : "检查更新";
       const title = failed
         ? `上次检查失败：${String(report.error || "未知原因")}（点一下重试）`
@@ -6933,6 +6937,16 @@ window.__ModuleLoader__.load({
               "span",
               { className: "mesh-meta-pill", title: pending.at ? `安装于 ${pending.at}` : undefined },
               `已安装 v${pending.version}`,
+            )
+          : null,
+        upToDate
+          ? h(
+              "span",
+              {
+                className: "mesh-meta-pill",
+                title: `当前 v${report.current}；registry 最新 v${report.latest || report.current}${report.cached ? "（本次为缓存结果）" : ""}`,
+              },
+              `已是最新 v${report.latest || report.current}`,
             )
           : null,
         pending && pending.restartRequired

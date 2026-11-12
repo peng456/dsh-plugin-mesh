@@ -51,7 +51,11 @@ import (
 
 // ProtocolVersion is bumped whenever the control API changes shape, so the
 // plugin can refuse a stale cached binary instead of failing in confusing ways.
-const ProtocolVersion = 1
+//
+// v2：新增出站流 /__tsnet/dial + /__tsnet/undial（SSH 走 tailnet 的前提）和
+// 入站 /__tsnet/listen（把本机端口暴露到 tailnet）。v1 的二进制没有这两个端点，
+// 而老插件钉的是 v1 那批 sha256 —— 所以只能新开 sidecar-v2，不能覆盖 v1 资产。
+const ProtocolVersion = 2
 
 var (
 	flHostname   = flag.String("hostname", "", "tailnet node name (DNS label); required")
