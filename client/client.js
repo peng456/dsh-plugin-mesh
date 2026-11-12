@@ -4389,6 +4389,9 @@ window.__ModuleLoader__.load({
           "aria-modal": "true",
           "aria-label": `${name} 的 DSH Web`,
           "data-mesh-view": "web",
+          // 收起来的面板只隐藏、不卸载：卸载会销毁 iframe，对端页面要重新加载，
+          // 会话状态和滚动位置全丢。宿主侧同时保留代理宽限期，两边配套。
+          style: panel.hidden ? { display: "none" } : undefined,
         },
         h(
           "div",
@@ -8355,9 +8358,29 @@ window.__ModuleLoader__.load({
        * 也不受对端 cookie 的 SameSite=Strict 影响。
        * 反代起不来时才退回老的"浏览器页签 / 外部浏览器"那条链。
        */
-      const openWeb = async (peer) => {
+      const openWeb = async (peer, opts) => {
+        const force = !!(opts && opts.force);
         const name = (peer && peer.machine) || "对端";
-        setWebPanel({ peer, name, state: "loading", reloadKey: 0 });
+        const key = (peer && (peer.machine || peer.id)) || "";
+        const cachedKey =
+          webPanel && webPanel.peer ? webPanel.peer.machine || webPanel.peer.id || "" : "";
+        // 之前收起来的同一台设备：直接显示，不请求宿主、不重建 iframe。
+        // 页面状态、滚动位置、对端会话原样还在（宿主那边代理也在宽限期内）。
+        // 超过宽限期就不再走快路——那时宿主可能已经把代理回收了，直接显示
+        // 只会看到一个连不上的 iframe。
+        const hiddenFor = webPanel && webPanel.hiddenAt ? Date.now() - webPanel.hiddenAt : Infinity;
+        if (!force && webPanel && webPanel.url && cachedKey && cachedKey === key && hiddenFor < 8 * 60 * 1000) {
+          setWebPanel((prev) => ({ ...(prev || { peer, name }), peer, name, hidden: false, hiddenAt: 0, state: "ready" }));
+          return;
+        }
+        // force = 用户点「重新加载面板」：保留同一个代理地址，只让 iframe 重载
+        setWebPanel((prev) => ({
+          peer,
+          name,
+          state: "loading",
+          hidden: false,
+          reloadKey: force && prev && prev.url ? (prev.reloadKey || 0) + 1 : 0,
+        }));
         try {
           const r = await api("/web-panel", { peer: (peer && (peer.machine || peer.id)) || "" });
           if (r && r.ok === true && typeof r.url === "string") {
@@ -8368,7 +8391,8 @@ window.__ModuleLoader__.load({
               remote: r.remote || "",
               hasSession: r.hasSession !== false,
               note: r.note || "",
-              reloadKey: 0,
+              hidden: false,
+              reloadKey: (prev && prev.reloadKey) || 0,
             }));
             if (r.hasSession === false) {
               push("warn", `${name} 那边没给出可用 token，面板可能停在登录页。`);
@@ -8437,7 +8461,9 @@ window.__ModuleLoader__.load({
        */
       const closeWebPanel = () => {
         const machine = webPanel && webPanel.peer ? webPanel.peer.machine || webPanel.peer.id || "" : "";
-        setWebPanel(null);
+        // 只收起、不卸载：iframe 留着，对端页面的会话状态和滚动位置都还在；
+        // 宿主收到 close 只把它标记成空闲，宽限期内不拆代理和出站流。
+        setWebPanel((prev) => (prev ? { ...prev, hidden: true, hiddenAt: Date.now() } : null));
         if (!machine) return;
         api("/web-panel/close", { peer: machine }).catch(() => {
           /* 关闭是尽力而为 */
@@ -8448,7 +8474,7 @@ window.__ModuleLoader__.load({
       const reloadWebPanel = () => {
         const peer = webPanel && webPanel.peer;
         if (!peer) return;
-        void openWeb(peer);
+        void openWeb(peer, { force: true });
       };
 
       /** 派发成功的统一收尾：toast + 让轮询立刻刷新。
