@@ -154,6 +154,8 @@ type sidecar struct {
 
 	mu          sync.Mutex
 	forwards    map[int]net.Listener
+	dials       map[int]net.Listener
+	listens     map[int]net.Listener
 	diagnostics []string
 }
 
@@ -293,7 +295,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	sc := &sidecar{token: *flToken, hostname: hostname, forwards: map[int]net.Listener{}}
+	sc := &sidecar{token: *flToken, hostname: hostname, forwards: map[int]net.Listener{}, dials: map[int]net.Listener{}, listens: map[int]net.Listener{}}
 
 	// 解析器**必须在这里**装，早于任何可能启动 tsnet 的代码。
 	//
@@ -445,6 +447,14 @@ func (sc *sidecar) shutdown() {
 		_ = ln.Close()
 		delete(sc.forwards, port)
 	}
+	for port, ln := range sc.dials {
+		_ = ln.Close()
+		delete(sc.dials, port)
+	}
+	for port, ln := range sc.listens {
+		_ = ln.Close()
+		delete(sc.listens, port)
+	}
 	sc.mu.Unlock()
 	if sc.srv != nil {
 		_ = sc.srv.Close()
@@ -510,6 +520,10 @@ func (sc *sidecar) controlMux() http.Handler {
 	mux.HandleFunc("/__tsnet/fetch", sc.auth(sc.handleFetch))
 	mux.HandleFunc("/__tsnet/forward", sc.auth(sc.handleForward))
 	mux.HandleFunc("/__tsnet/unforward", sc.auth(sc.handleUnforward))
+	mux.HandleFunc("/__tsnet/dial", sc.auth(sc.handleDial))
+	mux.HandleFunc("/__tsnet/undial", sc.auth(sc.handleUndial))
+	mux.HandleFunc("/__tsnet/listen", sc.auth(sc.handleListen))
+	mux.HandleFunc("/__tsnet/unlisten", sc.auth(sc.handleUnlisten))
 	mux.HandleFunc("/__tsnet/shutdown", sc.auth(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 		go func() {
@@ -756,6 +770,233 @@ func (sc *sidecar) handleUnforward(w http.ResponseWriter, r *http.Request) {
 	_ = ln.Close()
 	sc.note("stopped forwarding tailnet :%d", req.Port)
 	writeJSON(w, 200, map[string]any{"ok": true, "port": req.Port})
+}
+
+// ---------------------------------------------------------------------------
+// outbound raw streams
+// ---------------------------------------------------------------------------
+
+// dialRequest asks for a loopback listener whose accepted connections are piped
+// byte-for-byte into a TCP address reachable only through the tailnet.
+type dialRequest struct {
+	Address string `json:"address"`
+}
+
+// handleDial is the raw-stream counterpart of handleForward.
+//
+// Why it has to exist: /__tsnet/fetch buffers a whole response (32 MB cap) and
+// speaks one HTTP transaction, so it cannot carry a WebSocket upgrade or a
+// long-lived stream. The plugin's "open the peer's DSH GUI" path needs both
+// (`/api/remote.mux` is a WS). Rather than teach the control API about HTTP
+// semantics, hand the caller a loopback TCP port and move bytes: every accepted
+// connection is dialed through tsnet and spliced in both directions.
+func (sc *sidecar) handleDial(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "POST required"})
+		return
+	}
+	var req dialRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	host, port, err := net.SplitHostPort(strings.TrimSpace(req.Address))
+	if err != nil || host == "" || port == "" {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "address must be host:port, got " + strconv.Quote(req.Address)})
+		return
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "port is not numeric: " + port})
+		return
+	}
+	if sc.srv == nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "tailnet node is not started"})
+		return
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "listen: " + err.Error()})
+		return
+	}
+	localPort := ln.Addr().(*net.TCPAddr).Port
+
+	sc.mu.Lock()
+	sc.dials[localPort] = ln
+	sc.mu.Unlock()
+
+	go sc.serveDial(ln, req.Address)
+	sc.note("dialing tailnet %s via loopback :%d", req.Address, localPort)
+	writeJSON(w, 200, map[string]any{"ok": true, "port": localPort, "address": req.Address})
+}
+
+// serveDial accepts on the loopback listener and splices each connection to the
+// tailnet. Failures are per-connection: one refused dial must not kill the
+// listener, because the plugin keeps the port for the lifetime of a panel.
+func (sc *sidecar) serveDial(ln net.Listener, address string) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			// A closed listener is the normal shutdown path (undial / shutdown).
+			return
+		}
+		go func() {
+			defer conn.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			up, err := sc.srv.Dial(ctx, "tcp", address)
+			cancel()
+			if err != nil {
+				sc.note("dial %s failed: %v", address, err)
+				return
+			}
+			defer up.Close()
+			done := make(chan struct{}, 2)
+			go func() { _, _ = io.Copy(up, conn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(conn, up); done <- struct{}{} }()
+			// 两条方向都结束才算这条连接完；单方向 EOF 时先把另一端关掉，
+			// 否则 io.Copy 的另一半会永远等（HTTP keep-alive 场景很常见）。
+			<-done
+			_ = up.Close()
+			_ = conn.Close()
+			<-done
+		}()
+	}
+}
+
+// handleUndial closes one outbound stream listener by its loopback port.
+func (sc *sidecar) handleUndial(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "POST required"})
+		return
+	}
+	var body struct {
+		Port int `json:"port"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	sc.mu.Lock()
+	ln, exists := sc.dials[body.Port]
+	if exists {
+		delete(sc.dials, body.Port)
+	}
+	sc.mu.Unlock()
+	if !exists {
+		writeJSON(w, 200, map[string]any{"ok": true, "absent": true, "port": body.Port})
+		return
+	}
+	_ = ln.Close()
+	sc.note("stopped dialing loopback :%d", body.Port)
+	writeJSON(w, 200, map[string]any{"ok": true, "port": body.Port})
+}
+
+// ---------------------------------------------------------------------------
+// inbound raw streams (tailnet -> loopback)
+// ---------------------------------------------------------------------------
+
+// handleListen is the raw-TCP counterpart of handleForward.
+//
+// handleForward reverse-proxies *HTTP* from the tailnet to loopback, so an SSH
+// handshake (bare `SSH-2.0-...` bytes) gets rejected as a malformed request.
+// This one just moves bytes: listen on the tailnet, dial 127.0.0.1:port, splice.
+// It is the mirror image of handleDial, and the pair is what makes "SSH over
+// tailnet" possible in both directions without any system-level tailscaled.
+func (sc *sidecar) handleListen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "POST required"})
+		return
+	}
+	var body struct {
+		Port int `json:"port"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if body.Port <= 0 || body.Port > 65535 {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "port out of range"})
+		return
+	}
+	if sc.srv == nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "tailnet node is not started"})
+		return
+	}
+	sc.mu.Lock()
+	_, exists := sc.listens[body.Port]
+	sc.mu.Unlock()
+	if exists {
+		writeJSON(w, 200, map[string]any{"ok": true, "already": true, "port": body.Port})
+		return
+	}
+	ln, err := sc.srv.Listen("tcp", ":"+strconv.Itoa(body.Port))
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "listen: " + err.Error()})
+		return
+	}
+	sc.mu.Lock()
+	sc.listens[body.Port] = ln
+	sc.mu.Unlock()
+	go sc.serveListen(ln, body.Port)
+	sc.note("exposing tailnet :%d -> 127.0.0.1:%d", body.Port, body.Port)
+	writeJSON(w, 200, map[string]any{"ok": true, "port": body.Port})
+}
+
+// serveListen accepts on the tailnet listener and splices each connection to
+// the same port on loopback. Per-connection failures stay per-connection: the
+// local sshd being down must not tear down the tailnet listener.
+func (sc *sidecar) serveListen(ln net.Listener, port int) {
+	target := "127.0.0.1:" + strconv.Itoa(port)
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer conn.Close()
+			up, err := net.DialTimeout("tcp", target, 10*time.Second)
+			if err != nil {
+				sc.note("listen :%d dial %s failed: %v", port, target, err)
+				return
+			}
+			defer up.Close()
+			done := make(chan struct{}, 2)
+			go func() { _, _ = io.Copy(up, conn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(conn, up); done <- struct{}{} }()
+			<-done
+			_ = up.Close()
+			_ = conn.Close()
+			<-done
+		}()
+	}
+}
+
+// handleUnlisten stops exposing one port on the tailnet.
+func (sc *sidecar) handleUnlisten(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "POST required"})
+		return
+	}
+	var body struct {
+		Port int `json:"port"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	sc.mu.Lock()
+	ln, exists := sc.listens[body.Port]
+	if exists {
+		delete(sc.listens, body.Port)
+	}
+	sc.mu.Unlock()
+	if !exists {
+		writeJSON(w, 200, map[string]any{"ok": true, "absent": true, "port": body.Port})
+		return
+	}
+	_ = ln.Close()
+	sc.note("stopped exposing tailnet :%d", body.Port)
+	writeJSON(w, 200, map[string]any{"ok": true, "port": body.Port})
 }
 
 // ---------------------------------------------------------------------------

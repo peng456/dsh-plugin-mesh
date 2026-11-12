@@ -69,8 +69,8 @@
     "selftest:update": "node lib/_selftest-update.mjs",
     "selftest:upgrade": "node lib/_selftest-upgrade.mjs",
     "selftest:approval": "node lib/_selftest-approval.mjs",
-    "test": "npm run check && npm run selftest && npm run selftest:prompt && npm run selftest:at && npm run selftest:at:host && npm run selftest:pairing && npm run selftest:approval && npm run selftest:switch && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:osinfo && npm run selftest:peerweb && npm run selftest:update && npm run selftest:upgrade",
-    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/at-mention.js && node --check lib/pairing.js && node --check lib/switch.js && node --check lib/scan.js && node --check lib/update.js && node --check lib/upgrade.js && node --check lib/peer-web.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:loadable && npm run check:docs",
+    "test": "npm run check && npm run selftest && npm run selftest:prompt && npm run selftest:at && npm run selftest:at:host && npm run selftest:pairing && npm run selftest:approval && npm run selftest:switch && npm run selftest:client && npm run selftest:caps && npm run selftest:release && npm run selftest:reply && npm run selftest:reasoning && npm run selftest:resume && npm run selftest:persist && npm run selftest:layout && npm run selftest:diagnostics && npm run selftest:osinfo && npm run selftest:peerweb && npm run selftest:webtarget && npm run selftest:sshtarget && npm run selftest:update && npm run selftest:upgrade",
+    "check": "node scripts/check-version.mjs && node scripts/check-tdz.mjs && node --check lib/index.js && node --check lib/layout.js && node --check lib/discovery.js && node --check lib/conversation.js && node --check lib/identity.js && node --check lib/capabilities.js && node --check lib/prompt.js && node --check lib/at-mention.js && node --check lib/pairing.js && node --check lib/switch.js && node --check lib/scan.js && node --check lib/update.js && node --check lib/upgrade.js && node --check lib/peer-web.js && node --check lib/web-target.js && node --check lib/ssh-target.js && node --check lib/tsnet/download.js && node --check lib/tsnet/manager.js && node --check lib/tsnet/bridge.js && node --check lib/tsnet/channels.js && node --check client/client.js && node --check scripts/release-plan.mjs && npm run check:loadable && npm run check:docs",
     "build:sidecar": "bash scripts/build-sidecar.sh",
     "verify:mirror": "node scripts/verify-lan-mirror.mjs",
     "release:plan": "node scripts/release-plan.mjs",
@@ -84,7 +84,9 @@
     "selftest:switch": "node lib/_selftest-switch.mjs",
     "selftest:at": "node lib/_selftest-at-mention.mjs",
     "selftest:at:host": "node --experimental-vm-modules lib/_selftest-at-mention-host.mjs",
-    "selftest:peerweb": "node lib/_selftest-peer-web.mjs"
+    "selftest:peerweb": "node lib/_selftest-peer-web.mjs",
+    "selftest:webtarget": "node lib/_selftest-web-target.mjs",
+    "selftest:sshtarget": "node lib/_selftest-ssh-target.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",

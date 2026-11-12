@@ -3627,7 +3627,7 @@ window.__ModuleLoader__.load({
                 },
               })
             : null,
-          // SSH 终端：与「访问 DSH Web」同一位置，连的是对端 22 端口
+          // SSH 终端：与「访问 DSH Web」同一位置；端口默认 22，面板里可改
           !isSelf && onSsh
             ? h(IconButton, {
                 icon: "terminal",
@@ -4459,6 +4459,8 @@ window.__ModuleLoader__.load({
       const [phase, setPhase] = react.useState("form");
       const [username, setUsername] = react.useState("");
       const [password, setPassword] = react.useState("");
+      // SSH 端口：默认 22，可改（对端 sshd 不一定在 22 上，比如手机侧是 8022）
+      const [port, setPort] = react.useState("22");
       const [hasKey, setHasKey] = react.useState(false);
       // 密钥属于哪个用户名：换了用户名就不能再拿它去认证（否则只会得到认证失败）
       const [keyUser, setKeyUser] = react.useState("");
@@ -4470,9 +4472,16 @@ window.__ModuleLoader__.load({
       const wsRef = react.useRef(null);
       const idRef = react.useRef("");
       const outRef = react.useRef(null);
+      // 自动连接的标记：同一台设备只自动试一次，失败了就停在表单上等人操作
+      const autoRef = react.useRef("");
+      // 上一次连接用的是密钥还是密码：失败时据此决定要不要直接把密码框摊开
+      const usedKeyRef = react.useRef(false);
 
+      // 点开面板就先连：这台设备已经记住用户名、且公钥已确认部署时，不需要再看表单。
+      // 连不上才退回表单——错误会一起显示，并给「改用密码连接」的入口。
       react.useEffect(() => {
         let alive = true;
+        autoRef.current = "";
         api("/ssh/known", { machine })
           .then((r) => {
             if (!alive || !r || !r.ok) return;
@@ -4481,6 +4490,17 @@ window.__ModuleLoader__.load({
               setKeyUser(r.username);
             }
             if (r.hasKey) setHasKey(true);
+            // 记住上次用过的端口，下次连同一台设备不用重填
+            if (Number(r.port) > 0) setPort(String(r.port));
+            if (r.username && r.hasKey && autoRef.current !== machine) {
+              autoRef.current = machine;
+              // 用 known 里的值显式传参：此刻 setUsername/setPort 还没落地
+              connect({
+                username: r.username,
+                port: Number(r.port) > 0 ? Number(r.port) : 22,
+                useKey: true,
+              });
+            }
           })
           .catch(() => {});
         return () => {
@@ -4505,7 +4525,15 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => () => closeSocket(), []);
 
-      const connect = () => {
+      const connect = (next) => {
+        // next 允许"自动连接"直接给定参数：那一刻 state 还没落地（setState 是异步的），
+        // 靠 state 读到的还是空用户名/默认端口。
+        const opts = next || {};
+        const wantUser = String(opts.username ?? username).trim();
+        const wantPort = Number(opts.port ?? port) > 0 ? Number(opts.port ?? port) : 22;
+        const wantPassword = opts.password ?? password;
+        const wantKey = opts.useKey ?? (keyApplies && !forcePassword);
+        usedKeyRef.current = wantKey;
         setError("");
         setOutput("");
         setPhase("connecting");
@@ -4525,9 +4553,9 @@ window.__ModuleLoader__.load({
               type: "open",
               machine,
               host: peer.host || "",
-              port: 22,
-              username: username.trim(),
-              password: keyApplies && !forcePassword ? "" : password,
+              port: wantPort,
+              username: wantUser,
+              password: wantKey ? "" : wantPassword,
               cols: 100,
               rows: 30,
             }),
@@ -4557,11 +4585,14 @@ window.__ModuleLoader__.load({
           if (msg.type === "error") {
             setError(String(msg.message || "未知错误"));
             setPhase("error");
+            // 这次是拿密钥试的，既然失败就直接把密码框展开，不用再点一次「改用密码连接」
+            if (usedKeyRef.current) setForcePassword(true);
           }
         };
         ws.onerror = () => {
           setError("连接通道错误（WebSocket）");
           setPhase("error");
+          if (usedKeyRef.current) setForcePassword(true);
         };
         ws.onclose = () => {
           setPhase((prev) => (prev === "error" ? prev : "closed"));
@@ -4614,13 +4645,28 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 { className: "mesh-ssh-note" },
-                keyApplies
+                keyApplies && !forcePassword
                   ? "已部署本机公钥，直接连接即可（免密）。"
-                  : hasKey
-                    ? `公钥属于 ${keyUser}；当前用户名不同，请输入密码。`
-                    : "首次连接需要用户名和密码；成功后会自动把本机公钥写到对端，之后免密。",
+                  : forcePassword && hasKey
+                    ? "密钥登录没通过；输入密码登录后会重新部署本机公钥，下次恢复免密。"
+                    : hasKey
+                      ? `公钥属于 ${keyUser}；当前用户名不同，请输入密码。`
+                      : "首次连接需要用户名和密码；成功后会自动把本机公钥写到对端，之后免密。",
               ),
               h("label", { className: "mesh-ssh-field" }, h("span", null, "用户名"), h("input", { value: username, onChange: (e) => setUsername(e.target.value), autoCapitalize: "none", spellCheck: false })),
+              h(
+                "label",
+                { className: "mesh-ssh-field" },
+                h("span", null, "端口"),
+                h("input", {
+                  value: port,
+                  inputMode: "numeric",
+                  autoCapitalize: "none",
+                  spellCheck: false,
+                  placeholder: "22",
+                  onChange: (e) => setPort(e.target.value.replace(/[^0-9]/g, "")),
+                }),
+              ),
               keyApplies && !forcePassword
                 ? null
                 : h("label", { className: "mesh-ssh-field" }, h("span", null, "密码"), h("input", { type: "password", value: password, onChange: (e) => setPassword(e.target.value) })),
