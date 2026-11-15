@@ -4448,7 +4448,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-
     // ─────────────────────── 常驻 Web 面板层 ───────────────────────
 
     /** 空闲多久拆掉面板（毫秒）；localStorage 写 mesh.webPanelIdleMs = 0 表示「收起即拆」。 */
