@@ -728,7 +728,7 @@ window.__ModuleLoader__.load({
     // ─────────────────────── 样式 ───────────────────────
 
     const CSS = `
-.mesh-root {
+.mesh-root, .mesh-web-hosted {
   --mesh-bg: var(--dsw-alias-bg-base);
   --mesh-surface: var(--dsw-alias-bg-layer-1);
   --mesh-surface-2: var(--dsw-alias-bg-layer-2);
@@ -775,6 +775,11 @@ window.__ModuleLoader__.load({
   border-radius: 999px;
 }
 .mesh-root ::-webkit-scrollbar-track { background: transparent; }
+/* body 级常驻宿主：只借 .mesh-root 的变量与排版，不要它的布局（它是主面板外壳）。 */
+.mesh-web-hosted {
+  position: static; display: block; flex: none;
+  min-height: 0; overflow: visible; background: none;
+}
 
 /* ── 顶栏 ── */
 .mesh-topbar {
@@ -810,6 +815,8 @@ window.__ModuleLoader__.load({
   display: flex; flex-direction: column;
   background: var(--mesh-bg);
 }
+/* 搬出 MeshApp 之后由 body 级宿主接管定位：盖住整屏，但仍低于应用自己的弹层（1000+）。 */
+.mesh-web-hosted .mesh-web-layer { position: fixed; inset: 0; z-index: 900; }
 .mesh-web-bar {
   flex: 0 0 auto;
   display: flex; align-items: center; gap: 8px;
@@ -4441,6 +4448,252 @@ window.__ModuleLoader__.load({
       );
     }
 
+
+    // ─────────────────────── 常驻 Web 面板层 ───────────────────────
+
+    /** 空闲多久拆掉面板（毫秒）；localStorage 写 mesh.webPanelIdleMs = 0 表示「收起即拆」。 */
+    const WEB_PANEL_IDLE_KEY = "mesh.webPanelIdleMs";
+    const WEB_PANEL_IDLE_DEFAULT = 10 * 60 * 1000;
+
+    function readWebPanelIdleMs() {
+      try {
+        const raw = Number(window.localStorage.getItem(WEB_PANEL_IDLE_KEY));
+        if (Number.isFinite(raw) && raw >= 0) return raw;
+      } catch {
+        /* 没有 localStorage（隐私模式 / 非浏览器宿主）：用默认值 */
+      }
+      return WEB_PANEL_IDLE_DEFAULT;
+    }
+
+    /** 让宿主回收这块面板的回环反代与 tailnet 出站流（keepalive：页面正在关也发得出去）。 */
+    function closePeerPanel(peer, force) {
+      if (!peer || typeof fetch !== "function") return;
+      try {
+        fetch(`${API}/web-panel/close`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(force ? { peer, force: true } : { peer }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        /* 尽力而为：宿主自己的空闲 sweep 会兜底回收 */
+      }
+    }
+
+    /**
+     * 常驻 Web 面板层：对端 DSH Web 的 iframe 挂在 document.body 上，
+     * **不随 MeshApp 卸载**。
+     *
+     * 为什么必须搬出来：main 这个 slot 是 keyed 渲染（dsh-client-ui-layout），
+     * activePanelId 一旦离开 mesh（点侧栏任何一个会话、切别的面板、换 workspace），
+     * MeshApp 就整棵卸载，组件里的 iframe 跟着销毁、对端页面从头重载 —— 而宿主
+     * 那边的回环反代明明还在 10 分钟宽限期里。iframe 的寿命不能挂在一个会被卸载
+     * 的组件上。
+     *
+     * 时效销毁（三层，缺一不可）：
+     *   1. 收起（面板「返回」或 MeshApp 被卸载）→ 只 display:none，iframe、对端
+     *      会话、滚动位置全留着；IDLE_MS 内再打开就是原样显示（不请求宿主、不重建
+     *      iframe）—— 这才是「秒切」；
+     *   2. 空闲超过 IDLE_MS（默认 10 分钟，与宿主 WEB_PANEL_IDLE_MS 对齐）→ 卸载
+     *      iframe + force-close 宿主反代，不留孤儿端口和 tailnet 出站流；
+     *   3. 页面 pagehide → 尽力 force-close（keepalive），双保险。
+     */
+    function createWebPanelLayer() {
+      let hostEl = null; // body 级容器
+      let root = null; // 独立 React root：与 MeshApp 的生命周期无关
+      let timer = null; // 空闲销毁计时器
+      let panel = null; // 当前面板；null = 没有 iframe
+      let hooks = null; // { push, fallback }：MeshApp 挂载时注册，卸载即清空
+      let pagehideBound = false;
+      const idleMs = readWebPanelIdleMs();
+
+      const keyOf = (peer) => (peer && (peer.machine || peer.id)) || "";
+      const nameOf = (peer) => (peer && (peer.machine || peer.id)) || "对端";
+
+      function ensureHost() {
+        if (hostEl !== null) return true;
+        if (typeof document === "undefined" || !document.body) return false;
+        hostEl = document.createElement("div");
+        hostEl.className = "mesh-web-hosted";
+        document.body.appendChild(hostEl);
+        root = require("react-dom/client").createRoot(hostEl);
+        if (!pagehideBound) {
+          pagehideBound = true;
+          window.addEventListener("pagehide", () => {
+            // 页面要走了：先把 iframe 的引用扔掉，再尽力让宿主立刻回收。
+            const key = panel ? panel.key : "";
+            panel = null;
+            if (key) closePeerPanel(key, true);
+          });
+        }
+        return true;
+      }
+
+      function paint() {
+        if (root === null) return;
+        root.render(h(WebPanel, { panel, onClose: hide, onReload: reload }));
+      }
+
+      function clearTimer() {
+        if (timer === null) return;
+        clearTimeout(timer);
+        timer = null;
+      }
+
+      function startIdleTimer() {
+        clearTimer();
+        if (!(idleMs > 0)) {
+          destroy();
+          return;
+        }
+        timer = setTimeout(() => {
+          timer = null;
+          destroy();
+        }, idleMs);
+      }
+
+      function notify(kind, text) {
+        try {
+          if (hooks && typeof hooks.push === "function") hooks.push(kind, text);
+        } catch {
+          /* toast 只是提示，失败不影响面板 */
+        }
+      }
+
+      /** 拆掉 iframe 并让宿主回收反代：空闲到期、插件卸载、换设备都走这里。 */
+      function destroy() {
+        clearTimer();
+        const key = panel ? panel.key : "";
+        panel = null;
+        if (root !== null) {
+          try {
+            root.unmount();
+          } catch {
+            /* 已经不在渲染树里也无所谓 */
+          }
+          root = null;
+        }
+        if (hostEl !== null && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
+        hostEl = null;
+        if (key) closePeerPanel(key, true);
+      }
+
+      /** 收起：只隐藏。iframe 与对端会话留着，等 IDLE_MS 到期才真拆。 */
+      function hide() {
+        if (panel === null || panel.hidden) return;
+        panel = { ...panel, hidden: true, hiddenAt: Date.now() };
+        paint();
+        startIdleTimer();
+      }
+
+      /** 重载同一个地址（对端重启过、iframe 白屏时用），不动宿主反代。 */
+      function reload() {
+        if (panel === null || !panel.url) return;
+        clearTimer();
+        panel = { ...panel, state: "ready", hidden: false, hiddenAt: 0, reloadKey: (panel.reloadKey || 0) + 1 };
+        paint();
+      }
+
+      async function open(peer, opts) {
+        const force = !!(opts && opts.force);
+        const key = keyOf(peer);
+        if (!key) return;
+        if (!ensureHost()) {
+          notify("error", "当前宿主没有可用的 document.body，打不开应用内面板。");
+          return;
+        }
+        // 快路：同一台设备、iframe 还活着（IDLE_MS 内）→ 直接显示，不请求宿主、
+        // 不重建 iframe。页面状态、滚动位置、对端会话原样都在。
+        if (panel !== null && panel.key === key && panel.state === "ready") {
+          clearTimer();
+          if (force) {
+            reload();
+            return;
+          }
+          panel = { ...panel, peer, name: nameOf(peer), hidden: false, hiddenAt: 0 };
+          paint();
+          return;
+        }
+        // 换设备：旧面板的反代先还给宿主，别留一个孤儿端口。
+        if (panel !== null && panel.key !== key) closePeerPanel(panel.key, true);
+        clearTimer();
+        panel = {
+          key,
+          peer,
+          name: nameOf(peer),
+          state: "loading",
+          url: "",
+          remote: "",
+          hasSession: true,
+          note: "",
+          hidden: false,
+          hiddenAt: 0,
+          reloadKey: 0,
+        };
+        paint();
+        let r = null;
+        try {
+          r = await api("/web-panel", { peer: key });
+        } catch (error) {
+          r = { ok: false, error: String((error && error.message) || error) };
+        }
+        // 期间被收起并到期拆掉、或又换了设备：这次响应作废。
+        if (panel === null || panel.key !== key || panel.state !== "loading") return;
+        if (r && r.ok === true && typeof r.url === "string") {
+          panel = {
+            ...panel,
+            state: "ready",
+            url: r.url,
+            remote: r.remote || "",
+            hasSession: r.hasSession !== false,
+            note: r.note || "",
+            hidden: false,
+            reloadKey: 0,
+          };
+          paint();
+          if (panel.hasSession === false) {
+            notify("warn", `${panel.name} 那边没给出可用 token，面板可能停在登录页。`);
+          }
+          return;
+        }
+        const detail = (r && r.error) || "未知原因";
+        panel = null;
+        paint();
+        notify("warn", `应用内面板起不来（${detail}），改用外部方式打开。`);
+        try {
+          if (hooks && typeof hooks.fallback === "function") await hooks.fallback(peer);
+        } catch (error) {
+          notify("error", `外部方式也打不开：${String((error && error.message) || error)}`);
+        }
+      }
+
+      return {
+        open,
+        hide,
+        reload,
+        /** 当前面板的只读快照（不把 live 引用交给外部）。 */
+        current: () =>
+          panel === null
+            ? null
+            : { key: panel.key, name: panel.name, hidden: !!panel.hidden, hasSession: panel.hasSession !== false },
+        /** MeshApp 挂载时注册 toast / 兜底打开；卸载时清空。 */
+        setHooks: (next) => {
+          hooks = next || null;
+        },
+        clearHooks: () => {
+          hooks = null;
+        },
+        /** 插件被卸载/热更：拆干净，别在 body 上留一个 iframe。 */
+        dispose: () => {
+          hooks = null;
+          destroy();
+        },
+        /** 仅供自测：面板是否处于「iframe 活着」的状态。 */
+        __alive: () => panel !== null && panel.state === "ready",
+      };
+    }
+
+    const webPanelLayer = createWebPanelLayer();
 
     /** 去掉终端控制序列：没有 xterm 时，把 ANSI 转义剥掉才不会满屏乱码。 */
     function stripAnsi(text) {
@@ -8127,8 +8380,8 @@ window.__ModuleLoader__.load({
       const [taskFilter, setTaskFilter] = react.useState("all");
       const [composer, setComposer] = react.useState(null);
       const [probe, setProbe] = react.useState(null);
-      // 对端 DSH Web 的应用内面板：{ peer, name, state: loading|ready, url, note, hasSession, reloadKey }
-      const [webPanel, setWebPanel] = react.useState(null);
+      // 对端 DSH Web 的面板不在这里：它由 webPanelLayer 挂在 document.body 上，
+      // 这样 Mesh 面板被卸载（点侧栏任何会话）时 iframe 不会被销毁。
       // SSH 终端面板：null 或某个 peer
       const [sshPeer, setSshPeer] = react.useState(null);
       const [scanning, setScanning] = react.useState(false);
@@ -8353,59 +8606,15 @@ window.__ModuleLoader__.load({
       /**
        * 打开对端的 DSH Web。
        *
-       * 主路是**应用内面板**：宿主起一个回环反代（认证在服务端做），这里只
-       * 把它的地址塞进同源 iframe —— 不依赖壳的浏览器 WebView（本机没有），
-       * 也不受对端 cookie 的 SameSite=Strict 影响。
-       * 反代起不来时才退回老的"浏览器页签 / 外部浏览器"那条链。
+       * 面板本身由 webPanelLayer（body 级常驻层）持有：这里只做转交。之所以
+       * 不在组件里管，是因为主面板 slot 是 keyed 渲染，MeshApp 一卸载 iframe
+       * 就会跟着销毁 —— 而宿主那边的回环反代还在宽限期里，本来可以秒切。
        */
-      const openWeb = async (peer, opts) => {
-        const force = !!(opts && opts.force);
-        const name = (peer && peer.machine) || "对端";
-        const key = (peer && (peer.machine || peer.id)) || "";
-        const cachedKey =
-          webPanel && webPanel.peer ? webPanel.peer.machine || webPanel.peer.id || "" : "";
-        // 之前收起来的同一台设备：直接显示，不请求宿主、不重建 iframe。
-        // 页面状态、滚动位置、对端会话原样还在（宿主那边代理也在宽限期内）。
-        // 超过宽限期就不再走快路——那时宿主可能已经把代理回收了，直接显示
-        // 只会看到一个连不上的 iframe。
-        const hiddenFor = webPanel && webPanel.hiddenAt ? Date.now() - webPanel.hiddenAt : Infinity;
-        if (!force && webPanel && webPanel.url && cachedKey && cachedKey === key && hiddenFor < 8 * 60 * 1000) {
-          setWebPanel((prev) => ({ ...(prev || { peer, name }), peer, name, hidden: false, hiddenAt: 0, state: "ready" }));
-          return;
-        }
-        // force = 用户点「重新加载面板」：保留同一个代理地址，只让 iframe 重载
-        setWebPanel((prev) => ({
-          peer,
-          name,
-          state: "loading",
-          hidden: false,
-          reloadKey: force && prev && prev.url ? (prev.reloadKey || 0) + 1 : 0,
-        }));
-        try {
-          const r = await api("/web-panel", { peer: (peer && (peer.machine || peer.id)) || "" });
-          if (r && r.ok === true && typeof r.url === "string") {
-            setWebPanel((prev) => ({
-              ...(prev || { peer, name }),
-              state: "ready",
-              url: r.url,
-              remote: r.remote || "",
-              hasSession: r.hasSession !== false,
-              note: r.note || "",
-              hidden: false,
-              reloadKey: (prev && prev.reloadKey) || 0,
-            }));
-            if (r.hasSession === false) {
-              push("warn", `${name} 那边没给出可用 token，面板可能停在登录页。`);
-            }
-            return;
-          }
-          setWebPanel(null);
-          push("warn", `应用内面板起不来（${(r && r.error) || "未知原因"}），改用外部方式打开。`);
-        } catch (error) {
-          setWebPanel(null);
-          push("warn", `应用内面板起不来（${String((error && error.message) || error)}），改用外部方式打开。`);
-        }
+      const openWeb = (peer, opts) => webPanelLayer.open(peer, opts);
 
+      /** 应用内面板起不来时，退回旧的"浏览器页签 / 外部浏览器"那条链。 */
+      const openWebFallback = async (peer) => {
+        const name = (peer && peer.machine) || "对端";
         let result;
         try {
           result = await openDshWebPage(peer);
@@ -8455,27 +8664,15 @@ window.__ModuleLoader__.load({
         push("warn", "当前宿主没有 layout 服务，无法自动回到会话；用侧边栏切回对话即可。");
       };
 
-      /**
-       * 关掉对端 Web 面板：先卸载前端这一层，再尽力让宿主把反代也停掉
-       * （停不掉只是多一个回环端口，不影响正确性）。
-       */
-      const closeWebPanel = () => {
-        const machine = webPanel && webPanel.peer ? webPanel.peer.machine || webPanel.peer.id || "" : "";
-        // 只收起、不卸载：iframe 留着，对端页面的会话状态和滚动位置都还在；
-        // 宿主收到 close 只把它标记成空闲，宽限期内不拆代理和出站流。
-        setWebPanel((prev) => (prev ? { ...prev, hidden: true, hiddenAt: Date.now() } : null));
-        if (!machine) return;
-        api("/web-panel/close", { peer: machine }).catch(() => {
-          /* 关闭是尽力而为 */
-        });
-      };
+      // 面板层用的 toast 与兜底：push 是 useCallback 稳定的，这里只挂一次。
+      react.useEffect(() => {
+        webPanelLayer.setHooks({ push, fallback: openWebFallback });
+        return () => webPanelLayer.clearHooks();
+      }, [push]);
 
-      /** 重新拉起面板（对端重启过、或 iframe 白屏时用）。 */
-      const reloadWebPanel = () => {
-        const peer = webPanel && webPanel.peer;
-        if (!peer) return;
-        void openWeb(peer, { force: true });
-      };
+      // Mesh 面板被卸载（点侧栏任何会话、切别的面板、换 workspace）→ 只收起，
+      // 不拆 iframe：宽限期内再打开就是原样秒切。
+      react.useEffect(() => () => webPanelLayer.hide(), []);
 
       /** 派发成功的统一收尾：toast + 让轮询立刻刷新。
        * 设备页弹层和主页的派发面板共用它，免得两处提示文案慢慢走散。
@@ -8861,7 +9058,6 @@ window.__ModuleLoader__.load({
               onCopy: copyTransfer,
             })
           : null,
-        h(WebPanel, { panel: webPanel, onClose: closeWebPanel, onReload: reloadWebPanel }),
         sshPeer ? h(SshPanel, { peer: sshPeer, onClose: () => setSshPeer(null) }) : null,
         h(Toasts, { items: toasts, onClose: close }),
         h(DemoOverlay, { open: demoOpen, onClose: () => setDemoOpen(false) }),
@@ -8904,6 +9100,10 @@ window.__ModuleLoader__.load({
         ctx.slots.register({ name: "main", key: PANEL_ID }, MeshApp),
       );
       registerAtPeerSource(ctx);
+      // 常驻层不走 slot 的生命周期：插件停用/热更时要自己把 body 上的 iframe 收掉。
+      if (typeof ctx.effect === "function") {
+        ctx.effect(() => () => webPanelLayer.dispose(), "mesh: 常驻 Web 面板层");
+      }
       ctx.logger?.info?.("mesh client: 已注册 Mesh 工作台");
     }
 
@@ -8924,6 +9124,8 @@ window.__ModuleLoader__.load({
       resolveWebUrl,
       openDshWebPage,
       WebPanel,
+      webPanelLayer,
+      createWebPanelLayer,
       CapabilityChips,
       TaskRow,
       TaskDetail,
