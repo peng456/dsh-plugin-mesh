@@ -4453,6 +4453,8 @@ window.__ModuleLoader__.load({
     /** 空闲多久拆掉面板（毫秒）；localStorage 写 mesh.webPanelIdleMs = 0 表示「收起即拆」。 */
     const WEB_PANEL_IDLE_KEY = "mesh.webPanelIdleMs";
     const WEB_PANEL_IDLE_DEFAULT = 10 * 60 * 1000;
+    /** 可见期间的心跳上限：面板开着就定期把宿主的宽限期续上（见 startBeat）。 */
+    const WEB_PANEL_HEARTBEAT_MAX = 4 * 60 * 1000;
 
     function readWebPanelIdleMs() {
       try {
@@ -4506,10 +4508,12 @@ window.__ModuleLoader__.load({
       let hostEl = null; // body 级容器
       let root = null; // 独立 React root：与 MeshApp 的生命周期无关
       let timer = null; // 空闲销毁计时器
+      let beat = null; // 可见期间的心跳计时器
+      let beatMiss = 0; // 连续失败次数（对端短暂掉出发现列表时别一击必杀）
+      let beatOverride = 0; // 仅自测用：覆盖心跳间隔
       let panel = null; // 当前面板；null = 没有 iframe
       let hooks = null; // { push, fallback }：MeshApp 挂载时注册，卸载即清空
       let pagehideBound = false;
-      const idleMs = readWebPanelIdleMs();
 
       const keyOf = (peer) => (peer && (peer.machine || peer.id)) || "";
       const nameOf = (peer) => (peer && (peer.machine || peer.id)) || "对端";
@@ -4546,6 +4550,8 @@ window.__ModuleLoader__.load({
 
       function startIdleTimer() {
         clearTimer();
+        // 现读而不是插件加载时读一次：改 mesh.webPanelIdleMs 不用重载界面。
+        const idleMs = readWebPanelIdleMs();
         if (!(idleMs > 0)) {
           destroy();
           return;
@@ -4554,6 +4560,65 @@ window.__ModuleLoader__.load({
           timer = null;
           destroy();
         }, idleMs);
+      }
+
+      /** 心跳间隔：取宽限期的一半，夹在 15s–4min 之间（后台标签页的定时器会被节流）。 */
+      function beatInterval() {
+        if (beatOverride > 0) return beatOverride;
+        const idleMs = readWebPanelIdleMs();
+        const half = idleMs > 0 ? idleMs / 2 : WEB_PANEL_HEARTBEAT_MAX;
+        return Math.max(15 * 1000, Math.min(WEB_PANEL_HEARTBEAT_MAX, half));
+      }
+
+      function clearBeat() {
+        if (beat === null) return;
+        clearInterval(beat);
+        beat = null;
+      }
+
+      function startBeat() {
+        clearBeat();
+        beatMiss = 0;
+        beat = setInterval(() => {
+          void ensureAlive();
+        }, beatInterval());
+      }
+
+      /**
+       * 续命 + 自愈。
+       *
+       * 宿主的回收按 lastUsedAt 的「空闲 10 分钟」算，它不知道面板是不是正开在
+       * 屏幕上 —— 只在打开那一刻刷新的话，一直开着的面板会在第 10 分钟被
+       * sweep 掉反代（画面还在，后续请求开始失败）。所以可见期间定期打一次
+       * /web-panel：命中复用分支只刷新 lastUsedAt，不重建、不换端口。
+       *
+       * 顺便自愈：如果反代真被回收后重建过，返回的地址会变，这里把 iframe
+       * 指过去（页面重载一次），而不是让用户对着一个死地址。
+       */
+      async function ensureAlive() {
+        if (panel === null || panel.state !== "ready") return;
+        const key = panel.key;
+        const url = panel.url;
+        let r = null;
+        try {
+          r = await api("/web-panel", { peer: key });
+        } catch {
+          return; // 网络抖动不算失效，下一次心跳再试
+        }
+        if (panel === null || panel.key !== key || panel.state !== "ready") return;
+        if (r && r.ok === true && typeof r.url === "string") {
+          beatMiss = 0;
+          if (r.url === url) return;
+          panel = { ...panel, url: r.url, remote: r.remote || panel.remote, reloadKey: (panel.reloadKey || 0) + 1 };
+          paint();
+          notify("info", "宿主那边的反代被回收过，已重新建连并重载页面。");
+          return;
+        }
+        // 对端可能只是短暂掉出发现列表（peers 有 TTL）：连续两次问不到才判死。
+        beatMiss += 1;
+        if (beatMiss < 2) return;
+        destroy();
+        notify("warn", "这块面板的反代已被宿主收回，请重新打开。");
       }
 
       function notify(kind, text) {
@@ -4567,6 +4632,7 @@ window.__ModuleLoader__.load({
       /** 拆掉 iframe 并让宿主回收反代：空闲到期、插件卸载、换设备都走这里。 */
       function destroy() {
         clearTimer();
+        clearBeat();
         const key = panel ? panel.key : "";
         panel = null;
         if (root !== null) {
@@ -4585,6 +4651,7 @@ window.__ModuleLoader__.load({
       /** 收起：只隐藏。iframe 与对端会话留着，等 IDLE_MS 到期才真拆。 */
       function hide() {
         if (panel === null || panel.hidden) return;
+        clearBeat();
         panel = { ...panel, hidden: true, hiddenAt: Date.now() };
         paint();
         startIdleTimer();
@@ -4596,6 +4663,7 @@ window.__ModuleLoader__.load({
         clearTimer();
         panel = { ...panel, state: "ready", hidden: false, hiddenAt: 0, reloadKey: (panel.reloadKey || 0) + 1 };
         paint();
+        startBeat();
       }
 
       async function open(peer, opts) {
@@ -4616,6 +4684,9 @@ window.__ModuleLoader__.load({
           }
           panel = { ...panel, peer, name: nameOf(peer), hidden: false, hiddenAt: 0 };
           paint();
+          startBeat();
+          // 收起过一段时间的（接近宽限期）从这一刻起续命，别刚打开就被宿主 sweep。
+          void ensureAlive();
           return;
         }
         // 换设备：旧面板的反代先还给宿主，别留一个孤儿端口。
@@ -4655,6 +4726,7 @@ window.__ModuleLoader__.load({
             reloadKey: 0,
           };
           paint();
+          startBeat();
           if (panel.hasSession === false) {
             notify("warn", `${panel.name} 那边没给出可用 token，面板可能停在登录页。`);
           }
@@ -4694,6 +4766,11 @@ window.__ModuleLoader__.load({
         },
         /** 仅供自测：面板是否处于「iframe 活着」的状态。 */
         __alive: () => panel !== null && panel.state === "ready",
+        /** 仅供自测：覆盖心跳间隔（0 = 恢复自动）。 */
+        __setHeartbeatMs: (ms) => {
+          beatOverride = Number(ms) > 0 ? Number(ms) : 0;
+          if (panel !== null && !panel.hidden) startBeat();
+        },
       };
     }
 
