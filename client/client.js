@@ -4456,8 +4456,13 @@ window.__ModuleLoader__.load({
 
     function readWebPanelIdleMs() {
       try {
-        const raw = Number(window.localStorage.getItem(WEB_PANEL_IDLE_KEY));
-        if (Number.isFinite(raw) && raw >= 0) return raw;
+        const raw = window.localStorage.getItem(WEB_PANEL_IDLE_KEY);
+        // 注意：没设置时 getItem 返回 null，而 Number(null) === 0 —— 直接 Number()
+        // 会把「没配置」读成「收起即拆」，于是每次 hide() 立刻销毁 iframe，秒切失效。
+        if (raw !== null && String(raw).trim() !== "") {
+          const ms = Number(raw);
+          if (Number.isFinite(ms) && ms >= 0) return ms;
+        }
       } catch {
         /* 没有 localStorage（隐私模式 / 非浏览器宿主）：用默认值 */
       }
@@ -9125,6 +9130,8 @@ window.__ModuleLoader__.load({
       WebPanel,
       webPanelLayer,
       createWebPanelLayer,
+      readWebPanelIdleMs,
+      WEB_PANEL_IDLE_DEFAULT,
       CapabilityChips,
       TaskRow,
       TaskDetail,
