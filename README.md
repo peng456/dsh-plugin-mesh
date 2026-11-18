@@ -121,7 +121,7 @@ macOS（Intel / Apple Silicon）· Windows · Linux · Android（Termux）· WSL
 
 | 方向 | 现在 | 下一版 | 子路线图 |
 |---|---|---|---|
-| **会话事件智能路由** | 派出即止，无终态 | 调用事件流模型重构 + journal + 结果信封 + 取消 | [route](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/route.md) |
+| **会话事件智能路由** | 派出即止，无终态 | 调用事件流模型重构 + 任务流水账（journal） + 结果信封 + 取消 | [route](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/route.md) |
 | **接入** | DSH + MCP 手接 | MCP · Skills<br>CC / Codex / WorkBuddy / opencode / VS Code / Copilot 等适配<br>dshInWeb 适配 | [adapter](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/adapter.md) |
 | **trace** | 无 | 状态时间线（等 R-v1） | [trace](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/trace.md) |
 | **玩法** | 一对一派发 | 组群 | [play](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/play.md) |

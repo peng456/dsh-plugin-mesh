@@ -123,7 +123,7 @@ mesh 节点（每用户每机器一个，单例常驻）
 **物理唯一怎么保证**：`bind()` 选举（§3）。内嵌是兜底，且必须自报 `nodeEmbeddedIn`，
 让 `mesh doctor` 能直接说出「出口现在长在 DSH 里，关掉它整机离线」。
 
-**生命周期**：launchd / systemd KeepAlive；节点重启不掉账（journal 在磁盘）；
+**生命周期**：launchd / systemd KeepAlive；节点重启不掉账 —— 任务流水账（journal）在磁盘；
 节点挂了 = 整机离线 —— 这是有意为之：**一个明确的离线，好过 N 个半在线。**
 
 ---

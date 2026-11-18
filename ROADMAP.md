@@ -6,6 +6,10 @@
 > 版本号是**能力增量**，不是时间、也不跨方向对齐（R 的 v3 可能早于 A 的 v1，也可能晚）。
 > 方向之间只有**闸门**关系：某个方向的某一版，被另一个方向的某一版闸住。
 >
+> **术语**：**任务流水账（journal）** = 只追加、不覆盖的状态记录，当前状态由它推导；
+> **结果信封（envelope）** = 终态与证据的结构化返回；**一次跳（span）** = 工单的一次跨机流转；
+> **闸门（gate）** = 某方向的某一版，必须等另一方向的某一版达标才能开。
+>
 > 本文取代已删除的三份旧路线图（`git log --all -- PRODUCT-ROADMAP.md`）。
 > 参考材料：外部态势与社群 → [`docs/GROWTH.md`](./docs/GROWTH.md)；
 > 证据与口径 → [`docs/EVIDENCE.md`](./docs/EVIDENCE.md)；历史决策 → [`docs/DECISIONS.md`](./docs/DECISIONS.md)；

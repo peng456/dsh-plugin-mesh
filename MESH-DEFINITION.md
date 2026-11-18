@@ -456,7 +456,7 @@ A（发起方）                                      B（执行方）
 
 **要解决的问题**：任务有去无回、有始无终。
 
-- 任务状态机与本地 journal（`queued → running → waiting-input → completed/failed/cancelled`）
+- 任务状态机与本地任务流水账（journal）：`queued → running → waiting-input → completed/failed/cancelled`
 - 会话确定性：`conversationId` + `sessionRef`；出站绑定；结果按 `conversationId` 回原会话
 - 每个 DSH 根一个 `mesh/`；`state.json` / `threads.json` / `sessions/` 都在其下，会话 cwd = `mesh/sessions/<sessionId>`
 - 旧 `<DSH_HOME>/mesh/` 的 state/threads 首次启动迁移到新根
