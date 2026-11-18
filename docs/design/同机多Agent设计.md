@@ -5,8 +5,8 @@
 > 回答一个具体问题：**同一台机器上有 DSH、Claude Code、opencode、Codex 好几个 agent，
 > 端口怎么分？** 结论先给：**不分。agent 不占端口，只有机器占一个。**
 >
-> 关联：[`ROADMAP-可玩性与多端适配.md`](./ROADMAP-可玩性与多端适配.md) §2（多端适配）、
-> [`docs/PLUGIN-SPEC.md`](./docs/PLUGIN-SPEC.md) §5.4（端口与单实例）、
+> 关联：[`ROADMAP.md`](../../ROADMAP.md) §4 D3 / §2 A-v1 · C-v1（接入与协议）、
+> [`docs/PLUGIN-SPEC.md`](../PLUGIN-SPEC.md) §5.4（端口与单实例）、
 > [`设备身份与多通道设计.md`](./设备身份与多通道设计.md)（身份与 tailnet 通道）。
 
 ---

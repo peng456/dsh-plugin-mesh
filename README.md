@@ -114,13 +114,41 @@ macOS（Intel / Apple Silicon）· Windows · Linux · Android（Termux）· WSL
 
 ---
 
+## 路线图：往哪走（每个方向都会演化）
+
+七个方向各自迭代 v1/v2/v3，**版本号是能力增量，不是时间，也不跨方向对齐**。
+方向之间没有全局顺序，只有**闸门** —— 多数方向的下一版都等 R-v1（事件层）先到位，其余可以并行。
+
+| 方向 | 现在 | 下一版 | 子路线图 |
+|---|---|---|---|
+| **会话事件智能路由** | 派出即止，无终态 | 调用事件流模型重构 + journal + 结果信封 + 取消 | [route](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/route.md) |
+| **接入** | DSH + MCP 手接 | MCP · Skills<br>CC / Codex / WorkBuddy / opencode / VS Code / Copilot 等适配<br>dshInWeb 适配 | [adapter](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/adapter.md) |
+| **trace** | 无 | 状态时间线（等 R-v1） | [trace](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/trace.md) |
+| **玩法** | 一对一派发 | 组群 | [play](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/play.md) |
+| **界面** | 面板 + 任务列表 | 结果卡 + 通知 + `mesh demo` | [ui](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/ui.md) |
+| **协议** | 两份实现（`lib/` + `mcp-mesh`） | 收编成一份 + 名片区 v3 | [protocol](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/protocol.md) |
+| **安全** | 同网段默认可派 | 幽灵对端校验 + 高危动作确认 | [security](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/roadmap/security.md) |
+
+每个子路线图里都有：**现状证据 → 版本史（v0 已发布 / v1 计划 / v2、v3 条件）→ 各版验收判据 → 闸门 → 不做什么**。
+版本细则发版时追加，不覆盖历史。
+
+**今天就缺的那一件**：派出去的任务没有终态 —— 返回 `200` 只说明对端**收下了**，
+不代表跑完了，也不能取消。它闸住了 trace / 结果卡 / 扇出三条方向。
+
+完整矩阵（v2/v3、闸门表、验收判据、指标、风险、明确不做什么）见
+[`ROADMAP.md`](https://github.com/peng456/dsh-plugin-mesh/blob/main/ROADMAP.md)。
+
+---
+
 ## 深入阅读
 
 | 想要什么 | 去哪 |
 |---|---|
+| 路线图、决策记录、指标与不做什么 | [`ROADMAP.md`](https://github.com/peng456/dsh-plugin-mesh/blob/main/ROADMAP.md) |
 | 给 agent 的机器可读事实（工具、配置项、端口） | [`llms.txt`](llms.txt) |
 | 英文快速上手 | [`README.en.md`](README.en.md) |
 | 设计取舍、组播/防火墙/tsnet 细节、配置项全表、排障 | [`docs/DESIGN-NOTES.md`](https://github.com/peng456/dsh-plugin-mesh/blob/main/docs/DESIGN-NOTES.md) |
+| 设计与实施记录（任务追踪 / 同机多 agent / 身份与通道 / 放置） | [`docs/design/`](https://github.com/peng456/dsh-plugin-mesh/tree/main/docs/design) |
 | 改这个仓库前的硬约束与坑 | [`AGENTS.md`](AGENTS.md) |
 | 参与开发、发版流程 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 

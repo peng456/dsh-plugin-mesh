@@ -248,8 +248,18 @@ npm run build:sidecar    # rebuild the Go tsnet sidecar (cross-platform)
 - `README.md` — user-facing entry (Chinese): what it gives you, 5-minute start, safety, FAQ
 - `docs/DESIGN-NOTES.md` — the old long-form README: multicast/scan/firewall details, tsnet, identity, full config table, security model, limits, development
 - `DESIGN.md` — design rationale, trade-offs and post-mortems (Chinese)
-- `Placement设计.md` — placement design and implementation record (Chinese)
-- `设备身份与多通道设计.md` — identity and multi-channel design (Chinese)
+- `ROADMAP.md` — the single roadmap: seven directions x versions, gates, metrics, risks (Chinese)
+- `docs/roadmap/` — per-direction sub-roadmaps: `route.md` `security.md` `protocol.md` `adapter.md` `trace.md` `ui.md` `play.md` (Chinese)
+- `docs/GROWTH.md` — positioning, competition, community and release cadence (Chinese)
+- `docs/EVIDENCE.md` — where every number in the roadmap comes from (Chinese)
+- `docs/DECISIONS.md` — historical decision log (Chinese)
+- `PROTOCOL-COMPARISON.md` — comparison against A2A / MCP / ACP and peers (Chinese)
+- `docs/PLUGIN-SPEC.md` — external spec: requirements, ports, host capability levels
+- `docs/design/` — design and implementation records:
+  - `Placement设计.md` — placement design and implementation record (Chinese)
+  - `设备身份与多通道设计.md` — identity and multi-channel design (Chinese)
+  - `同机多Agent设计.md` — one node per machine, multiple agents attached (Chinese)
+  - `任务追踪设计.md` — layered task accounting design (Chinese)
 - `docs/index.html` — user-facing showcase, Chinese (GitHub Pages)
 - `docs/demo.html` — 60-second animated walkthrough (schematic; connects to nothing)
 
