@@ -20,6 +20,15 @@ From source instead: `git clone https://github.com/peng456/dsh-plugin-mesh && cd
 
 **A restart of the dsh host is required after install** — the plugin loads at startup.
 
+**No runtime dependencies: install is plain unpacking, and no dependency build
+script runs.** That is a hard constraint — a host that refuses dependency build
+scripts (iPad's DSH Go aborts pnpm with `ERR_PNPM_IGNORED_BUILDS`) fails the whole
+install otherwise. 0.5.6–0.5.20 pulled `ssh2` into `dependencies` and hit exactly
+that; 0.5.5 (zero deps) installed clean in the same installer.
+`scripts/check-install-safe.mjs` keeps it that way. `ssh2` is needed only by the
+SSH terminal and is deliberately **not** a dependency — install it yourself
+(`pnpm add ssh2` in the profile) if you want that panel.
+
 Verify after restart: `GET http://127.0.0.1:45917/mesh/v1/health` returns JSON containing `{"app":"dsh-mesh","machine":"<name>",...}`.
 
 ## What it does at runtime
@@ -121,6 +130,9 @@ the home board, enabled while the peer is online):
   plugin generates an RSA key (PKCS#1 PEM — ssh2 cannot read Node's ed25519 export),
   appends the public key to the peer's `authorized_keys` idempotently, then proves it
   with a fresh private-key-only connection. A different username falls back to password.
+- The SSH panel needs the optional `ssh2` module, which is **not** installed by the
+  plugin (see Install). Missing it is reported as "SSH 终端需要额外的 ssh2 模块…" and
+  nothing else degrades; `ssh-host.js` loads it lazily so the plugin always mounts.
 - The private key and credentials live under the profile's mesh directory (mode 0600);
   they are never broadcast and never included in the peer card.
 
@@ -227,6 +239,9 @@ Outbound dispatch tries LAN first, then each tailnet channel in order.
 - A dsh host that can load cordis plugins with a client half (DSH Desktop, or `dsh web` + a profile).
 - Node >= 20 for development. Peer `@deepseek-ai/*` packages are provided by the host and are not bundled.
 - No Go toolchain and no Tailscale client are required by end users.
+- No build toolchain or compiler is required to install: the package has no runtime
+  dependencies and runs no install scripts. The SSH terminal additionally wants the
+  optional `ssh2` module (user-installed; see Install).
 
 ## Development
 
