@@ -461,6 +461,31 @@ dsh plugin --profile web add dsh-plugin-mesh    # 其它 profile ← 普通终�
 > the Electron application），必须用应用自带的那一个（托盘/菜单 → 终端）。
 > 其它 profile 用普通终端就行（上面第二条已实测）。
 
+**安装必须是"解包即用"：包里没有任何运行时依赖，也就不会跑构建脚本。**
+这条不是洁癖，是硬约束 —— 见下面「依赖与构建脚本：一条被 iPad 逼出来的规则」。
+
+### 依赖与构建脚本：一条被 iPad 逼出来的规则
+
+0.5.6 起把 `ssh2` 写进了 `dependencies`（给「SSH 终端」用）。ssh2 自带安装脚本
+`install: node install.js`（编译可选的原生加速模块 cpu-features）。有 node 和编译器的
+机器都没事，于是这个问题一直没露头；而 **iPad 上的 DSH Go 不允许依赖跑构建脚本**：
+
+```
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: cpu-features@0.0.10, ssh2@1.17.0
+```
+
+pnpm 直接让**整次安装失败** —— 插件根本装不上去。同一个受限安装器里的对照实验：
+
+| 版本 | 运行时依赖 | 结果 |
+|---|---|---|
+| 0.5.5 | 无 | `Done in 2.6s`，干净通过 |
+| 0.5.20 | `ssh2`（带构建脚本） | `ERR_PNPM_IGNORED_BUILDS`，安装失败 |
+
+所以现在：`package.json` 的运行时依赖为**空**；`ssh2` 只在真正连 SSH 时按需
+`require()`，缺了就给一句能动手的话（其余功能照常）；SSH 要用的人自己
+`pnpm add ssh2`。`scripts/check-install-safe.mjs` 在 `npm run check` 里把这条规则
+钉住 —— 往依赖里加带构建脚本的包，检查当场红。
+
 ### 方式 B：一键脚本（从源码装）
 
 ```bash

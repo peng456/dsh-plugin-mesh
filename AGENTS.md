@@ -88,6 +88,14 @@ unless the request carries the renderer token).
    "wired but not actually connected" changes (a gate that was only mentioned in a
    comment, `install.sh` not copying `scripts/`, a placeholder that hid a missing
    file). When you add a gate, prove it has teeth: break the input and watch it fail.
+8. **No runtime dependencies that need build scripts.** Installing must be plain
+   unpacking. 0.5.6–0.5.20 pulled `ssh2` into `dependencies`; its `install: node
+   install.js` script made the **whole install fail on iPad** (DSH Go):
+   `[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: cpu-features, ssh2`, while
+   0.5.5 (zero deps) installed clean in the same installer. `optionalDependencies`
+   does **not** help — same error. Optional features (SSH/`ssh2`) must be lazily
+   `require()`d with an actionable message when absent. `scripts/check-install-safe.mjs`
+   enforces this in `npm run check`.
 
 ## 4. Architecture map
 
@@ -130,6 +138,7 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 | Kill switch | `npm run selftest:switch` | shutdown merge rules: `off` defaults to true, `all` closes both scopes, strict booleans only (15) |
 | Update check | `npm run selftest:update` | version compare/prerelease, registry fallback, "failure is not up-to-date" (22) |
 | One-click upgrade | `npm run selftest:upgrade` | integrity, tar paths, change classification, atomic swap/rollback (26) |
+| Missing `ssh2` | `npm run selftest:sshdep` | SSH must say "ssh2 not installed" (with a fix command), never "peer rejected our key" |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host
 running; it is deliberately not part of `npm test` because it creates real agent

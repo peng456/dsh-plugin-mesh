@@ -58,7 +58,10 @@ dsh plugin add dsh-plugin-mesh
 
 - `desktop` profile 要在 **DSH Desktop 自带的终端**里跑（普通终端会被 dsh 拒绝）；
 - 其它 profile 用普通终端即可；
-- 装完**必须重启一次 DSH** —— 插件在启动时加载。
+- 装完**必须重启一次 DSH** —— 插件在启动时加载；
+- 插件**零运行时依赖**：安装只解包，不跑构建脚本 —— 所以 iPad（DSH Go）这类不允许
+  依赖跑构建脚本的宿主也装得上。只有「SSH 终端」要一个可选模块 `ssh2`（默认不装，
+  缺了只影响 SSH），要用时在 profile 目录 `pnpm add ssh2`。
 
 **第 2 步 · 起个名字**
 
