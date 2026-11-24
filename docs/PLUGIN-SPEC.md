@@ -422,8 +422,10 @@ else → inject 或 create
 }
 ```
 
-- 位置：`$DSH_HOME/mesh/state.json` 或 `~/.dsh/mesh/state.json`；其他宿主应放在自己的应用数据目录，权限 0600。
+- 位置：`<profile>/mesh/state.json`（DSH 参考实现）；未识别 profile 时回退 `$DSH_HOME/mesh/state.json` 或 `~/.dsh/mesh/state.json`；其他宿主应放在自己的应用数据目录，权限 0600。
 - 写入采用"读-合并-写"；未知字段必须保留（向前兼容）。
+- **原子写**：先写同目录 `*.tmp`，把可解析的旧文件留成 `state.json.bak`，再 `rename`。任何时刻读到的都是完整 JSON，不会出现半截文件。
+- **损坏处理**：主文件解析失败先回退 `.bak`；两者都不可用时视为不可信 —— 保留 `state.json.corrupt-<ts>` 现场，并 **fail-closed**（强制要求配对），绝不能因为读不出来就静默把配对关掉。
 
 ### 3.5.2 `threads.json`（0600）
 

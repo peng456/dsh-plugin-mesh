@@ -9000,6 +9000,22 @@ window.__ModuleLoader__.load({
               },
             })
           : null,
+        state.stateHealth && state.stateHealth.ok === false
+          ? h(Banner, {
+              kind: "error",
+              title: "state.json 损坏，配对已强制开启",
+              detail:
+                `${state.stateHealth.error || "无法解析"}。旧文件已另存为 state.json.corrupt-*；` +
+                "如果配对码已重建，需要把它重新复制到对端，否则两边都会连不上。",
+            })
+          : null,
+        state.stateHealth && state.stateHealth.ok && state.stateHealth.recovered
+          ? h(Banner, {
+              kind: "warn",
+              title: "state.json 曾损坏，已从备份恢复",
+              detail: `${state.stateHealth.error || ""}（来源：state.json.bak）`,
+            })
+          : null,
         state.duplicateNames && state.duplicateNames.length
           ? h(Banner, {
               kind: "warn",
