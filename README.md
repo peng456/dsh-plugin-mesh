@@ -155,6 +155,7 @@ macOS（Intel / Apple Silicon）· Windows · Linux · Android（Termux）· WSL
 | 设计与实施记录（任务追踪 / 同机多 agent / 身份与通道 / 放置） | [`docs/design/`](https://github.com/peng456/dsh-plugin-mesh/tree/main/docs/design) |
 | 改这个仓库前的硬约束与坑 | [`AGENTS.md`](AGENTS.md) |
 | 参与开发、发版流程 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 贡献者名单（每个 PR / issue 换来了什么） | [`CONTRIBUTORS.md`](CONTRIBUTORS.md) |
 
 ---
 
@@ -170,6 +171,27 @@ npm test
 ```
 
 有问题或想提需求：<https://github.com/peng456/dsh-plugin-mesh/issues> · 邮箱 `geekstartup@163.com`
+
+---
+
+## 贡献者
+
+这个项目不是一个人写出来的 —— 0.5 之后的很多部分，来自别人的真机、别人的报错和别人的 PR。
+名字列在这里是记账，不是客套。
+
+| 贡献者 | 做了什么 |
+|---|---|
+| <img src="https://github.com/sakikoTGW.png?size=64" width="22" height="22" valign="middle" alt=""> **[@sakikoTGW](https://github.com/sakikoTGW)** | **23 个 PR**：Windows / Android 平台兼容的一串硬修、三平台 CI 矩阵、系统身份与诊断接口、卡片工作台、手机端适配、每 profile `mesh/` 目录 —— **0.5.0 的主干** |
+| <img src="https://github.com/geekstartup42.png?size=64" width="22" height="22" valign="middle" alt=""> **[@geekstartup42](https://github.com/geekstartup42)** | #34 修掉「同一 thread 第 2 轮不回派」（0.5.22）、#35 `state.json` 原子写 + 损坏时 fail-closed（0.5.23） |
+| <img src="https://github.com/chengle0575.png?size=64" width="22" height="22" valign="middle" alt=""> **[@chengle0575](https://github.com/chengle0575)** | #22 第一个外部代码修复尝试（issue #1 的补丁） |
+| <img src="https://github.com/WinWindWing.png?size=64" width="22" height="22" valign="middle" alt=""> **[@WinWindWing](https://github.com/WinWindWing)** | #1 项目第一个外部 issue：派发未登记 `threadState`，回传落不进发起会话 —— thread 路由这条线的起点 |
+| <img src="https://github.com/sillywhalebot.png?size=64" width="22" height="22" valign="middle" alt=""> **[@sillywhalebot](https://github.com/sillywhalebot)** | #33 同一 thread 的第 2 条派发被判成回执：复现步骤、版本、对端提示词原文一起给全，直接产出 #34 |
+| <img src="https://github.com/kingofpantheon.png?size=64" width="22" height="22" valign="middle" alt=""> **[@kingofpantheon](https://github.com/kingofpantheon)** | #31 提案：给 thread 补任务归属元数据 + 只读检索，第一个点出「多任务串味」 |
+
+还有 **[@dependabot[bot]](https://github.com/apps/dependabot)** 与发版机器人 —— 不提意见，只保证流程不停。
+
+逐条对账（哪个 PR 换了哪段代码、哪个 issue 促成了哪个修复）在 [`CONTRIBUTORS.md`](CONTRIBUTORS.md)。
+想进这份名单：提一个 PR，或者提一个能复现的 issue 就够了。
 
 ---
 

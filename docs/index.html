@@ -100,6 +100,13 @@
   footer .sponsor img{vertical-align:-4px;margin-right:2px}
   footer .sponsor .nw{white-space:nowrap}
   a{color:var(--brand)}
+  /* 贡献者：只写名字和做过什么，不引外部头像/CDN */
+  .people{display:grid;gap:8px;margin:16px 0 0}
+  .person{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;border:1px solid var(--line);border-radius:11px;padding:10px 12px;text-decoration:none;color:inherit}
+  .person:hover{border-color:var(--brand);background:var(--brand-soft)}
+  .person i{width:30px;height:30px;border-radius:50%;background:var(--brand-soft);border:1px solid var(--line);color:var(--brand);display:flex;align-items:center;justify-content:center;font:600 13px/1 system-ui;font-style:normal}
+  .person b{display:block;font-size:14px}
+  .person span{display:block;color:var(--muted);font-size:13px;line-height:1.55;margin-top:2px}
 </style>
 <noscript><style>[data-lang]{display:block !important}</style></noscript>
 </head>
@@ -381,6 +388,73 @@
       <li><b>Protection</b> — dispatch works out of the box, with no confirmation prompt. To guard it: turn on “Pairing code” under Connect, so both ends share one code — a dispatch carrying a different code is rejected with HTTP 403. To stop being discoverable at all, use “One-click off” in the panel. All data stays local: no account, no cloud.</li>
       <li><b>Android keeps dropping</b> — the OS is killing background apps, not a plugin bug. Add DSH to the battery whitelist.</li>
     </ul>
+  </div>
+</section>
+
+<!-- ═════════ 贡献者 / Contributors ═════════ -->
+<section class="wrap" id="contributors">
+  <div data-lang="zh">
+    <h2>贡献者 <span class="tag">提 PR、提 issue 的都算</span></h2>
+    <p class="hint">这个项目不是一个人写出来的。0.5 之后的很多部分来自别人的真机、别人的报错和别人的 PR —— 名字列在这里是记账，不是客套。</p>
+    <div class="people">
+      <a class="person" href="https://github.com/sakikoTGW">
+        <i>S</i>
+        <span><b>sakikoTGW</b>23 个 PR：Windows / Android 平台兼容、三平台 CI、系统身份与诊断、卡片工作台、手机端、每 profile <code>mesh/</code> —— 0.5.0 的主干</span>
+      </a>
+      <a class="person" href="https://github.com/geekstartup42">
+        <i>G</i>
+        <span><b>geekstartup42</b>#34 修掉「同一 thread 第 2 轮不回派」（0.5.22）、#35 <code>state.json</code> 原子写 + 损坏时 fail-closed（0.5.23）</span>
+      </a>
+      <a class="person" href="https://github.com/chengle0575">
+        <i>C</i>
+        <span><b>chengle0575</b>#22 第一个外部代码修复尝试（issue #1 的补丁）</span>
+      </a>
+      <a class="person" href="https://github.com/WinWindWing">
+        <i>W</i>
+        <span><b>WinWindWing</b>#1 项目第一个外部 issue：派发未登记 <code>threadState</code>，回传落不进发起会话 —— thread 路由这条线的起点</span>
+      </a>
+      <a class="person" href="https://github.com/sillywhalebot">
+        <i>S</i>
+        <span><b>sillywhalebot</b>#33 同一 thread 的第 2 条派发被判成回执：复现步骤、版本、对端提示词原文一起给全，直接产出 #34</span>
+      </a>
+      <a class="person" href="https://github.com/kingofpantheon">
+        <i>K</i>
+        <span><b>kingofpantheon</b>#31 提案：给 thread 补任务归属元数据 + 只读检索，第一个点出「多任务串味」</span>
+      </a>
+    </div>
+    <p class="hint" style="margin-top:14px">还有 <a href="https://github.com/apps/dependabot">dependabot</a> 和发版机器人 —— 不提意见，只保证流程不停。逐条对账见 <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/CONTRIBUTORS.md">CONTRIBUTORS.md</a>；想进来：提一个 PR，或者一个能复现的 issue。</p>
+  </div>
+
+  <div data-lang="en">
+    <h2>Contributors <span class="tag">a PR or an issue counts</span></h2>
+    <p class="hint">This is not a one-person project. Much of 0.5.x came from other people's machines, other people's stack traces and other people's PRs — listed here as a ledger, not as courtesy.</p>
+    <div class="people">
+      <a class="person" href="https://github.com/sakikoTGW">
+        <i>S</i>
+        <span><b>sakikoTGW</b>23 PRs: Windows/Android compatibility, the three-OS CI matrix, system identity and diagnostics, the card workbench, mobile layout, per-profile <code>mesh/</code> — the backbone of 0.5.0</span>
+      </a>
+      <a class="person" href="https://github.com/geekstartup42">
+        <i>G</i>
+        <span><b>geekstartup42</b>#34 stopped multi-round tasks on one thread from being treated as receipts (0.5.22); #35 made <code>state.json</code> atomic and fail-closed (0.5.23)</span>
+      </a>
+      <a class="person" href="https://github.com/chengle0575">
+        <i>C</i>
+        <span><b>chengle0575</b>#22, the first external code fix attempt (a patch for issue #1)</span>
+      </a>
+      <a class="person" href="https://github.com/WinWindWing">
+        <i>W</i>
+        <span><b>WinWindWing</b>#1, the first external issue: dispatch never registered <code>threadState</code>, so results never landed in the originating session — where thread routing started</span>
+      </a>
+      <a class="person" href="https://github.com/sillywhalebot">
+        <i>S</i>
+        <span><b>sillywhalebot</b>#33, a second dispatch on the same thread treated as a receipt — exact repro, version and the peer's prompt, which produced #34</span>
+      </a>
+      <a class="person" href="https://github.com/kingofpantheon">
+        <i>K</i>
+        <span><b>kingofpantheon</b>#31, the proposal to give threads ownership metadata and read-only retrieval — the first to name the cross-talk problem</span>
+      </a>
+    </div>
+    <p class="hint" style="margin-top:14px">Plus <a href="https://github.com/apps/dependabot">dependabot</a> and the release bots — no opinions, just a pipeline that never stops. Per-contribution detail: <a href="https://github.com/peng456/dsh-plugin-mesh/blob/main/CONTRIBUTORS.md">CONTRIBUTORS.md</a>. To join: a PR, or a reproducible issue.</p>
   </div>
 </section>
 

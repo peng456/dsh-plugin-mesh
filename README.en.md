@@ -120,9 +120,33 @@ The full key list with defaults is in [`llms.txt`](llms.txt#configuration).
 | Full documentation (Chinese) | [README.md](README.md) |
 | Machine-oriented facts / config table | [llms.txt](llms.txt) |
 | Guide for coding agents | [AGENTS.md](AGENTS.md) |
+| Contributors (what each PR / issue changed) | [CONTRIBUTORS.md](CONTRIBUTORS.md) |
 | Showcase page (Chinese) | https://peng456.github.io/dsh-plugin-mesh/ |
 | Issues | https://github.com/peng456/dsh-plugin-mesh/issues |
 | Contact | geekstartup@163.com |
+
+---
+
+## Contributors
+
+This is not a one-person project. Much of 0.5.x came from other people's machines,
+other people's stack traces, and other people's PRs:
+
+| | |
+|---|---|
+| **[@sakikoTGW](https://github.com/sakikoTGW)** | **23 PRs**: Windows/Android platform fixes, the three-OS CI matrix, system identity and diagnostics, the card workbench, mobile layout, per-profile `mesh/` — the backbone of 0.5.0 |
+| **[@geekstartup42](https://github.com/geekstartup42)** | #34 stopped multi-round tasks on one thread from being treated as receipts (0.5.22); #35 made `state.json` atomic and fail-closed (0.5.23) |
+| **[@chengle0575](https://github.com/chengle0575)** | #22, the first external code fix attempt (a patch for issue #1) |
+| **[@WinWindWing](https://github.com/WinWindWing)** | #1, the first external issue: dispatch never registered `threadState`, so results never landed in the originating session — where thread routing started |
+| **[@sillywhalebot](https://github.com/sillywhalebot)** | #33, a second dispatch on the same thread treated as a receipt — exact repro steps, version, and the peer's prompt, which produced #34 |
+| **[@kingofpantheon](https://github.com/kingofpantheon)** | #31, the proposal to give threads ownership metadata and read-only retrieval — the first to name the cross-talk problem |
+
+Bots deserve a line too: **[@dependabot[bot]](https://github.com/apps/dependabot)** keeps the CI
+dependencies current, and github-actions keeps test → publish → release running.
+
+Per-contribution detail (which PR changed what, which issue led to which fix) is in
+[`CONTRIBUTORS.md`](CONTRIBUTORS.md) (Chinese). To join the list: a PR, or a reproducible
+issue, is enough.
 
 ---
 

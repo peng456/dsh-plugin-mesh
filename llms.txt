@@ -262,6 +262,7 @@ npm run build:sidecar    # rebuild the Go tsnet sidecar (cross-platform)
 - `AGENTS.md` — agent operating guide, constraints, traps (English)
 - `README.en.md` — short English quickstart (English)
 - `README.md` — user-facing entry (Chinese): what it gives you, 5-minute start, safety, FAQ
+- `CONTRIBUTORS.md` — who contributed what: per-PR and per-issue ledger of external contributions (Chinese)
 - `docs/DESIGN-NOTES.md` — the old long-form README: multicast/scan/firewall details, tsnet, identity, full config table, security model, limits, development
 - `DESIGN.md` — design rationale, trade-offs and post-mortems (Chinese)
 - `ROADMAP.md` — the single roadmap: seven directions x versions, gates, metrics, risks (Chinese)
