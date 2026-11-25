@@ -139,6 +139,7 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 | Update check | `npm run selftest:update` | version compare/prerelease, registry fallback, "failure is not up-to-date" (22) |
 | One-click upgrade | `npm run selftest:upgrade` | integrity, tar paths, change classification, atomic swap/rollback (26) |
 | Missing `ssh2` | `npm run selftest:sshdep` | SSH must say "ssh2 not installed" (with a fix command), never "peer rejected our key" |
+| Live upgrade verify | `npm run selftest:verify-live` (judge self-test, in `npm test`) · `npm run verify:upgrade-live` (manual, needs a running host) | the process really runs the version on disk: `/mesh/v1/diagnostics` vs `package.json`, no drift, `state.json` healthy, pid stable, no restart job left. "Did not answer" and "403 pairing" stay distinguishable from "version mismatch" |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host
 running; it is deliberately not part of `npm test` because it creates real agent
