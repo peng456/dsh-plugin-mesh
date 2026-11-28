@@ -1208,15 +1208,32 @@ window.__ModuleLoader__.load({
 .mesh-btn:active:not(:disabled) { transform: scale(0.97); }
 .mesh-btn--icon:active:not(:disabled) { transform: scale(0.94); }
 .mesh-btn:disabled { opacity: .42; cursor: not-allowed; }
-.mesh-btn--primary { background: var(--mesh-fg); color: var(--mesh-bg); }
-.mesh-btn--primary:hover:not(:disabled) { opacity: .88; }
+/* 主按钮 = 固定的品牌蓝实心底 + 白字。
+   原来写的是 background: var(--mesh-fg) / color: var(--mesh-bg) 的反相样式，
+   它有两条会"整块看不见"的路径：
+     1) 某些宿主/场景下 --dsw-alias-bg-base 取不到（或透明），color 跟着失效；
+     2) --dsw-alias-brand-primary 在官方主题里就是"墨色"（浅色 #0f1115 /
+        深色 #f9fafb），拿它当底色再配固定白字，深色主题下就是白底白字。
+   所以这里两边都不跟主题走：底色是 DSH 的品牌蓝，文字固定白，外加描边与
+   阴影 —— 在浅色卡片、深色卡片、透明壁纸底下都可辨。
+   同一份样式也修好了「发任务」「保存」「检查更新」等主按钮。 */
+.mesh-btn--primary {
+  background: #4d6bfe;
+  color: #fff;
+  border-color: color-mix(in srgb, #000 18%, #4d6bfe);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 22%, transparent);
+}
+.mesh-btn--primary:hover:not(:disabled) { background: #3d58e6; }
 .mesh-btn--secondary { background: var(--mesh-surface); border-color: var(--mesh-line-2); color: var(--mesh-fg); }
 .mesh-btn--secondary:hover:not(:disabled) { background: var(--mesh-surface-2); }
 .mesh-btn--ghost { color: var(--mesh-muted); }
 .mesh-btn--ghost:hover:not(:disabled) { background: var(--mesh-surface-2); color: var(--mesh-fg); }
 .mesh-btn.is-active { background: var(--mesh-surface-2); color: var(--mesh-accent); }
-.mesh-btn--danger { color: var(--mesh-err); }
-.mesh-btn--danger:hover:not(:disabled) { background: var(--mesh-surface-2); }
+.mesh-btn--danger { color: var(--mesh-err); border-color: color-mix(in srgb, var(--mesh-err) 34%, transparent); }
+.mesh-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--mesh-err) 12%, transparent); }
+/* 图标形式的「危险」态：删除设备的两步确认里，第一步要把这一点点亮 */
+.mesh-btn--icon.is-danger { color: var(--mesh-err); background: color-mix(in srgb, var(--mesh-err) 14%, transparent); }
+.mesh-btn--icon.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--mesh-err) 20%, transparent); }
 .mesh-btn--sm { height: 26px; padding: 0 9px; font-size: 11.5px; border-radius: 6px; }
 .mesh-btn--icon { width: 30px; padding: 0; }
 .mesh-btn--icon.mesh-btn--sm { width: 26px; }
@@ -1613,6 +1630,12 @@ window.__ModuleLoader__.load({
 }
 .mesh-mini-act:active:not(:disabled) { transform: scale(0.95); }
 .mesh-mini-act:disabled { opacity: .4; cursor: not-allowed; }
+/* 主页卡片里的删除：第一步点亮成红色，第二步才真的删（两步确认的视觉部分） */
+.mesh-mini-forget.is-danger {
+  color: var(--mesh-err);
+  border-color: color-mix(in srgb, var(--mesh-err) 42%, transparent);
+  background: color-mix(in srgb, var(--mesh-err) 12%, var(--mesh-surface));
+}
 .mesh-home-hidden {
   margin-top: 18px; padding-top: 14px;
   border-top: 1px solid var(--mesh-line);
@@ -2904,12 +2927,12 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function IconButton({ icon, iconNode, label, onClick, disabled, loading, active, badge }) {
+    function IconButton({ icon, iconNode, label, onClick, disabled, loading, active, badge, danger }) {
       return h(
         "button",
         {
           type: "button",
-          className: cls("mesh-btn", "mesh-btn--ghost", "mesh-btn--icon", active && "is-active"),
+          className: cls("mesh-btn", "mesh-btn--ghost", "mesh-btn--icon", active && "is-active", danger && "is-danger"),
           onClick,
           disabled: disabled || loading,
           title: label,
@@ -3571,7 +3594,72 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function DeviceRow({ peer, isSelf, active, onSelect, onWeb, onSsh, now, index }) {
+    /**
+     * 「从列表删除这台设备」——两步确认，和面板里其它破坏性操作同一个形状。
+     *
+     * 语义只到"删掉本机这份记录"：宿主侧 `/mesh/api/forget` 走的是
+     * `discovery.forget()`，不写任何黑名单。所以对方只要还在广播，几秒后
+     * 会自己回来 —— 按钮的提示文案必须把这一点说出来，否则用户会以为
+     * 删了以后它不该再出现（那是"拉黑"，是另一个功能）。
+     *
+     * 三种形态同一套确认逻辑：
+     *   icon  —— 设备页列表行尾的小图标（IconButton）
+     *   text  —— 设备详情里的文字按钮
+     *   mini  —— 主页「设备」卡片里那一行的小按钮（mini act）
+     */
+    function ForgetPeerButton({ peer, onForget, busy, compact, variant }) {
+      const shape = variant || (compact ? "icon" : "text");
+      const [armed, setArmed] = react.useState(false);
+      react.useEffect(() => {
+        if (!armed) return;
+        const t = setTimeout(() => setArmed(false), 4000);
+        return () => clearTimeout(t);
+      }, [armed]);
+      const name = (peer && peer.machine) || "这台设备";
+      const fire = (event) => {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (busy || !onForget) return;
+        if (!armed) {
+          setArmed(true);
+          return;
+        }
+        setArmed(false);
+        onForget(peer);
+      };
+      const label = armed ? `再点一次确认：从列表删除 ${name}` : `从列表删除 ${name}（只删本机这份记录）`;
+      if (shape === "icon") {
+        return h(IconButton, { icon: "trash", danger: armed, loading: busy, disabled: busy, label, onClick: fire });
+      }
+      if (shape === "mini") {
+        return h(
+          "button",
+          {
+            type: "button",
+            className: cls("mesh-mini-act", "mesh-mini-forget", armed && "is-danger"),
+            title: label,
+            "aria-label": label,
+            disabled: busy,
+            onClick: fire,
+          },
+          busy ? h("span", { className: "mesh-spinner" }) : h(Icon, { name: "trash", size: 13 }),
+        );
+      }
+      return h(
+        Button,
+        {
+          variant: armed ? "danger" : "ghost",
+          size: "sm",
+          icon: "trash",
+          loading: busy,
+          disabled: busy,
+          title: `只删本机这份记录；${name} 若还在广播会重新出现`,
+          onClick: fire,
+        },
+        armed ? "确认删除？" : "从列表删除",
+      );
+    }
+
+    function DeviceRow({ peer, isSelf, active, onSelect, onWeb, onSsh, onForget, forgetBusy, now, index }) {
       const online = !!peer.online || !!isSelf;
       const name = peer.machine || "未命名设备";
       const webUrl = isSelf ? "" : dshWebUrl(peer);
@@ -3646,12 +3734,16 @@ window.__ModuleLoader__.load({
                 },
               })
             : null,
+          // 删除：只清本机这份记录，两步确认（见 ForgetPeerButton 的说明）
+          !isSelf && onForget
+            ? h(ForgetPeerButton, { peer, onForget, busy: forgetBusy, variant: "icon" })
+            : null,
           h(Icon, { name: "chevron", size: 13 }),
         ),
       );
     }
 
-    function DeviceList({ selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning, onDemo }) {
+    function DeviceList({ selfPeer, peers, selectedId, onSelect, onWeb, onSsh, onForget, forgetBusy, now, lastOk, onScan, scanning, onDemo }) {
       return h(
         "aside",
         { className: "mesh-list-pane" },
@@ -3677,7 +3769,20 @@ window.__ModuleLoader__.load({
             : null,
           h("div", { className: "mesh-list-heading" }, "其他设备"),
           peers.length
-            ? peers.map((p, i) => h(DeviceRow, { key: p.id, peer: p, active: selectedId === p.id, onSelect, onWeb, onSsh, now, index: i + 1 }))
+            ? peers.map((p, i) =>
+                h(DeviceRow, {
+                  key: p.id,
+                  peer: p,
+                  active: selectedId === p.id,
+                  onSelect,
+                  onWeb,
+                  onSsh,
+                  onForget,
+                  forgetBusy: forgetBusy === p.id,
+                  now,
+                  index: i + 1,
+                }),
+              )
             : h(
                 "div",
                 { className: "mesh-list-empty" },
@@ -3700,7 +3805,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function DeviceDetail({ peer, isSelf, onCompose, onProbe, probe, hostDown, now, onBack, onRename, onScan, recentTasks, onOpenTask, onAllTasks }) {
+    function DeviceDetail({ peer, isSelf, onCompose, onProbe, probe, hostDown, now, onBack, onRename, onScan, onForget, forgetBusy, recentTasks, onOpenTask, onAllTasks }) {
       const paneRef = react.useRef(null);
       react.useEffect(() => {
         const el = paneRef.current;
@@ -3800,6 +3905,10 @@ window.__ModuleLoader__.load({
                       },
                       "发任务",
                     ),
+                    // 删除放在最后：它是清理动作，不该抢「发任务」的位置。
+                    onForget
+                      ? h(ForgetPeerButton, { peer, onForget, busy: forgetBusy })
+                      : null,
                   ),
             ),
           ),
@@ -3865,7 +3974,7 @@ window.__ModuleLoader__.load({
     }
 
     function DeviceView(props) {
-      const { selfPeer, peers, selectedPeer, selectedId, onSelect, onWeb, onSsh, mobilePane, onBack, onCompose, onProbe, probe, hostDown, now, lastOk, onScan, scanning, onDemo, firstRun, onRename, recentTasks, onOpenTask, onAllTasks } = props;
+      const { selfPeer, peers, selectedPeer, selectedId, onSelect, onWeb, onSsh, onForget, forgetBusy, mobilePane, onBack, onCompose, onProbe, probe, hostDown, now, lastOk, onScan, scanning, onDemo, firstRun, onRename, recentTasks, onOpenTask, onAllTasks } = props;
       return h(
         react.Fragment,
         null,
@@ -3873,8 +3982,24 @@ window.__ModuleLoader__.load({
         h(
           "div",
           { className: "mesh-split", "data-pane": mobilePane },
-          h(DeviceList, { selfPeer, peers, selectedId, onSelect, onWeb, onSsh, now, lastOk, onScan, scanning, onDemo }),
-          h(DeviceDetail, { peer: selectedPeer, isSelf: selectedId === "self", onCompose, onProbe, probe, hostDown, now, onBack, onRename, onScan, recentTasks, onOpenTask, onAllTasks }),
+          h(DeviceList, { selfPeer, peers, selectedId, onSelect, onWeb, onSsh, onForget, forgetBusy, now, lastOk, onScan, scanning, onDemo }),
+          h(DeviceDetail, {
+            peer: selectedPeer,
+            isSelf: selectedId === "self",
+            onCompose,
+            onProbe,
+            probe,
+            hostDown,
+            now,
+            onBack,
+            onRename,
+            onScan,
+            onForget,
+            forgetBusy: forgetBusy === (selectedPeer && selectedPeer.id),
+            recentTasks,
+            onOpenTask,
+            onAllTasks,
+          }),
         ),
       );
     }
@@ -6587,6 +6712,8 @@ window.__ModuleLoader__.load({
       onConnect,
       onWeb,
       onSsh,
+      onForget,
+      forgetBusy,
       onScan,
       scanning,
       firstRun,
@@ -6666,6 +6793,14 @@ window.__ModuleLoader__.load({
                     h(Dot, { kind: p.online ? "ok" : "idle" }),
                     h("span", { className: "mesh-mini-name" }, p.machine || "未命名设备"),
                     h("span", { className: "mesh-mini-meta" }, p.online ? `在线 · ${osLabel(p.os)}` : `${ago(p.lastSeen, now)}`),
+                    // 主页也要能清理脏记录，不必先跳到设备页
+                    onForget
+                      ? h(
+                          "span",
+                          { className: "mesh-mini-actions" },
+                          h(ForgetPeerButton, { peer: p, onForget, busy: forgetBusy === p.id, variant: "mini" }),
+                        )
+                      : null,
                   ),
                 )
               : h(
@@ -7737,6 +7872,8 @@ window.__ModuleLoader__.load({
       onConnect,
       onWeb,
       onSsh,
+      onForget,
+      forgetBusy,
       onScan,
       scanning,
       onDemo,
@@ -7938,6 +8075,8 @@ window.__ModuleLoader__.load({
                         h(Icon, { name: "terminal", size: 14 }),
                       )
                     : null,
+                  // 与设备页同一个入口：只删本机这份记录，两步确认
+                  onForget ? h(ForgetPeerButton, { peer: p, onForget, busy: forgetBusy === p.id, variant: "mini" }) : null,
                 ),
               ),
             )
@@ -8466,6 +8605,8 @@ window.__ModuleLoader__.load({
       // SSH 终端面板：null 或某个 peer
       const [sshPeer, setSshPeer] = react.useState(null);
       const [scanning, setScanning] = react.useState(false);
+      // 正在删除的设备 id（"" = 没有在删）
+      const [forgetBusy, setForgetBusy] = react.useState("");
       const [nameBusy, setNameBusy] = react.useState(false);
       const [nameDismissed, setNameDismissed] = react.useState(false);
       const [settingsOpen, setSettingsOpen] = react.useState(null);
@@ -8632,6 +8773,38 @@ window.__ModuleLoader__.load({
           setProbe({ id: peer.id, pending: false, ...r });
         } catch (e) {
           setProbe({ id: peer.id, pending: false, reachable: false, error: String((e && e.message) || e) });
+        }
+      };
+
+      /**
+       * 从设备列表删掉一台设备。
+       *
+       * 只调 `/mesh/api/forget`（宿主 → discovery.forget()），**不写任何黑名单**：
+       * 对端还在广播就会自己回来，所以成功提示里要说清这一点，不能让用户以为
+       * "删过就不再出现"。失败一律如实报错，不静默吞掉。
+       */
+      const forgetPeer = async (peer) => {
+        if (!peer || peer.self || !peer.id || hostDown || forgetBusy) return;
+        const name = peer.machine || "这台设备";
+        setForgetBusy(peer.id);
+        try {
+          const r = await api("/forget", { id: peer.id });
+          if (!r || r.ok !== true) {
+            push("error", `删除失败：${apiErr(r)}`);
+            return;
+          }
+          if (!r.removed) {
+            push("info", `「${name}」已经不在列表里了`);
+          } else if (peer.online) {
+            push("success", `已从列表删除「${name}」—— 它还在广播，几秒后可能重新出现`);
+          } else {
+            push("success", `已从列表删除「${name}」`);
+          }
+          await reload();
+        } catch (e) {
+          push("error", `删除失败：${String((e && e.message) || e)}`);
+        } finally {
+          setForgetBusy("");
         }
       };
 
@@ -9060,6 +9233,8 @@ window.__ModuleLoader__.load({
                 onConnect: openConnect,
                 onWeb: openWeb,
                 onSsh: (peer) => setSshPeer(peer),
+                onForget: forgetPeer,
+                forgetBusy,
                 onScan: doScan,
                 scanning,
                 onDemo: () => setDemoOpen(true),
@@ -9078,6 +9253,8 @@ window.__ModuleLoader__.load({
                 onSelect: selectPeer,
                 onWeb: openWeb,
                 onSsh: (peer) => setSshPeer(peer),
+                onForget: forgetPeer,
+                forgetBusy,
                 mobilePane,
                 onBack: () => setMobilePane("list"),
                 onCompose: openComposer,
