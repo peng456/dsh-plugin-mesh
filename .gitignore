@@ -1,6 +1,12 @@
 # 依赖 —— 插件本身零运行依赖，这里只可能是本地开发时建的符号链接
 node_modules/
 
+# 例外：lib/vendor 里带的是一份**纯 JS、零安装脚本**的 ssh2（见
+# scripts/vendor-ssh2.mjs）。它必须随 npm 包一起解压落地，所以这几层
+# node_modules 要进仓库 —— 但只有这几层。
+!lib/vendor/ssh2/node_modules/
+!lib/vendor/ssh2/node_modules/**
+
 # 日志与临时产物
 *.log
 npm-debug.log*

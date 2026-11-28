@@ -96,6 +96,12 @@ unless the request carries the renderer token).
    does **not** help — same error. Optional features (SSH/`ssh2`) must be lazily
    `require()`d with an actionable message when absent. `scripts/check-install-safe.mjs`
    enforces this in `npm run check`.
+   The optional feature is now *shipped*, not depended on: `lib/vendor/ssh2`
+   is a script-free, pure-JS copy produced by `scripts/vendor-ssh2.mjs` (upstream
+   `install.js` / `binding.gyp` / `src/` stripped, tarball sha256 pinned). It unpacks
+   like any other file, so hosts that refuse build scripts get SSH too. Never add the
+   real `ssh2` back to `dependencies`, and never edit `lib/vendor/**` by hand —
+   `npm run check:vendor` recomputes its hashes offline and rejects install scripts.
 
 ## 4. Architecture map
 
@@ -138,7 +144,7 @@ inject the prompt → the peer's agent replies by calling `mesh_run`.
 | Kill switch | `npm run selftest:switch` | shutdown merge rules: `off` defaults to true, `all` closes both scopes, strict booleans only (15) |
 | Update check | `npm run selftest:update` | version compare/prerelease, registry fallback, "failure is not up-to-date" (22) |
 | One-click upgrade | `npm run selftest:upgrade` | integrity, tar paths, change classification, atomic swap/rollback (26) |
-| Missing `ssh2` | `npm run selftest:sshdep` | SSH must say "ssh2 not installed" (with a fix command), never "peer rejected our key" |
+| `ssh2` resolution | `npm run selftest:sshdep` | precedence (local install > vendored copy), the vendored copy really gets used, "not installed" is said with a fix command and never as "peer rejected our key" |
 | Live upgrade verify | `npm run selftest:verify-live` (judge self-test, in `npm test`) · `npm run verify:upgrade-live` (manual, needs a running host) | the process really runs the version on disk: `/mesh/v1/diagnostics` vs `package.json`, no drift, `state.json` healthy, pid stable, no restart job left. "Did not answer" and "403 pairing" stay distinguishable from "version mismatch" |
 
 `lib/_selftest-newsession.mjs` is a manual end-to-end check that needs a dev host

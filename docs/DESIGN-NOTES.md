@@ -486,6 +486,38 @@ pnpm 直接让**整次安装失败** —— 插件根本装不上去。同一个
 `pnpm add ssh2`。`scripts/check-install-safe.mjs` 在 `npm run check` 里把这条规则
 钉住 —— 往依赖里加带构建脚本的包，检查当场红。
 
+#### 现在：把那份 ssh2 自己带上
+
+上面那条「要用的人自己装」把成本转移给了用户，而**最需要它的那一端恰好装不了**：
+iPad 的 DSH Go 没有 pnpm，也没有 shell。于是一个可选功能在移动端等于永久不可用 ——
+用「所有桌面用户手动补一次依赖」换「移动端永远没有 SSH」，这笔账不划算。
+
+真正卡住的不是「ssh2 需要编译」，而是**宿主那条"见到 install 脚本就整包拒绝"的粗规则**：
+
+- `ssh2/install.js` 只编译**可选**加速件，且无论成败都 `process.exit(0)`；
+- `cpu-features` 在 `lib/protocol/constants.js` 里是 `try { require('cpu-features')() } catch {}`；
+- 原生 crypto 绑定（`lib/protocol/crypto/build/Release/sshcrypto.node`）同样是 try/catch，
+  失败就退回纯 JS。
+
+也就是说：**ssh2 本身就是纯 JS 可用的，脚本只是锦上添花。** 那就别让锦上添花跟着走。
+
+`scripts/vendor-ssh2.mjs` 做四件事：按钉死的 sha256 拉上游 tarball → 每份只留
+`LICENSE` + `lib/` → 删掉 `install.js`、`binding.gyp`、`lib/protocol/crypto/src/` →
+剥掉下游包里的 `scripts` 与 `optionalDependencies`，把依赖树打平进
+`lib/vendor/ssh2/node_modules/`。产出物随 npm 包一起解压，**安装仍然只是解包**，
+规则守住了，能力也回来了。
+
+门禁两道，都有牙：
+
+- `npm run check:vendor`（在 `npm run check` 里）离线重算 39 个文件的 sha256，
+  并拒绝任何 `scripts.install` / `optionalDependencies` / `*.node` / `binding.gyp`；
+  改一行 vendor 里的文件、或往里塞回一个安装脚本，当场红。
+- `scripts/check-tarball.mjs` 的必需条目里加了 `lib/vendor/ssh2/lib/index.js` 与
+  `VENDOR.json` —— 保证**发布件**真的带上了它，而不是只有源码树里有。
+
+优先级：本机自己装的 `ssh2` > 插件自带的（见 `lib/ssh2-resolve.js`）。代价是仓库 +
+800KB（npm 包约 +250KB），刷新版本要发一次版；换来的是任何宿主开箱就有 SSH。
+
 ### 方式 B：一键脚本（从源码装）
 
 ```bash

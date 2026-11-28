@@ -37,6 +37,8 @@ const REQUIRED = [
   "lib/identity.js",
   "lib/tsnet/manager.js",
   "client/client.js", // dsh.client 指向它
+  "lib/vendor/ssh2/lib/index.js", // 「自带 SSH 客户端」的入口；缺了 iPad 上永远没 SSH
+  "lib/vendor/ssh2/VENDOR.json", // 上面那份的完整性清单（scripts/vendor-ssh2.mjs 生成）
   "scripts/check-loadable.mjs",
   "README.md",
   "LICENSE",
