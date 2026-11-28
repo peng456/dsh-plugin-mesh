@@ -1231,6 +1231,14 @@ window.__ModuleLoader__.load({
 .mesh-btn.is-active { background: var(--mesh-surface-2); color: var(--mesh-accent); }
 .mesh-btn--danger { color: var(--mesh-err); border-color: color-mix(in srgb, var(--mesh-err) 34%, transparent); }
 .mesh-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--mesh-err) 12%, transparent); }
+/* 实心危险按钮：确认框里的「删除」。红底白字，深色主题下把红压暗一点保证可读 */
+.mesh-btn--danger-fill {
+  background: color-mix(in srgb, var(--mesh-err) 82%, #000);
+  color: #fff;
+  border-color: color-mix(in srgb, #000 20%, var(--mesh-err));
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 22%, transparent);
+}
+.mesh-btn--danger-fill:hover:not(:disabled) { background: color-mix(in srgb, var(--mesh-err) 68%, #000); }
 /* 图标形式的「危险」态：删除设备的两步确认里，第一步要把这一点点亮 */
 .mesh-btn--icon.is-danger { color: var(--mesh-err); background: color-mix(in srgb, var(--mesh-err) 14%, transparent); }
 .mesh-btn--icon.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--mesh-err) 20%, transparent); }
@@ -1630,12 +1638,8 @@ window.__ModuleLoader__.load({
 }
 .mesh-mini-act:active:not(:disabled) { transform: scale(0.95); }
 .mesh-mini-act:disabled { opacity: .4; cursor: not-allowed; }
-/* 主页卡片里的删除：第一步点亮成红色，第二步才真的删（两步确认的视觉部分） */
-.mesh-mini-forget.is-danger {
-  color: var(--mesh-err);
-  border-color: color-mix(in srgb, var(--mesh-err) 42%, transparent);
-  background: color-mix(in srgb, var(--mesh-err) 12%, var(--mesh-surface));
-}
+/* 主页卡片里的删除图标：常态低调，hover 才提示它是个动作 */
+.mesh-mini-forget:hover:not(:disabled) { color: var(--mesh-err); border-color: color-mix(in srgb, var(--mesh-err) 38%, transparent); }
 .mesh-home-hidden {
   margin-top: 18px; padding-top: 14px;
   border-top: 1px solid var(--mesh-line);
@@ -1949,6 +1953,38 @@ window.__ModuleLoader__.load({
 .mesh-firstrun .mesh-input { flex: 0 1 220px; width: 220px; }
 
 /* ── Toast ── */
+/* ── 删除确认框 ── */
+.mesh-confirm-layer {
+  position: absolute; inset: 0; z-index: 56;
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px;
+  background: rgba(12, 14, 18, .46);
+  animation: mesh-view-in 140ms ease both;
+}
+.mesh-confirm-card {
+  width: min(430px, 100%);
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 18px;
+  background: var(--mesh-surface);
+  color: var(--mesh-fg);
+  border: 1px solid var(--mesh-line);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.34);
+  animation: mesh-detail-in 200ms var(--mesh-ease-out) both;
+}
+.mesh-confirm-head { display: flex; align-items: flex-start; gap: 11px; }
+.mesh-confirm-icon {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  color: var(--mesh-err);
+  background: color-mix(in srgb, var(--mesh-err) 12%, transparent);
+}
+.mesh-confirm-titles { min-width: 0; }
+.mesh-confirm-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.mesh-confirm-sub { margin-top: 3px; font-size: 11px; color: var(--mesh-muted); }
+.mesh-confirm-text { margin: 0; font-size: 12px; line-height: 1.7; color: var(--mesh-muted); }
+.mesh-confirm-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+
 .mesh-toasts {
   position: absolute; right: 18px; bottom: 18px; z-index: 60;
   width: min(344px, calc(100% - 36px));
@@ -3609,33 +3645,25 @@ window.__ModuleLoader__.load({
      */
     function ForgetPeerButton({ peer, onForget, busy, compact, variant }) {
       const shape = variant || (compact ? "icon" : "text");
-      const [armed, setArmed] = react.useState(false);
-      react.useEffect(() => {
-        if (!armed) return;
-        const t = setTimeout(() => setArmed(false), 4000);
-        return () => clearTimeout(t);
-      }, [armed]);
       const name = (peer && peer.machine) || "这台设备";
+      // 点一下只是"发起删除"：真正的删除在 ConfirmForgetDialog 里点「删除」才发生。
+      // 早先是"再点一次同一个按钮"，用户反馈看不出第二次点位在哪（尤其在设备行
+      // 尾部的小图标上），所以改成弹确认框。
       const fire = (event) => {
         if (event && event.stopPropagation) event.stopPropagation();
         if (busy || !onForget) return;
-        if (!armed) {
-          setArmed(true);
-          return;
-        }
-        setArmed(false);
         onForget(peer);
       };
-      const label = armed ? `再点一次确认：从列表删除 ${name}` : `从列表删除 ${name}（只删本机这份记录）`;
+      const label = `从列表删除 ${name}（只删本机这份记录）`;
       if (shape === "icon") {
-        return h(IconButton, { icon: "trash", danger: armed, loading: busy, disabled: busy, label, onClick: fire });
+        return h(IconButton, { icon: "trash", loading: busy, disabled: busy, label, onClick: fire });
       }
       if (shape === "mini") {
         return h(
           "button",
           {
             type: "button",
-            className: cls("mesh-mini-act", "mesh-mini-forget", armed && "is-danger"),
+            className: cls("mesh-mini-act", "mesh-mini-forget"),
             title: label,
             "aria-label": label,
             disabled: busy,
@@ -3647,7 +3675,7 @@ window.__ModuleLoader__.load({
       return h(
         Button,
         {
-          variant: armed ? "danger" : "ghost",
+          variant: "ghost",
           size: "sm",
           icon: "trash",
           loading: busy,
@@ -3655,7 +3683,72 @@ window.__ModuleLoader__.load({
           title: `只删本机这份记录；${name} 若还在广播会重新出现`,
           onClick: fire,
         },
-        armed ? "确认删除？" : "从列表删除",
+        "从列表删除",
+      );
+    }
+
+    /**
+     * 删除设备的确认框。
+     *
+     * 为什么是弹层而不是"再点一次"：那种做法只在按钮本身上变红/变文字，用户
+     * （真机反馈）根本没注意到"还要再点一次"，于是以为按钮没反应。弹层把
+     * 设备名、这条操作到底改了什么、"删完它会不会回来"一次说清，且「删除」
+     * 是独立的一颗红按钮。
+     *
+     * Esc / 点遮罩 = 取消；删除进行中两颗按钮都禁用，避免连点。
+     */
+    function ConfirmForgetDialog({ peer, busy, onCancel, onConfirm }) {
+      react.useEffect(() => {
+        if (!peer) return undefined;
+        const onKey = (e) => {
+          if (e && e.key === "Escape") onCancel();
+        };
+        const target = typeof window !== "undefined" ? window : null;
+        target?.addEventListener?.("keydown", onKey);
+        return () => target?.removeEventListener?.("keydown", onKey);
+      }, [peer, onCancel]);
+
+      if (!peer) return null;
+      const name = peer.machine || "这台设备";
+      return h(
+        "div",
+        {
+          className: "mesh-confirm-layer",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-label": `从列表删除 ${name}`,
+          onClick: (e) => e.target === e.currentTarget && !busy && onCancel(),
+        },
+        h(
+          "div",
+          { className: "mesh-confirm-card" },
+          h(
+            "div",
+            { className: "mesh-confirm-head" },
+            h("span", { className: "mesh-confirm-icon" }, h(Icon, { name: "trash", size: 16 })),
+            h(
+              "div",
+              { className: "mesh-confirm-titles" },
+              h("div", { className: "mesh-confirm-title" }, `从列表删除「${name}」？`),
+              h(
+                "div",
+                { className: "mesh-confirm-sub" },
+                peer.online ? "当前在线 · 删掉后它还会自己回来" : "当前离线 · 删掉后记录不再显示",
+              ),
+            ),
+          ),
+          h(
+            "p",
+            { className: "mesh-confirm-text" },
+            "只删本机这份记录：不动对端、不拉黑、不卸载。对方只要还在广播，下一个心跳周期就会重新出现在列表里；想让它永远别出现，去那台机器上关掉 Mesh。",
+          ),
+          h(
+            "div",
+            { className: "mesh-confirm-foot" },
+            h(Button, { variant: "ghost", onClick: onCancel, disabled: busy }, "取消"),
+            h(Button, { variant: "danger-fill", icon: "trash", loading: busy, onClick: () => onConfirm(peer) }, "删除"),
+          ),
+        ),
       );
     }
 
@@ -3734,7 +3827,7 @@ window.__ModuleLoader__.load({
                 },
               })
             : null,
-          // 删除：只清本机这份记录，两步确认（见 ForgetPeerButton 的说明）
+          // 删除：只清本机这份记录；点一下弹确认框（见 ConfirmForgetDialog）
           !isSelf && onForget
             ? h(ForgetPeerButton, { peer, onForget, busy: forgetBusy, variant: "icon" })
             : null,
@@ -8607,6 +8700,8 @@ window.__ModuleLoader__.load({
       const [scanning, setScanning] = react.useState(false);
       // 正在删除的设备 id（"" = 没有在删）
       const [forgetBusy, setForgetBusy] = react.useState("");
+      // 等待二次确认的设备（null = 没有确认框）
+      const [forgetTarget, setForgetTarget] = react.useState(null);
       const [nameBusy, setNameBusy] = react.useState(false);
       const [nameDismissed, setNameDismissed] = react.useState(false);
       const [settingsOpen, setSettingsOpen] = react.useState(null);
@@ -8805,6 +8900,21 @@ window.__ModuleLoader__.load({
           push("error", `删除失败：${String((e && e.message) || e)}`);
         } finally {
           setForgetBusy("");
+        }
+      };
+
+      /** 界面上点「删除」只到这一步：先弹确认框，不直接动手。 */
+      const askForget = (peer) => {
+        if (!peer || peer.self || !peer.id) return;
+        setForgetTarget(peer);
+      };
+
+      /** 确认框里点「删除」才真的走接口；无论成败都关掉确认框。 */
+      const confirmForget = async (peer) => {
+        try {
+          await forgetPeer(peer);
+        } finally {
+          setForgetTarget(null);
         }
       };
 
@@ -9233,7 +9343,7 @@ window.__ModuleLoader__.load({
                 onConnect: openConnect,
                 onWeb: openWeb,
                 onSsh: (peer) => setSshPeer(peer),
-                onForget: forgetPeer,
+                onForget: askForget,
                 forgetBusy,
                 onScan: doScan,
                 scanning,
@@ -9253,7 +9363,7 @@ window.__ModuleLoader__.load({
                 onSelect: selectPeer,
                 onWeb: openWeb,
                 onSsh: (peer) => setSshPeer(peer),
-                onForget: forgetPeer,
+                onForget: askForget,
                 forgetBusy,
                 mobilePane,
                 onBack: () => setMobilePane("list"),
@@ -9334,6 +9444,12 @@ window.__ModuleLoader__.load({
           : null,
         sshPeer ? h(SshPanel, { peer: sshPeer, onClose: () => setSshPeer(null) }) : null,
         h(Toasts, { items: toasts, onClose: close }),
+        h(ConfirmForgetDialog, {
+          peer: forgetTarget,
+          busy: !!forgetTarget && forgetBusy === forgetTarget.id,
+          onCancel: () => setForgetTarget(null),
+          onConfirm: confirmForget,
+        }),
         h(DemoOverlay, { open: demoOpen, onClose: () => setDemoOpen(false) }),
       );
     }
@@ -9394,6 +9510,8 @@ window.__ModuleLoader__.load({
       TasksView,
       DeviceDetail,
       DeviceRow,
+      ForgetPeerButton,
+      ConfirmForgetDialog,
       dshWebUrl,
       resolveWebUrl,
       openDshWebPage,
