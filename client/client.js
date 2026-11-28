@@ -311,6 +311,25 @@ window.__ModuleLoader__.load({
       return { ok: false, how: "none", url, reason: "没有可用的打开方式" };
     }
 
+    /**
+     * 后端真实地址 —— SSH 终端那条 WebSocket 必须用它拼。
+     *
+     * 桌面壳把界面挂在自定义 scheme 上（`dsh-app://app`），`location.host` 是
+     * **"app"**：拼出来是 `ws://app/mesh/api/ssh/ws`，浏览器直接报错，
+     * 界面上就只剩一句「连接通道错误（WebSocket）」（2026-11-29 实测）。
+     * 宿主在 `__DSH_TRANSPORT__.streamBaseUrl` 里给了真地址（http://127.0.0.1:<port>），
+     * 有就用它，没有才退回同源（普通 web profile 走的还是这条）。
+     */
+    function transportBase() {
+      try {
+        const base = window.__DSH_TRANSPORT__ && window.__DSH_TRANSPORT__.streamBaseUrl;
+        if (typeof base === "string" && base) return base;
+      } catch {
+        /* 读不到就退回同源 */
+      }
+      return location.origin;
+    }
+
     function apiErr(r) {
       return (r && (r.error || r.message)) || "未知错误";
     }
@@ -832,6 +851,20 @@ window.__ModuleLoader__.load({
 .mesh-web-sub { color: var(--mesh-muted); font-weight: 400; }
 .mesh-web-mark { flex: 0 0 auto; display: inline-flex; align-items: center; color: var(--mesh-fg); }
 .mesh-web-frame { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; background: var(--mesh-bg); }
+/* 桌面壳的壳顶是一条窗口拖拽带（-webkit-app-region: drag）。它按**几何**判定、
+   无视 z-index：面板控件落进那条带里，点击会被"拖窗口"吞掉，按钮看着好好的
+   却点不动（DSH 自己的插件里也踩过同一个坑，见 0.9.4 的先例注释）。
+   两道保险，缺一不可：
+     1. 整层 no-drag —— 几何上给拖拽带打个洞；
+     2. 顶栏再整体挪到带子下方 48px —— 万一打洞无效，物理上也够不着。 */
+.mesh-web-layer { -webkit-app-region: no-drag; }
+.mesh-web-layer .mesh-web-bar,
+.mesh-web-layer .mesh-panel-back,
+.mesh-web-layer button { -webkit-app-region: no-drag; }
+.mesh-web-layer.is-desktop .mesh-web-bar { padding-left: 88px; }
+/* webview 承载层：guest 是独立进程，但不给显式尺寸会塌成 0 高。 */
+.mesh-web-guest { flex: 1 1 auto; display: flex; min-height: 0; }
+.mesh-web-guest > .mesh-web-frame { width: 100%; height: 100%; }
 .mesh-web-status {
   flex: 0 0 auto;
   display: flex; align-items: center; gap: 6px;
@@ -4595,21 +4628,53 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** 是不是 Electron 桌面壳（macOS 交通灯压着左上角，顶栏要让位）。 */
+    const DESKTOP_SHELL = (() => {
+      try {
+        return /Electron/i.test(String(navigator.userAgent || ""));
+      } catch {
+        return false;
+      }
+    })();
+
+    /**
+     * 交给系统浏览器打开（面板右上角那个「在浏览器打开」）。
+     *
+     * DSH Desktop 的主窗口把 `window.open(http/https)` 接到 `shell.openExternal`
+     * （app.asar/lib/main.js 的 setWindowOpenHandler），所以桌面端这一句就是
+     * "在默认浏览器里打开" —— 面板真卡住时的逃生口。
+     */
+    function openExternal(url) {
+      if (!url) return;
+      try {
+        window.open(url, "_blank");
+      } catch {
+        /* 被弹窗拦截就只能靠用户手动点一次 */
+      }
+    }
+
     /**
      * 对端 DSH Web 的应用内面板。
      *
-     * 承载方式是同源 iframe —— 指向**本机**的一个回环反代端口（宿主的
-     * /mesh/api/web-panel 起出来的），对端认证在服务端完成。所以这里不需要
-     * token、不依赖壳的浏览器 WebView，也不受对端 cookie SameSite 限制。
+     * 承载方式是同源 iframe —— 指向**本机**的一个回环反代端口（宿主起的），所以这里
+     * 不需要 token、不受对端 cookie SameSite 限制。
+     *
+     * 试过用 Electron 的 `<webview>` 换独立进程，实测在 DSH Desktop 里**是死的**：
+     * 元素注册了、能建、能进 DOM、有尺寸，但 `dom-ready` 永不触发、
+     * `getWebContentsId()` 抛 "must be attached to the DOM"、CDP 里看不到 guest
+     * target —— 面板就是整块白屏（2026-11-28 用 --remote-debugging-port 实测）。
+     * 而 iframe 在这台机器上本身就是独立渲染进程（实测两个 renderer），对端
+     * 13.4MB 加载期间主线程 ping 稳定 0–5ms。所以老老实实用 iframe；
+     * 真要逃命用右上角「在系统浏览器里打开」。
      */
-    function WebPanel({ panel, onClose, onReload }) {
+    function WebPanel({ panel, onClose, onReload, onOpenExternal }) {
       if (!panel) return null;
       const ready = panel.state === "ready";
       const name = panel.name || "对端";
       return h(
         "div",
         {
-          className: "mesh-web-layer",
+          className: cls("mesh-web-layer", DESKTOP_SHELL && "is-desktop"),
           role: "dialog",
           "aria-modal": "true",
           "aria-label": `${name} 的 DSH Web`,
@@ -4634,7 +4699,11 @@ window.__ModuleLoader__.load({
             name,
             h("span", { className: "mesh-web-sub" }, " · DSH Web"),
           ),
+          h(IconButton, { icon: "arrowOut", label: "在系统浏览器里打开", onClick: () => onOpenExternal && onOpenExternal() }),
           h(IconButton, { icon: "refresh", label: "重新加载面板", onClick: onReload }),
+          // 右上角关闭：左侧「返回」在 macOS 壳里靠近交通灯，万一被原生按钮
+          // 吃掉点击，这里永远点得到。
+          h(IconButton, { icon: "close", label: "关闭面板", onClick: onClose }),
         ),
         !ready
           ? h(
@@ -4660,7 +4729,10 @@ window.__ModuleLoader__.load({
               title: `${name} 的 DSH Web`,
               // 对端界面里要用剪贴板（复制命令/日志），别让它被静默拒绝。
               allow: "clipboard-read; clipboard-write; fullscreen",
-              referrerPolicy: "no-referrer",
+              // 不能是 no-referrer：宿主把界面挂在 dsh-app:// 上时，这个回环端口
+              // 在 iframe 里是第三方上下文，门禁 cookie 可能被拦；代理靠 Referer
+              // 里的 ?k=<nonce> 兜底，清掉 Referer 就等于把兜底也清了。
+              referrerPolicy: "strict-origin-when-cross-origin",
             })
           : null,
       );
@@ -4732,6 +4804,7 @@ window.__ModuleLoader__.load({
       let panel = null; // 当前面板；null = 没有 iframe
       let hooks = null; // { push, fallback }：MeshApp 挂载时注册，卸载即清空
       let pagehideBound = false;
+      let escBound = false; // Esc 监听只挂一次
 
       const keyOf = (peer) => (peer && (peer.machine || peer.id)) || "";
       const nameOf = (peer) => (peer && (peer.machine || peer.id)) || "对端";
@@ -4739,6 +4812,16 @@ window.__ModuleLoader__.load({
       function ensureHost() {
         if (hostEl !== null) return true;
         if (typeof document === "undefined" || !document.body) return false;
+        // Esc 关面板：顶栏被交通灯挡住 / 面板全屏时的逃生口。
+        if (!escBound) {
+          escBound = true;
+          document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            if (panel === null || panel.hidden) return;
+            event.stopPropagation();
+            hide();
+          }, true);
+        }
         hostEl = document.createElement("div");
         hostEl.className = "mesh-web-hosted";
         document.body.appendChild(hostEl);
@@ -4757,7 +4840,7 @@ window.__ModuleLoader__.load({
 
       function paint() {
         if (root === null) return;
-        root.render(h(WebPanel, { panel, onClose: hide, onReload: reload }));
+        root.render(h(WebPanel, { panel, onClose: hide, onReload: reload, onOpenExternal: () => openExternal(panel && panel.url) }));
       }
 
       function clearTimer() {
@@ -5092,10 +5175,11 @@ window.__ModuleLoader__.load({
         setError("");
         setOutput("");
         setPhase("connecting");
-        const scheme = location.protocol === "https:" ? "wss" : "ws";
         let ws;
         try {
-          ws = new WebSocket(`${scheme}://${location.host}/mesh/api/ssh/ws`);
+          const base = new URL("/mesh/api/ssh/ws", transportBase());
+          base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+          ws = new WebSocket(base.href);
         } catch (e) {
           setError(String(e && e.message ? e.message : e));
           setPhase("error");

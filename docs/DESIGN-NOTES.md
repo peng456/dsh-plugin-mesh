@@ -486,6 +486,38 @@ pnpm 直接让**整次安装失败** —— 插件根本装不上去。同一个
 `pnpm add ssh2`。`scripts/check-install-safe.mjs` 在 `npm run check` 里把这条规则
 钉住 —— 往依赖里加带构建脚本的包，检查当场红。
 
+#### 现在：把那份 ssh2 自己带上
+
+上面那条「要用的人自己装」把成本转移给了用户，而**最需要它的那一端恰好装不了**：
+iPad 的 DSH Go 没有 pnpm，也没有 shell。于是一个可选功能在移动端等于永久不可用 ——
+用「所有桌面用户手动补一次依赖」换「移动端永远没有 SSH」，这笔账不划算。
+
+真正卡住的不是「ssh2 需要编译」，而是**宿主那条"见到 install 脚本就整包拒绝"的粗规则**：
+
+- `ssh2/install.js` 只编译**可选**加速件，且无论成败都 `process.exit(0)`；
+- `cpu-features` 在 `lib/protocol/constants.js` 里是 `try { require('cpu-features')() } catch {}`；
+- 原生 crypto 绑定（`lib/protocol/crypto/build/Release/sshcrypto.node`）同样是 try/catch，
+  失败就退回纯 JS。
+
+也就是说：**ssh2 本身就是纯 JS 可用的，脚本只是锦上添花。** 那就别让锦上添花跟着走。
+
+`scripts/vendor-ssh2.mjs` 做四件事：按钉死的 sha256 拉上游 tarball → 每份只留
+`LICENSE` + `lib/` → 删掉 `install.js`、`binding.gyp`、`lib/protocol/crypto/src/` →
+剥掉下游包里的 `scripts` 与 `optionalDependencies`，把依赖树打平进
+`lib/vendor/ssh2/node_modules/`。产出物随 npm 包一起解压，**安装仍然只是解包**，
+规则守住了，能力也回来了。
+
+门禁两道，都有牙：
+
+- `npm run check:vendor`（在 `npm run check` 里）离线重算 39 个文件的 sha256，
+  并拒绝任何 `scripts.install` / `optionalDependencies` / `*.node` / `binding.gyp`；
+  改一行 vendor 里的文件、或往里塞回一个安装脚本，当场红。
+- `scripts/check-tarball.mjs` 的必需条目里加了 `lib/vendor/ssh2/lib/index.js` 与
+  `VENDOR.json` —— 保证**发布件**真的带上了它，而不是只有源码树里有。
+
+优先级：本机自己装的 `ssh2` > 插件自带的（见 `lib/ssh2-resolve.js`）。代价是仓库 +
+800KB（npm 包约 +250KB），刷新版本要发一次版；换来的是任何宿主开箱就有 SSH。
+
 ### 方式 B：一键脚本（从源码装）
 
 ```bash
@@ -787,6 +819,28 @@ TCP/UDP，只放行 HTTP 客户端的代理设置对它无效（实测诊断里�
 另一个引擎（比如桌面 App，里面有历史会话），在它那边把 `desktopWebPort` 设成那个
 引擎的 Web 端口（`0` = 关闭这条前缀转发），之后 `<对端>:<port>/mesh/web/...` 会把
 请求转发过去 —— 认证在对端服务端完成，token 不会出现在地址栏里。
+
+**访问 Web 踩过的三个坑（2026-11-28 实测，均已修）**：
+
+1. **点下去先白等 6 秒**。`POST /mesh/api/web-panel` 过去把对端上报的端点**串行**探测，
+   每条不通的 tailnet 地址吃满 2s，实测 6117ms。改成并行 + 900ms 上限后同样操作 1032ms。
+2. **弹出来是白屏，一个 `/api` 都不发**。DSH Desktop 把界面挂在自定义 scheme `dsh-app://app`
+   上，于是 `http://127.0.0.1:<端口>` 的 iframe 是**第三方上下文**；门禁 cookie 是
+   `SameSite=Strict`（第三方不发）→ 子资源全 403，guest 的 JS 根本没跑起来。
+   改法：门禁 cookie 改 `SameSite=None; Secure`（回环是可信来源），并接受同源请求
+   Referer 里的 `?k=<nonce>` 作为兜底 —— 两条都不成立才 403。
+3. **「返回」点不动**：`hiddenInset` 壳的红黄绿交通灯画在网页之上，窗口的
+   `-webkit-app-region: drag` 拖拽带又按**几何**吞输入、无视 z-index。
+   改法：整个面板层 `no-drag` 打洞，顶栏 `padding-left: 88px` 让开交通灯，
+   另给右上角常驻 ✕ 与 Esc 两个出口。
+
+顺带两个：回环代理端口按机器名**固定**（origin 稳定，对端那些 `immutable` bundle
+第二次才能命中缓存，不用每次重下十几 MB）；`close()` 先断开 keep-alive 连接，
+否则 `/web-panel/close` 会挂着不返回。
+
+> `<webview>` 方案试过并**撤回**了：DSH Desktop 里 `customElements.get("webview")` 为真、
+> 元素能进 DOM 也有尺寸，但 `dom-ready` 永不触发、`getWebContentsId()` 抛错，CDP 里没有
+> guest target —— 用它只会得到一块白色遮罩。当前承载仍是 iframe（实测在独立渲染进程里）。
 
 **SSH 免密**：首次连接填用户名 + 密码；成功后本机会生成一把 RSA 密钥（`lib/ssh-host.js`
 用 PKCS#1 PEM —— ssh2 不认 Node 导出的 ed25519），把公钥幂等写进对端的

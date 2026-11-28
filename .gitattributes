@@ -1,0 +1,8 @@
+# lib/vendor/ssh2 里的文件按“不做换行转换”处理。
+#
+# 为什么必须这么写：`npm run check:vendor` 靠 sha256 逐个文件核对那份 vendor
+# （见 scripts/vendor-ssh2.mjs），而 Windows 的 Git 默认 core.autocrlf=true，
+# 检出时会把 LF 换成 CRLF —— 39 个文件的哈希当场全变，CI 的 windows job 红在
+# 「内容被改：LICENSE, lib/Channel.js, … 等 39 个」。这不是 vendor 坏了，
+# 是工作区被换行转换改过；`-text` 让这些文件原样落地。
+lib/vendor/ssh2/** -text
