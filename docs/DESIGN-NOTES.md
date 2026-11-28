@@ -820,6 +820,28 @@ TCP/UDP，只放行 HTTP 客户端的代理设置对它无效（实测诊断里�
 引擎的 Web 端口（`0` = 关闭这条前缀转发），之后 `<对端>:<port>/mesh/web/...` 会把
 请求转发过去 —— 认证在对端服务端完成，token 不会出现在地址栏里。
 
+**访问 Web 踩过的三个坑（2026-11-28 实测，均已修）**：
+
+1. **点下去先白等 6 秒**。`POST /mesh/api/web-panel` 过去把对端上报的端点**串行**探测，
+   每条不通的 tailnet 地址吃满 2s，实测 6117ms。改成并行 + 900ms 上限后同样操作 1032ms。
+2. **弹出来是白屏，一个 `/api` 都不发**。DSH Desktop 把界面挂在自定义 scheme `dsh-app://app`
+   上，于是 `http://127.0.0.1:<端口>` 的 iframe 是**第三方上下文**；门禁 cookie 是
+   `SameSite=Strict`（第三方不发）→ 子资源全 403，guest 的 JS 根本没跑起来。
+   改法：门禁 cookie 改 `SameSite=None; Secure`（回环是可信来源），并接受同源请求
+   Referer 里的 `?k=<nonce>` 作为兜底 —— 两条都不成立才 403。
+3. **「返回」点不动**：`hiddenInset` 壳的红黄绿交通灯画在网页之上，窗口的
+   `-webkit-app-region: drag` 拖拽带又按**几何**吞输入、无视 z-index。
+   改法：整个面板层 `no-drag` 打洞，顶栏 `padding-left: 88px` 让开交通灯，
+   另给右上角常驻 ✕ 与 Esc 两个出口。
+
+顺带两个：回环代理端口按机器名**固定**（origin 稳定，对端那些 `immutable` bundle
+第二次才能命中缓存，不用每次重下十几 MB）；`close()` 先断开 keep-alive 连接，
+否则 `/web-panel/close` 会挂着不返回。
+
+> `<webview>` 方案试过并**撤回**了：DSH Desktop 里 `customElements.get("webview")` 为真、
+> 元素能进 DOM 也有尺寸，但 `dom-ready` 永不触发、`getWebContentsId()` 抛错，CDP 里没有
+> guest target —— 用它只会得到一块白色遮罩。当前承载仍是 iframe（实测在独立渲染进程里）。
+
 **SSH 免密**：首次连接填用户名 + 密码；成功后本机会生成一把 RSA 密钥（`lib/ssh-host.js`
 用 PKCS#1 PEM —— ssh2 不认 Node 导出的 ed25519），把公钥幂等写进对端的
 `authorized_keys`，再用"只有私钥"的新连接自测一次；自测通过后界面标"免密"。
